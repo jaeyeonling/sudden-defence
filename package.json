@@ -1,0 +1,36 @@
+{
+  "name": "sudden-claude",
+  "version": "0.1.0",
+  "description": "Round-based team elimination FPS in the browser. Procedural everything, no art assets, no netcode.",
+  "type": "module",
+  "private": true,
+  "license": "ISC",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview --port 4173",
+    "shot": "node tools/capture.mjs",
+    "test": "node tools/reach.mjs && node tools/symmetry.mjs && node tools/converge.mjs && node tools/playtest.mjs && node tools/hitbox.mjs && node tools/vault.mjs && node tools/botfight.mjs && node tools/matchsim.mjs && node tools/hud.mjs && node tools/ballistics.mjs && npm run test:legibility && npm run test:legibility:clutter && npm run test:markings",
+    "test:reach": "node tools/reach.mjs",
+    "test:symmetry": "node tools/symmetry.mjs",
+    "test:converge": "node tools/converge.mjs",
+    "test:playtest": "node tools/playtest.mjs",
+    "test:hitbox": "node tools/hitbox.mjs",
+    "test:vault": "node tools/vault.mjs",
+    "test:botfight": "node tools/botfight.mjs",
+    "test:matchsim": "node tools/matchsim.mjs",
+    "test:hud": "node tools/hud.mjs",
+    "test:ballistics": "node tools/ballistics.mjs",
+    "test:legibility": "node tools/legibility.mjs",
+    "test:legibility:clutter": "node tools/legibility.mjs --against=clutter --d=12,18,24 --out=shots/legibility-clutter",
+    "test:markings": "node tools/markings.mjs"
+  },
+  "dependencies": {
+    "three": "^0.180.0"
+  },
+  "devDependencies": {
+    "playwright": "^1.61.1",
+    "pngjs": "^7.0.0",
+    "vite": "^7.3.6"
+  }
+}

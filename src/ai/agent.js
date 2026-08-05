@@ -95,6 +95,55 @@ const LOS_PER_TICK = 2;
 const ENGAGE_CLOSE = 4;
 const ENGAGE_FAR = 18;
 
+/**
+ * ═══════════════════════════════════════════════════════════════════════════
+ * How far BELOW the head a bot aims, in metres. This one number is the bot
+ * difficulty model, and it is a taste decision — change it here, nowhere else.
+ *
+ *  -0.05  the old value: the head plus five centimetres, biased toward the TOP
+ *         edge of a 0.115 m head capsule. Every clean hit is lethal.
+ *   0.28  neck and upper chest (shipped). A headshot is possible but is
+ *         produced by wobble, by the target moving and by burst climb rather
+ *         than by intent.
+ *   0.38  mid chest. Measured at 0 headshots in 29 hits — too far. A headshot
+ *         should be rare, not unreachable.
+ *   0.60  belly. Noticeably softer; bots need most of a burst.
+ *
+ * `lastKnown` holds the target's HEAD (perception stores `seen.head`, and
+ * `Combatant.head` is documented as the point bots shoot at), so this is a drop
+ * from the head, not a rise from the feet. The comment here used to claim it
+ * aimed at the chest while the code read `t.y + 0.05`.
+ *
+ * WHY IT MOVED, and how much of that is solid. Against a stationary player at
+ * the shipped tempo, with the old aim point: 237 rounds fired, 100 landed, and
+ * 84 of those 100 hit the HEAD. A head hit is 132 damage against 100 health
+ * (`tools/hitbox.mjs` asserts it), so five rounds in six that connected were an
+ * instant kill — a coin flip on who saw whom first rather than a difficulty
+ * setting. Player movement does not soften that: it lowers the hit rate, not
+ * the share of hits that land on the head, because the aim POINT is unmoved.
+ *
+ * At 0.28 the same measurement gives 1-3 % of damage on the head, and of actual
+ * killing blows 10 of 50 were headshots — one death in five, the rest to
+ * sustained torso fire.
+ *
+ * WHAT IS NOT SOLID, stated because the numbers above invite more precision
+ * than they carry: the rig used for them is unstable. Whether the bots find a
+ * stationary player at all varies enormously between runs — 63 rounds fired in
+ * one, 630 in the next, and two runs produced no engagement whatsoever. Counts
+ * of `damage:dealt` also over-report, because a penetrating round raises it more
+ * than once (749 "hits" from 342 shots in one run), which is why the killing-blow
+ * figure above is quoted from `combatant:death` instead. The 84 % -> 1-3 % shift
+ * is an order-of-magnitude result and survives all of that. The choice between
+ * 0.28 and 0.38 does not, and was made on feel.
+ *
+ * The rest of the difficulty model is elsewhere and was left alone: reaction
+ * time and the perception cone in `_sense`, the burst pattern and cooldowns
+ * below, and the wobble term applied right after this.
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+const AIM_DROP = 0.28;
+
+
 const HITBOXES = [
   ['head', 'Head', 'HeadTop', 0.098, 4.0],
   ['torso', 'Spine1', 'Neck', 0.185, 1.0],
@@ -1304,8 +1353,28 @@ export class Agent {
     // Both halves of the recovery: `_unstick` acts on the body (it side-steps),
     // `randomMainPoint` acts on the plan. Re-solving to the same destination is
     // what `_unstick`'s own doc comment records as a loop rather than a fix.
+    const grid = this.ai.grid;
+
+    // NO BODY TELEPORT HERE, and it was tried twice.
+    //
+    // A bot stranded on a crate cannot be re-planned off it: every route from a
+    // one-cell island fails at the first step, so the recovery below picks a new
+    // destination, fails, and picks another for as long as the round lasts.
+    // `tools/botfight.mjs` caught one at 20.9 s. The obvious answer was to pick
+    // the body up and put it back on the floor, and that answer is wrong.
+    //
+    // It took `tools/converge.mjs` from 10/10 to 3/10. `grid.nearest` resolves a
+    // bot standing in a doorway or a gap behind a crate to a pocket cell often
+    // enough to matter, so healthy bots were being lifted out of staged trials
+    // mid-run. Raising the bar to four consecutive failed recoveries did not fix
+    // it — the false positives are not rare, they are just quiet.
+    //
+    // The real fix was upstream and is in `_tryVault`: a landing outside the
+    // played region is no longer accepted, so a bot does not get onto the crate
+    // in the first place. Displacing a body is the most invasive thing this file
+    // could do, and it turned out not to be needed at all.
     this._unstick();
-    const spot = this.ai.grid?.randomMainPoint(this.rng, this._pendingDest);
+    const spot = grid?.randomMainPoint(this.rng, this._pendingDest);
     if (spot) this._goTo(spot);
   }
 
@@ -1531,6 +1600,30 @@ export class Agent {
     const lz = this.position.z + fwd.z * REACH;
     const y = this.ai.groundAt(lx, lz, this.position.y + 2.2);
     if (!Number.isFinite(y) || Math.abs(y - this.position.y) > 1.3) return;
+
+    // Land where the game is played, or do not land.
+    //
+    // This is a FAIRNESS rule before it is a stability one. The player's whole
+    // movement vocabulary is stand / crouch / jump — `player/mantle.js` was
+    // deleted on purpose — and the jump apex is 0.60 m against a step height of
+    // 0.42. A bot's chest probe reaches 1.25 m, so without this a bot can stand
+    // on a 1.2 m crate that the player cannot follow it onto, on a mirror-
+    // symmetric map whose symmetry `tools/symmetry.mjs` gates to 0 m. (The 2.6 m
+    // container roofs are out of reach for both; the "mantle-height roof" in
+    // `world/warehouse.js` is a phrase inherited from a game that had a mantle.)
+    //
+    // It is also what stops the stall this was found through. A crate top is its
+    // own connected region, so a bot that vaults onto one can path nowhere, and
+    // `_ensureGoal` then has to teleport it back down — measured at 20.9 s
+    // motionless before that existed. Better not to go up at all.
+    //
+    // The nav grid already answers exactly this question, so ask it rather than
+    // inventing a height rule that would have to be kept in step with the map.
+    const grid = this.ai.grid;
+    if (grid) {
+      const cell = grid.nearest(lx, lz, y);
+      if (cell < 0 || !grid.inMainComponent(cell)) return;
+    }
     this.vaultCooldown = 2.5;
     this.animator.vault(0.8);
     this.vaultFrom = (this.vaultFrom ?? new THREE.Vector3()).copy(this.position);
@@ -1546,24 +1639,9 @@ export class Agent {
     // where the gun is pointing: lead toward the target with human error
     const t = this.hasTarget || this.lastKnownAge < 3 ? this.lastKnown : null;
     if (t) {
-      // Aim at the HEAD, and say so.
-      //
-      // The comment here read "aim at the chest, not the feet", which was true
-      // when `lastKnown` held a target's ground position. It has held
-      // `seen.head` since perception was rewritten (see `_sense`), and
-      // `Combatant.head` is documented as the point bots shoot at — so this is
-      // the head plus five centimetres, not the chest, and it has been for as
-      // long as the flag that would have shown it was broken. `physics` only
-      // started reporting headshots correctly once corpse hits stopped
-      // overwriting the victim's last wound, so the rate this produces is newly
-      // measurable rather than newly true.
-      //
-      // The +0.05 is left alone deliberately: where a bot aims is the bot
-      // difficulty model, which is an authored decision rather than a bug to be
-      // quietly patched. Recorded so the next person changing it knows the
-      // offset is against a head hitbox of radius 0.115, i.e. it biases toward
-      // the top edge rather than the centre.
-      this._v.set(t.x, t.y + 0.05, t.z);
+      // Aim at the CHEST. `AIM_DROP` is the whole of the bot difficulty model
+      // that lives in this file — see its definition.
+      this._v.set(t.x, t.y - AIM_DROP, t.z);
       const dist = this.position.distanceTo(this._v);
       const wobbleT = this.ctx.time.elapsed * 1.7 + this.id;
       const wob = 0.012 + this.suppression * 0.05;

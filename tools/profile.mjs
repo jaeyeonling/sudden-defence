@@ -520,8 +520,30 @@ const result = await page.evaluate((FRAMES) => new Promise((done) => {
     // frames mid-match, and it is cheap to confirm or kill: if the count never
     // moves, the mechanism is not this, whatever else it is.
     const visLights = (r.lights ?? []).reduce((n, e) => n + (e.light?.visible ? 1 : 0), 0);
+    // MACHINE CONTENTION PROBE — is this number about the build or the box?
+    //
+    // A fixed amount of arithmetic, timed. It has nothing to do with the game,
+    // which is the point: whatever it costs is what the CPU had left to give.
+    // Sampled alongside the frames rather than once at the start, because a run
+    // that begins on a quiet machine and ends on a busy one is exactly the case
+    // that produces a confident wrong answer.
+    //
+    // No external baseline, deliberately. "How fast should this machine be" is
+    // not knowable from inside a run, and a number checked into the repository
+    // would bake in whatever this laptop was doing the day it was written. The
+    // SPREAD needs no baseline: a saturated core shows up as scheduler jitter,
+    // so min and max of the same work diverge.
+    let spin = 0;
+    if (i % 40 === 0) {
+      const t0 = performance.now();
+      let acc = 0;
+      for (let k = 0; k < 4000000; k++) acc += k % 7;
+      spin = performance.now() - t0;
+      if (acc === -1) window.__NEVER__ = acc;   // keep the loop from folding away
+    }
+
     samples.push({
-      i, dt, visLights,
+      i, dt, visLights, spin,
       progs: r.renderer.info.programs?.length ?? 0,
       calls: r.renderer.info.render.calls,
       tris: r.renderer.info.render.triangles,
@@ -634,6 +656,29 @@ const hitches = warm
   });
 
 const first = warm[0], lastS = warm[warm.length - 1];
+/**
+ * What the contention probe saw. `spread` is max/min of the same fixed work.
+ *
+ * 1.0 is a machine that gave every sample the same CPU. Anything far above it
+ * means the numbers beside it are partly a measurement of something else.
+ */
+const spins = samplesArr.map((s) => s.spin).filter((v) => v > 0).sort((a, b) => a - b);
+const machine = spins.length >= 3
+  ? {
+    samples: spins.length,
+    minMs: +spins[0].toFixed(2),
+    medMs: +spins[spins.length >> 1].toFixed(2),
+    p90Ms: +spins[Math.min(spins.length - 1, Math.floor(spins.length * 0.9))].toFixed(2),
+    maxMs: +spins[spins.length - 1].toFixed(2),
+    // p90 over median, not max over min. The extremes are one sample each, and
+    // one sample is exactly what a single GC pause or a JIT tier-up looks like;
+    // measured on a healthy run, max/min read 11x while the work itself was
+    // stable. A ratio of two order statistics does not move for one outlier.
+    spread: +(spins[Math.min(spins.length - 1, Math.floor(spins.length * 0.9))]
+      / Math.max(spins[spins.length >> 1], 1e-6)).toFixed(2),
+  }
+  : null;
+
 const fpsOut = {
   p50: +(1000 / med).toFixed(0),
   p95: +(1000 / q(0.95)).toFixed(0),
@@ -668,6 +713,8 @@ console.log(JSON.stringify({
   hitchPctOfFrames: +((hitches.length / warm.length) * 100).toFixed(2),
   worstHitches: hitches.sort((a, b) => b.ms - a.ms).slice(0, 15),
   programs: programsOut,
+  /** CPU contention probe — see the note where `spin` is sampled. */
+  machine,
   resources: { geosStart: first.geos, geosEnd: lastS.geos, texStart: first.texs, texEnd: lastS.texs },
   heapMb: { start: first.heap, end: lastS.heap, growth: lastS.heap - first.heap },
   drawCalls: { min: Math.min(...warm.map(s=>s.calls)), max: Math.max(...warm.map(s=>s.calls)) },
@@ -728,11 +775,45 @@ if (args.gate) {
     bad.push(`${compiled} shader programs compiled during play > ${LATE_PROGRAM_CEIL}`);
   }
   if (errs.length) bad.push(`page errors: ${errs.slice(0, 2).join(' | ')}`);
+
+  /**
+   * THE CPU PROBE IS REPORTED, NOT GATED — and the reason is a failed experiment
+   * worth keeping so it is not repeated.
+   *
+   * The problem is real: this gate spent a day catching a security agent rather
+   * than a regression. The same commit measured p50 57 fps and p50 13 fps within
+   * an hour while `astxd` held a core at 95 %, and `converge` in the same suite
+   * run reported 80 fps against its usual 120. A frame-time gate that cannot
+   * tell a slow build from a busy box teaches everyone to ignore it.
+   *
+   * The attempted fix was to downgrade a failure to UNRESOLVED when the machine
+   * was visibly contended, deciding that from the SPREAD of the probe so that no
+   * baseline was needed. The reasoning was that a saturated core shows up as
+   * scheduler jitter. Measured under a deliberate four-way CPU load, it does
+   * not: p50 fell 57 -> 44 fps and the probe's median rose 2.0 -> 2.5 ms, while
+   * the spread did not move at all (1.85 -> 1.84). Time-slicing is fair, so
+   * contention arrives as a uniform tax, not as variance.
+   *
+   * So the only signal here is the MEDIAN, and reading an absolute millisecond
+   * figure requires a baseline for the machine — which is exactly what this tool
+   * cannot have and what a constant checked into the repository would only
+   * pretend to be.
+   *
+   * A downgrade rule built on the wrong statistic is worse than none: it would
+   * mask real regressions on quiet machines while still failing on busy ones.
+   * The probe stays because a human reading the line can see 2.0 ms and 8.0 ms
+   * as different, and that is worth having even when a machine cannot act on it.
+   */
+  const note = machine
+    ? `cpu probe med ${machine.medMs} ms, p90 ${machine.p90Ms} ms, spread ${machine.spread}x`
+    : 'cpu probe unavailable';
+
   console.log(
     bad.length === 0
       ? `\nPROFILE OK — p50 ${p50} fps, p99 ${fpsOut.p99} · worst frame ${worstStall} ms · `
-        + `${compiled} late shader program(s) · ${internal.megapixels} MP at dpr ${DPR}`
-      : `\nPROFILE FAILED (${bad.length}):\n  ${bad.join('\n  ')}`
+        + `${compiled} late shader program(s) · ${internal.megapixels} MP at dpr ${DPR} · ${note}`
+      : `\nPROFILE FAILED (${bad.length}):\n  ${bad.join('\n  ')}\n  (${note} — `
+        + `if that median is far above its usual 2 ms, suspect the box before the build)`
   );
   process.exit(bad.length === 0 ? 0 : 1);
 }

@@ -50,6 +50,10 @@ import { GroundShadows } from './grounding.js';
 /** Shared empty result for enemiesOf() before `match` exists. Never mutated. */
 const EMPTY = Object.freeze([]);
 
+/** Simulation tick for every bot, in Hz. See `AiSystem.fixedUpdate`. */
+const AI_HZ = 60;
+const AI_DT = 1 / AI_HZ;
+
 export class AiSystem {
   static id = 'ai';
   static deps = ['physics', 'world', 'match'];
@@ -112,6 +116,7 @@ export class AiSystem {
 
     /* ---- frame budgets and LOD state (see _updateRelevance / requestPath) ---- */
     this._pathBudget = 0;
+    this._aiAccum = 0;
     /**
      * A* solves allowed per frame.
      *
@@ -795,18 +800,39 @@ export class AiSystem {
   /* frame                                                              */
   /* ================================================================== */
 
-  update(dt, ctx) {
-    if (this._navPending) {
-      this._buildNav();
-      // Populate the level for normal play. Capture runs stay empty unless a
-      // shot asks for a tableau, so nobody's screenshot gets a stray patrol
-      // wandering through it.
-      if (!this._navPending && (!ctx.config.deterministic || this.forcePopulate)) this.populate();
-    }
+  /**
+   * SIMULATION TICK — fixed rate, independent of the frame rate.
+   *
+   * The bots used to think on the render frame, which the engine's own comment
+   * described as where "AI decisions" belong. For a single-player client that is
+   * merely untidy; it stops being untidy the moment anything cares that two
+   * machines agree. A bot's reaction time, its burst cadence and how far it
+   * walks between decisions were all scaled by however long the last frame took,
+   * so the same build produced a different fight at 13 fps than at 57 — and this
+   * machine produced both today.
+   *
+   * It also made the harnesses noisy in a way that cost real time to chase:
+   * `botfight` runs differed by an order of magnitude in rounds fired, and round
+   * length varied 42 s to 94 s on identical code.
+   *
+   * `AI_HZ` rather than the physics rate: 120 Hz thinking would roughly double
+   * the cost of the most expensive subsystem here to no benefit, since nothing
+   * in the state machine resolves faster than a perception tick. The accumulator
+   * makes the rate a property of `ai`, not of whatever `FIXED_DT` happens to be.
+   *
+   * One step per fixed frame at most. Letting it catch up in a loop would turn a
+   * hitch into a burst of AI work, which is how a hitch becomes a stall.
+   */
+  fixedUpdate(h, ctx) {
+    if (this._navPending || !this.match) return;
+    this._aiAccum += h;
+    if (this._aiAccum < AI_DT) return;
+    this._aiAccum = Math.min(this._aiAccum - AI_DT, AI_DT);
+    const dt = AI_DT;
 
-    // Per-frame A* budget: see requestPath().
+    // A* budget is per SIMULATION tick now, not per rendered frame — otherwise
+    // the ration a bot gets depends on how fast the machine draws.
     this._pathBudget = this.pathsPerFrame;
-    this._updateRelevance(ctx);
 
     for (const s of this.squads) s.update(dt);
 
@@ -820,7 +846,7 @@ export class AiSystem {
       const a = this.agents[i];
       if (a.alive) {
         a.frozen = frozen;
-        a.update(dt, ctx);
+        a.simulate(dt, ctx);
         alive++;
       } else if (a.deadTime !== undefined) {
         a.deadTime += dt;
@@ -841,6 +867,25 @@ export class AiSystem {
     // Grid-snap recoveries since boot — see `_unstick` in agent.js. Visible to
     // a player when it fires, so it is worth being able to see the count.
     this.stats.snapUnsticks = this.snapUnsticks ?? 0;
+  }
+
+  /**
+   * PRESENTATION — once per rendered frame.
+   *
+   * Relevance is decided here and not on the simulation tick because it is a
+   * question about the CAMERA (see `_updateRelevance`), and the camera only has
+   * a final transform once per frame. Skinning follows it for the same reason.
+   */
+  update(dt, ctx) {
+    if (this._navPending) {
+      this._buildNav();
+      // Populate the level for normal play. Capture runs stay empty unless a
+      // shot asks for a tableau, so nobody's screenshot gets a stray patrol
+      // wandering through it.
+      if (!this._navPending && (!ctx.config.deterministic || this.forcePopulate)) this.populate();
+    }
+    this._updateRelevance(ctx);
+    for (let i = 0; i < this.agents.length; i++) this.agents[i].present(dt);
   }
 
   lateUpdate() {

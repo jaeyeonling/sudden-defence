@@ -436,7 +436,18 @@ export class Agent {
     return this._eye.set(this.position.x, this.position.y + this.eyeHeight, this.position.z);
   }
 
-  update(dt, ctx) {
+  /**
+   * SIMULATION. Runs on `ai`'s fixed tick, never on the render frame.
+   *
+   * Everything here decides what the bot IS: timers, perception, the state
+   * machine, movement, fire control. It sees a fixed `dt` whatever the frame
+   * rate is doing, which is the difference between a bot that plays the same on
+   * a fast machine and a slow one — and the precondition for a server ever
+   * running this loop authoritatively.
+   *
+   * Presentation lives in `present()`.
+   */
+  simulate(dt, ctx) {
     if (!this.alive) return;
     this.stateTime += dt;
     this.suppression = Math.max(0, this.suppression - dt * 0.55);
@@ -523,6 +534,21 @@ export class Agent {
       this._move(dt);
       this._shoot(dt);
     }
+    // Root motion is simulation: a vault MOVES the body, and driving it from the
+    // render frame would make how far a bot travels depend on frame rate. The
+    // rest of `_drive` — the group transform, the clip choice, the animator — is
+    // presentation and stays there.
+    this._driveVault(dt);
+  }
+
+  /**
+   * PRESENTATION. Runs once per rendered frame, on the render `dt`.
+   *
+   * Nothing here may change simulation state. It reads what `simulate()` decided
+   * and turns it into a pose.
+   */
+  present(dt) {
+    if (!this.alive) return;
     this._drive(dt);
   }
 
@@ -1858,8 +1884,8 @@ export class Agent {
   /* drive the visual                                                   */
   /* ================================================================== */
 
-  _drive(dt) {
-    // root motion for a vault
+  /** Root motion for a vault. Simulation — see the call site in `simulate`. */
+  _driveVault(dt) {
     // Guard on the values this actually reads, both of them.
     if (this.vaultT !== undefined && this.animator.vaulting && this.vaultFrom && this.vaultTo) {
       this.vaultT += dt / 0.8;
@@ -1868,7 +1894,9 @@ export class Agent {
       this.position.y += Math.sin(t * Math.PI) * 0.42;
       this.controller?.teleport(this.position.x, this.position.y, this.position.z);
     }
+  }
 
+  _drive(dt) {
     this.group.position.copy(this.position);
     this.group.rotation.y = this.yaw;
     this.group.updateMatrixWorld(true);

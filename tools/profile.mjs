@@ -367,7 +367,23 @@ const result = await page.evaluate((FRAMES) => new Promise((done) => {
   const walk = (root, out) => root?.traverse?.((o) => {
     if (!o.geometry) return;
     const key = `${o.name || o.type}#${o.geometry.attributes?.position?.count ?? 0}`;
-    if (!seenObj.has(key)) { seenObj.add(key); out.push(key); }
+    if (seenObj.has(key)) return;
+    seenObj.add(key);
+    // `Mesh#240` names nothing you can go and pre-warm, and this row exists to
+    // be acted on: when it lands on the same frame as a program compile, the
+    // question is always "which material, owned by which subsystem". So carry
+    // the material and the ancestry out with it. Both are read defensively —
+    // this walks live scene graphs mid-run, and a profiler that throws inside
+    // its own instrumentation reports nothing at all.
+    const mat = Array.isArray(o.material) ? o.material[0] : o.material;
+    const chain = [];
+    for (let p = o.parent; p && chain.length < 4; p = p.parent) chain.push(p.name || p.type);
+    out.push({
+      key,
+      mat: mat ? `${mat.type}${mat.name ? `:${mat.name}` : ''}` : null,
+      visible: !!o.visible,
+      parents: chain,
+    });
   });
   const appeared = [];
 
@@ -471,7 +487,7 @@ const result = await page.evaluate((FRAMES) => new Promise((done) => {
       prevVis = now;
     }
     { const fresh = []; walk(e.viewScene, fresh); walk(e.scene, fresh);
-      for (const k of fresh) appeared.push({ frame: i, what: k }); }
+      for (const k of fresh) appeared.push({ frame: i, ...k }); }
 
     // WHICH program, not just how many.
     //
@@ -618,6 +634,17 @@ const hitches = warm
   });
 
 const first = warm[0], lastS = warm[warm.length - 1];
+const fpsOut = {
+  p50: +(1000 / med).toFixed(0),
+  p95: +(1000 / q(0.95)).toFixed(0),
+  p99: +(1000 / q(0.99)).toFixed(0),
+};
+const programsOut = {
+  start: first.progs,
+  end: lastS.progs,
+  compiledDuringPlay: lastS.progs - first.progs,
+};
+
 console.log(JSON.stringify({
   bootMs,
   bootMarks,
@@ -636,11 +663,11 @@ console.log(JSON.stringify({
     return { histogram: [...seen.entries()].sort((a, b) => a[0] - b[0]), changes: changes.slice(0, 20) };
   })(),
   frameTimeMs: { p1: q(0.01), p50: med, p90: q(0.9), p95: q(0.95), p99: q(0.99), max: q(1) },
-  fps: { p50: +(1000 / med).toFixed(0), p95: +(1000 / q(0.95)).toFixed(0), p99: +(1000 / q(0.99)).toFixed(0) },
+  fps: fpsOut,
   hitchCount: hitches.length,
   hitchPctOfFrames: +((hitches.length / warm.length) * 100).toFixed(2),
   worstHitches: hitches.sort((a, b) => b.ms - a.ms).slice(0, 15),
-  programs: { start: first.progs, end: lastS.progs, compiledDuringPlay: lastS.progs - first.progs },
+  programs: programsOut,
   resources: { geosStart: first.geos, geosEnd: lastS.geos, texStart: first.texs, texEnd: lastS.texs },
   heapMb: { start: first.heap, end: lastS.heap, growth: lastS.heap - first.heap },
   drawCalls: { min: Math.min(...warm.map(s=>s.calls)), max: Math.max(...warm.map(s=>s.calls)) },
@@ -661,3 +688,51 @@ await browser.close();
 // Only ours. A preview server that was already up on this port belongs to
 // whoever started it, and killing it would be a surprise to them.
 if (server) { try { process.kill(-server.pid); } catch { /* already gone */ } }
+
+/* ------------------------------------------------------------------ gate */
+
+/**
+ * `--gate`: turn the profile into a pass/fail the suite can run.
+ *
+ * WHY THE THRESHOLDS ARE WHERE THEY ARE, and what is deliberately NOT gated:
+ *
+ * `p50` is a floor with a lot of room under it, not a target. This machine's
+ * frame time drifts with its own temperature — the same bundle has measured
+ * 27.3 ms early in a session and 31.4 ms an hour later, which is why
+ * `tools/abperf.mjs` exists — so a tight median gate would fail on the fan
+ * rather than on the code. 35 fps sits well below the 49-56 measured across a
+ * dozen runs and still catches a change that halves the frame rate.
+ *
+ * `stall` is the number that actually describes how the game FEELS. A 150 ms
+ * frame is a visible lurch, and no amount of good median hides one.
+ *
+ * `compiledDuringPlay` is reported and bounded at 1 rather than required to be
+ * 0, and that is an honest description of an unfinished job. Warming the
+ * grenade in the live scene (see `ai.prewarmMaterials`) took the stall rate from
+ * roughly two runs in three to one in three; the residual is a program this
+ * profile has not been able to attribute — forcing a throw and forcing a death
+ * both compile nothing, so whatever it is needs a real firefight to appear. The
+ * bound stops it growing while it is unsolved; it does not pretend it is fixed.
+ */
+if (args.gate) {
+  const P50_FPS_FLOOR = 35;
+  const STALL_CEIL_MS = 250;
+  const LATE_PROGRAM_CEIL = 1;
+  const bad = [];
+  const p50 = fpsOut.p50;
+  const worstStall = stalls.length ? Math.max(...stalls.map((s) => s.ms)) : 0;
+  const compiled = programsOut.compiledDuringPlay;
+  if (p50 < P50_FPS_FLOOR) bad.push(`p50 ${p50} fps < ${P50_FPS_FLOOR}`);
+  if (worstStall > STALL_CEIL_MS) bad.push(`worst frame ${worstStall} ms > ${STALL_CEIL_MS}`);
+  if (compiled > LATE_PROGRAM_CEIL) {
+    bad.push(`${compiled} shader programs compiled during play > ${LATE_PROGRAM_CEIL}`);
+  }
+  if (errs.length) bad.push(`page errors: ${errs.slice(0, 2).join(' | ')}`);
+  console.log(
+    bad.length === 0
+      ? `\nPROFILE OK — p50 ${p50} fps, p99 ${fpsOut.p99} · worst frame ${worstStall} ms · `
+        + `${compiled} late shader program(s) · ${internal.megapixels} MP at dpr ${DPR}`
+      : `\nPROFILE FAILED (${bad.length}):\n  ${bad.join('\n  ')}`
+  );
+  process.exit(bad.length === 0 ? 0 : 1);
+}

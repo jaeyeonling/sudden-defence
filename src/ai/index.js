@@ -259,12 +259,35 @@ export class AiSystem {
         mesh.material = depth;
         await compile(this.ctx.scene);
       }
-      // the grenade is a plain (unskinned) mesh, so it needs its own object
+      // The grenade is a plain (unskinned) mesh, so it needs its own object —
+      // and it has to be warmed IN THE SCENE IT WILL BE DRAWN IN.
+      //
+      // This used to add it to the scratch scene above and compile that, passing
+      // the real scene only as the environment argument. It was not enough. A
+      // thrown grenade is parented to `this.root` in the live scene, and the
+      // permutation three derives there is not the one the scratch scene
+      // produced, so the first throw of the match still compiled a program on
+      // the frame it happened. Measured on the production build: a 150-190 ms
+      // stall inside `render.render`, `compiledDuringPlay: 1`, and `Mesh#240`
+      // appearing the frame before — an `IcosahedronGeometry(0.045, 1)` has
+      // exactly 240 vertices, which is what named it.
+      //
+      // Intermittent, because it needs a bot to actually throw one inside the
+      // profiling window: it reproduced on two runs in three. That is also why
+      // `?warmhidden=1` looked like a fix and was not — it "removed" the stall on
+      // one run out of two by luck.
+      //
+      // Adding and removing an object around a compile draws nothing, so the
+      // pixel gate is unaffected.
       scene.remove(mesh);
       const g = new THREE.Mesh(this._grenadeGeo, this._grenadeMat);
-      scene.add(g);
-      await compile(this.ctx.scene);
-      scene.remove(g);
+      this.root.add(g);
+      try {
+        await renderer.compileAsync(this.ctx.scene, this.ctx.camera);
+      } catch {
+        try { renderer.compile(this.ctx.scene, this.ctx.camera); } catch { /* driver */ }
+      }
+      this.root.remove(g);
 
       geo.dispose();
       skeleton.dispose?.();

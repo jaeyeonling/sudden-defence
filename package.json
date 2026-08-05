@@ -10,7 +10,7 @@
     "build": "vite build",
     "preview": "vite preview --port 4173",
     "shot": "node tools/capture.mjs",
-    "test": "node tools/reach.mjs && node tools/symmetry.mjs && node tools/converge.mjs && node tools/playtest.mjs && node tools/hitbox.mjs && node tools/vault.mjs && node tools/botfight.mjs && node tools/matchsim.mjs && node tools/hud.mjs && node tools/ballistics.mjs && npm run test:legibility && npm run test:legibility:clutter && npm run test:markings",
+    "test": "node tools/reach.mjs && node tools/symmetry.mjs && node tools/converge.mjs && node tools/playtest.mjs && node tools/hitbox.mjs && node tools/vault.mjs && node tools/botfight.mjs && node tools/matchsim.mjs && node tools/hud.mjs && node tools/ballistics.mjs && npm run test:legibility && npm run test:legibility:clutter && npm run test:markings && npm run test:profile && npm run test:determinism",
     "test:reach": "node tools/reach.mjs",
     "test:symmetry": "node tools/symmetry.mjs",
     "test:converge": "node tools/converge.mjs",
@@ -23,7 +23,9 @@
     "test:ballistics": "node tools/ballistics.mjs",
     "test:legibility": "node tools/legibility.mjs",
     "test:legibility:clutter": "node tools/legibility.mjs --against=clutter --d=12,18,24 --out=shots/legibility-clutter",
-    "test:markings": "node tools/markings.mjs"
+    "test:markings": "node tools/markings.mjs",
+    "test:profile": "npm run build && node tools/profile.mjs --gate",
+    "test:determinism": "npm run build && node tools/determinism.mjs"
   },
   "dependencies": {
     "three": "^0.180.0"

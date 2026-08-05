@@ -326,6 +326,12 @@ export class Agent {
     this.patrolIndex = 0;
     /** consecutive patrol waypoints this bot could not route to; see STATE.PATROL */
     this.patrolFails = 0;
+    /** seconds spent wanting to move with nowhere to go; see _ensureGoal */
+    this.noGoalTime = 0;
+    /** seconds spent wanting to move without covering ground; see _ensureGoal */
+    this.noMoveTime = 0;
+    /** where the last real displacement was measured from */
+    this._progressFrom = new THREE.Vector3();
     /** re-aim interval for the quiet-round hunt in PATROL (see that state) */
     this.huntTimer = 0;
     /** PATROL is converging on an enemy rather than walking its route. Drives
@@ -464,6 +470,7 @@ export class Agent {
       this._hold();
     } else {
       this._think(dt);
+      this._ensureGoal(dt);
       this._move(dt);
       this._shoot(dt);
     }
@@ -1227,6 +1234,81 @@ export class Agent {
     return true;
   }
 
+  /**
+   * Liveness: wanting to move is not the same as having somewhere to go.
+   *
+   * Every state sets `desiredSpeed` from what it intends, and `_move` turns that
+   * into velocity only when there is a waypoint. When a state sets a speed and
+   * fails to produce a destination, the two disagree and NOTHING NOTICES: the
+   * bot stands at `speed` 0, and the unstick machinery in `_move` cannot help
+   * because it only arms on `lastMoveBlocked && speed > 0.5` — a bot that never
+   * starts moving is never blocked.
+   *
+   * Measured with `tools/botfight.mjs`, which now records the state at the worst
+   * moment rather than only its length. Every long stall had the same signature
+   * and none of the short ones did:
+   *
+   *   11.2 s patrol   speed 0     desired 3.2  moveTarget false  stuckCount 0
+   *   11.9 s patrol   speed 0.36  desired 3.2  moveTarget true   stuckCount 0
+   *   57.6 s combat   speed 0     desired 3.2  moveTarget false  stuckCount 0
+   *    1.5 s combat   speed 4.3   desired 4.3  blocked true      stuckCount 2
+   *
+   * The last row is the unstick path working as intended on a bot genuinely
+   * shoving at geometry. The first three never reach it.
+   *
+   * A guard here rather than a repair in each state, because the states that can
+   * produce it are not a closed set — PATROL with an unroutable circuit was one,
+   * ALERT solving to a stale last-known position is another, and the next one
+   * will be written by somebody who never reads this file. The contradiction is
+   * what is checkable, and it is checkable in one place.
+   *
+   * It cannot fire on a deliberate hold: holding an angle (see the mutual-pursuit
+   * rule in PATROL) and shooting from cover both set `desiredSpeed = 0`, so they
+   * never enter the count.
+   */
+  _ensureGoal(dt) {
+    if (this.desiredSpeed <= 0.1) {
+      this.noGoalTime = 0;
+      this.noMoveTime = 0;
+      this._progressFrom.copy(this.position);
+      return;
+    }
+
+    // (1) Wants a speed and has nowhere to go.
+    if (!this.hasMoveTarget && !this.pathPending) this.noGoalTime += dt;
+    else this.noGoalTime = 0;
+
+    // (2) Wants a speed, HAS somewhere to go, and is not getting anywhere.
+    //
+    // Checked on displacement rather than on any of the flags, because the flags
+    // are what keep being wrong. A first version of this rescued only case (1)
+    // and the gate still caught a 13.6 s stall; the obvious next suspect was A*
+    // budget starvation, since `pathPending` skips the check — measured, and it
+    // was not that either (`pathsDeferred` is 2 per run against a budget of 8 a
+    // frame). Rather than keep guessing at mechanisms, this asserts the outcome:
+    // a bot that asked to move and has not moved is broken, whatever the reason,
+    // and the recovery is the same in every case.
+    if (this.position.distanceTo(this._progressFrom) > 0.35) {
+      this._progressFrom.copy(this.position);
+      this.noMoveTime = 0;
+    } else this.noMoveTime += dt;
+
+    // 1.5 s for a missing goal — a frame or two between "I want to move" and
+    // "here is the path" is normal. 3 s for no progress, which is generous: a
+    // squadmate stepping across a doorway costs a fraction of a second, and the
+    // local avoidance in `_move` resolves head-on pairs deterministically.
+    if (this.noGoalTime < 1.5 && this.noMoveTime < 3) return;
+    this.noGoalTime = 0;
+    this.noMoveTime = 0;
+    this._progressFrom.copy(this.position);
+    // Both halves of the recovery: `_unstick` acts on the body (it side-steps),
+    // `randomMainPoint` acts on the plan. Re-solving to the same destination is
+    // what `_unstick`'s own doc comment records as a loop rather than a fix.
+    this._unstick();
+    const spot = this.ai.grid?.randomMainPoint(this.rng, this._pendingDest);
+    if (spot) this._goTo(spot);
+  }
+
   _move(dt) {
     const wp = this.hasMoveTarget && this.pathIndex < this.pathLen ? this.path[this.pathIndex] : null;
     this._steer.set(0, 0, 0);
@@ -1899,6 +1981,9 @@ export class Agent {
       this.patrolIndex = 0;
     }
     this.patrolFails = 0;
+    this.noGoalTime = 0;
+    this.noMoveTime = 0;
+    this._progressFrom.copy(position);
     this.huntTimer = 0;
     this.hunting = false;
     // Agents are pooled across rounds, so anything that accumulates has to be

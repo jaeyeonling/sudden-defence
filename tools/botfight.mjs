@@ -207,10 +207,30 @@ const out = await page.evaluate(
           if (!pv) continue;
           const wants = (ag.desiredSpeed ?? 0) > 0.1;
           const moved = Math.hypot(ag.position.x - pv.x, ag.position.z - pv.z);
-          const rec = stalls.get(ag.id) ?? { cur: 0, worst: 0, state: null };
+          const rec = stalls.get(ag.id) ?? { cur: 0, worst: 0, state: null, at: null };
           if (wants && moved < 0.004) {
             rec.cur += e.time.elapsed - pv.t;
-            if (rec.cur > rec.worst) { rec.worst = rec.cur; rec.state = ag.state; }
+            if (rec.cur > rec.worst) {
+              rec.worst = rec.cur;
+              rec.state = ag.state;
+              // The state AT the worst moment, not just its length. "8 s in
+              // combat" says a bot was stuck and nothing about why; the unstick
+              // path only arms on `lastMoveBlocked && speed > 0.5`, so whether
+              // those two were true is the whole diagnosis, and it is only
+              // observable while it is happening.
+              rec.at = {
+                pos: [+ag.position.x.toFixed(2), +ag.position.z.toFixed(2)],
+                speed: +(ag.speed ?? 0).toFixed(2),
+                desired: +(ag.desiredSpeed ?? 0).toFixed(2),
+                blocked: !!ag.controller?.lastMoveBlocked,
+                grounded: !!ag.grounded,
+                stuckTimer: +(ag.stuckTimer ?? 0).toFixed(2),
+                stuckCount: ag.stuckCount ?? 0,
+                path: `${ag.pathIndex ?? -1}/${ag.pathLen ?? -1}`,
+                moveTarget: !!ag.hasMoveTarget,
+                pending: !!ag.pathPending,
+              };
+            }
           } else rec.cur = 0;
           stalls.set(ag.id, rec);
         }
@@ -229,7 +249,12 @@ const out = await page.evaluate(
           }
           done({
             roster,
-            stalls: [...stalls].map(([id, r]) => ({ id, worst: +r.worst.toFixed(1), state: r.state }))
+            // A* rationing, reported rather than assumed. `_ensureGoal` skips a
+            // bot whose path is still queued, so a starved budget and a genuine
+            // stall look identical from the outside.
+            pathsDeferred: ai.stats?.pathsDeferred ?? null,
+            pathsPerFrame: ai.pathsPerFrame,
+            stalls: [...stalls].map(([id, r]) => ({ id, worst: +r.worst.toFixed(1), state: r.state, at: r.at }))
               .sort((p, q) => q.worst - p.worst),
             elapsed: +elapsed.toFixed(1),
             ranOut: !over,
@@ -465,26 +490,36 @@ if (out.ranOut) {
 /**
  * A bot may stand still. It may not stand still while trying to walk.
  *
- * 8 s is far outside anything the movement code produces legitimately — a bot
- * squeezing past a crate loses a fraction of a second, and a bot holding cover
- * reports `desiredSpeed` 0 and never enters this count at all. The faults this
- * bounds were 12 s, 16 s and 111 s, all of them "the destination cannot be
- * routed to, and nothing notices".
+ * A bot holding cover reports `desiredSpeed` 0 and never enters this count at
+ * all, which is what makes the count meaningful: everything in it is a bot whose
+ * own state machine asked for a speed it did not get.
+ *
+ * 6 s, down from the 8 this shipped with, and the reason is worth keeping. 8 was
+ * set while the worst case was a bot with a speed and no waypoint. The spread it
+ * was covering for was wide — six runs gave 1.5, 2.0, 1.2, 11.2, 11.9 and 57.6 s
+ * — and the long ones all shared a signature the short ones did not:
+ * `moveTarget` false, `speed` 0, `stuckCount` 0. Not blocked. Never started, and
+ * therefore invisible to an unstick path that arms on
+ * `lastMoveBlocked && speed > 0.5`. `Agent._ensureGoal` rescues that case now.
+ *
+ * After the fix, six runs: 1.2, 1.2, 1.6, 1.6, 2.9, 3.5 s — every one a bot with
+ * a route, genuinely shoving at geometry, unstick counter ticking. 6 is a little
+ * under twice the top of that.
+ *
+ * The `at` snapshot recorded above is what separated the two readings. "8 s in
+ * combat" is a duration; it took the state at the worst moment to show that two
+ * completely different faults were being averaged into one number.
  */
-// Measured after the nav fixes, five runs: worst blocked-move 1.2, 1.2, 2.4,
-// 2.5, 2.9 s. 8 is roughly three times the top of that spread.
-//
-// NOT calibrated to pass. A sixth run produced 8.1 s in COMBAT, so this gate is
-// expected to fire occasionally on a residual blockage that has not been
-// attributed yet — a bot with a route it cannot walk, rather than a route it
-// cannot find. Widening the ceiling past it would be calibrating to the defect;
-// the figure is printed on every OK line so the drift is visible either way.
-const STALL_CEIL = 8;
+const STALL_CEIL = 6;
 const stalled = (out.stalls ?? []).filter((s) => s.worst > STALL_CEIL);
 if (stalled.length) {
   fail.push(
     `${stalled.length} bot(s) tried to move and did not: ` +
-    stalled.slice(0, 4).map((s) => `#${s.id} ${s.worst}s in ${s.state}`).join(', ') +
+    // With the snapshot, not just the duration. The two faults this gate has
+    // caught so far were indistinguishable by length and obvious by state.
+    stalled.slice(0, 4)
+      .map((s) => `#${s.id} ${s.worst}s in ${s.state} ${JSON.stringify(s.at ?? {})}`)
+      .join(', ') +
     ` (ceiling ${STALL_CEIL}s)`
   );
 }

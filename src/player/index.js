@@ -261,6 +261,12 @@ export class PlayerSystem {
 
     m.yawRate = dt > 1e-5 ? dYaw / dt : 0;
     this._prevYaw = m.yaw;
+
+    // Stamp the aim onto the command being simulated. Nothing local reads it —
+    // movement uses `m.yaw` directly — but a command without the angles it was
+    // issued under cannot be replayed by anyone, which is the point of numbering
+    // them. Push, never pull: `core` may not name `player` (rule 3).
+    this.ctx.commands?.setView(m.yaw, m.pitch);
   }
 
   /* ==================================================================== */
@@ -272,11 +278,11 @@ export class PlayerSystem {
     this._consumeLook(ctx.time.dt > 1e-5 ? ctx.time.dt : h);
     // Freeze time and death both take movement away without taking the camera
     // away — you can still look, which is the difference between "held" and
-    // "disconnected". `Movement.latchInput` zeroes every command when its own
+    // "disconnected". `Movement.applyCommand` zeroes every field when its own
     // controlEnabled is false, so `step` still runs: gravity, friction and the
     // ground probe keep working and the capsule stays settled on the floor.
     this.movement.controlEnabled = this.controlEnabled && !this.frozen && !this.dead;
-    this.movement.latchInput(ctx.time.frame);
+    this.movement.applyCommand(ctx.commands?.current);
     if (!this.controlEnabled) return;
     this.movement.step(h);
   }
@@ -284,7 +290,9 @@ export class PlayerSystem {
   update(dt, ctx) {
     if (!this.movement) return;
     this._consumeLook(dt);
-    this.movement.latchInput(ctx.time.frame);
+    // No input latch here any more. Commands belong to ticks, and a frame that
+    // contained no tick has nothing to say — `movement.cmd` keeps the last one,
+    // which is what `camera.js` wants for its strafe lean anyway.
 
     this._drainMovementEvents();
     this.health.update(dt);
@@ -571,11 +579,11 @@ export class PlayerSystem {
   setControlEnabled(on) {
     this.controlEnabled = !!on;
     this.movement.controlEnabled = this.controlEnabled;
+    // Flush held keys. Re-enabling needs no counterpart: the command for the
+    // next tick is built from scratch, so there is no latch left to invalidate.
     if (!on) {
-      this.movement.latchInput(-2); // flush held keys
+      this.movement.applyCommand(null);
       this.movement.velocity.set(0, 0, 0);
-    } else {
-      this.movement._cmdFrame = -1;
     }
   }
 

@@ -31,6 +31,10 @@ of this codebase will be impossible.
    `init()` and reuse. A `new THREE.Vector3()` inside `update()` is a bug.
 7. **Edge queries only in `update()`.** `input.pressed` / `input.released` are
    frame-scoped; reading them from `fixedUpdate()` misses or double-counts.
+   If you want an edge on the fixed step, do not solve it locally — read
+   `ctx.commands.current` instead. `core/command.js` folds every frame's presses
+   into the next tick's command, so nothing is dropped at 240 fps and nothing is
+   counted twice at 60. See **The command stream** below.
 8. **Bots are pooled, never registered.** Spawn/despawn happens inside a
    subsystem's own pool. Adding or removing *systems* at runtime invalidates the
    Registry's method cache and is not supported.
@@ -56,15 +60,50 @@ export class MySystem {
 ```
 
 `ctx` provides: `scene`, `camera`, `viewScene`, `viewCamera`, `canvas`,
-`config`, `events`, `input`, `time`, `rng`, `get(id)`, `peek(id)`, `has(id)`.
+`config`, `events`, `input`, `commands`, `time`, `rng`, `get(id)`, `peek(id)`,
+`has(id)`.
 
 - `scene` / `camera` — the world. `viewScene` / `viewCamera` — the first-person
   weapon, drawn separately so it can never clip through walls.
-- `time` — `{ elapsed, raw, dt, fixed, alpha, scale, frame }`. Use `alpha` to
-  interpolate rendered transforms between physics steps.
+- `time` — `{ elapsed, raw, dt, fixed, alpha, scale, frame, tick }`. Use `alpha`
+  to interpolate rendered transforms between physics steps. `frame` counts what
+  was drawn and depends on the machine; `tick` counts what was simulated and
+  does not — key anything a server would have to agree with us about on `tick`.
 - `config.q` — the active quality preset (`src/core/config.js`). Never exceed a
   budget: `q.taa`, `q.gtao`, `q.ssr`, `q.shadowMapSize`, `q.particleBudget`,
   `q.decalBudget`.
+
+## The command stream
+
+`core/command.js`. The engine samples the input device once per **frame** and
+seals it into one numbered command per **tick**, before any `fixedUpdate` runs.
+Gameplay reads `ctx.commands.current` and never touches `ctx.input` on the fixed
+step.
+
+```
+frame:  beginFrame -> commands.sample(input)      // OR presses into pending
+tick:   commands.build(tick) -> fixedUpdate xN -> commands.endTick()
+```
+
+Why it is not just a latch:
+
+- **Presses accumulate, and are consumed once.** A frame that produced no tick
+  hands its press to the frame that does. Before this, a crouch pressed and
+  released inside three 240 fps frames simply never happened, and a jump survived
+  only because the latch poked the jump buffer on the side.
+- **Commands are addressable.** `commands.get(seq)` reaches 128 ticks back
+  (1.07 s at 120 Hz). Client-side prediction replays exactly this.
+- **The source is swappable.** Set `commands.override = { moveX, moveY, held,
+  edge }` and the local keyboard is ignored. That is the seam a server plugs
+  into; `tools/observe.mjs` already drives the player through it.
+- **Angles are pushed, never pulled.** `player` calls `commands.setView(yaw,
+  pitch)` from its own `fixedUpdate`, because `core` may not name `player`
+  (rule 3). Patches are refused once the tick is closed, so history is honest.
+
+Still on the render frame, deliberately: **firing**. `weapons` is welded to the
+viewmodel and the muzzle FX, and moving it is its own change — it would add
+`fire`/`reload` to `BTN` and read them from `current`. The format has room; the
+bits are not there yet because the work is not done.
 
 ## Ownership map
 

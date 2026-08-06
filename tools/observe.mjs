@@ -240,6 +240,15 @@ await page.evaluate(() => {
     }
 
     if (window.__DRIVE__ && !player.dead && !match.frozen) {
+      // Drive through the command stream, not by poking `movement.cmd`. The
+      // stream rebuilds `cmd` from a command every tick, so a direct poke would
+      // survive for at most one step and only when the rAF happened to land in
+      // the right half of a frame. An override IS a command source — the same
+      // seam a server plugs into — so this is stable by construction.
+      const ov = (e.ctx.commands.override ??= { moveX: 0, moveY: 0, held: 0, edge: 0 });
+      ov.moveX = 0;
+      ov.moveY = 0;
+
       // Nearest living enemy, by `match` — the same query the bots use.
       const enemies = match.enemiesOf(c);
       let best = null;
@@ -324,8 +333,7 @@ await page.evaluate(() => {
           }
         } else {
           // Close the distance when there is nobody to shoot at.
-          m.cmd.moveY = bestD > 12 ? 1 : 0;
-          m.cmd.moveX = 0;
+          ov.moveY = bestD > 12 ? 1 : 0;
         }
         if (weapons.ammo.mag === 0) weapons.reload();
       }

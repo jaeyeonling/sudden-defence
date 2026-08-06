@@ -15,6 +15,7 @@
  */
 
 import * as THREE from 'three';
+import { BTN } from '../core/command.js';
 import { STANCE, MOVE, GRAVITY, JUMP_SPEED, FOOTSTEP } from './tuning.js';
 import { clamp, clamp01 } from './springs.js';
 
@@ -58,19 +59,16 @@ export class Movement {
     this._bobPhase = 0;
     this._footLeft = false;
     this._footHold = 0;
-    this._edgeFrame = -1;
 
     /** One-shot flag consumed (and cleared) by PlayerSystem each frame. */
     this.jumped = false;
 
-    // ---- input snapshot (latched once per rendered frame) ---------------
+    // ---- input snapshot (one tick's command, unpacked) ------------------
     this.cmd = {
       moveX: 0, moveY: 0,
       jump: false, jumpHeld: false,
       crouchPressed: false, crouchHeld: false,
     };
-    this._cmdFrame = -1;
-    this._prevHeld = { jump: false, crouch: false };
 
     // ---- interpolation for the camera ----------------------------------
     this.prevPosition = new THREE.Vector3();
@@ -133,44 +131,39 @@ export class Movement {
   /* ==================================================================== */
 
   /**
-   * Latch the input snapshot for this rendered frame. Called from the first
-   * fixed step of the frame (and from update() if the frame had none), so edge
-   * detection is exact regardless of how many substeps run.
+   * Unpack this tick's command. Called once per fixed step, from
+   * `PlayerSystem.fixedUpdate`, with `ctx.commands.current`.
+   *
+   * There is no frame guard and no previous-held state any more: the stream
+   * (`core/command.js`) already guarantees exactly one command per tick and
+   * already turned presses into one-tick pulses. This method is a decode, not a
+   * sampler, which is what makes the source swappable — a command that arrived
+   * over a wire unpacks through the identical path.
+   *
+   * A null command means the engine has not ticked yet. Treat it as neutral
+   * rather than as "keep doing whatever you were doing".
    */
-  latchInput(frame) {
-    if (frame === this._cmdFrame) return;
-    this._cmdFrame = frame;
-    const cmd = this.cmd;
-    const input = this.ctx.input;
-    const prev = this._prevHeld;
-
-    if (!this.controlEnabled) {
-      cmd.moveX = 0; cmd.moveY = 0;
-      cmd.jump = false; cmd.jumpHeld = false;
-      cmd.crouchPressed = false; cmd.crouchHeld = false;
-      prev.jump = prev.crouch = false;
+  applyCommand(cmd) {
+    const c = this.cmd;
+    if (!this.controlEnabled || !cmd) {
+      c.moveX = 0; c.moveY = 0;
+      c.jump = false; c.jumpHeld = false;
+      c.crouchPressed = false; c.crouchHeld = false;
       return;
     }
 
-    input.moveVector(cmd);
-    cmd.moveX = cmd.x;
-    cmd.moveY = cmd.y;
+    c.moveX = cmd.moveX;
+    c.moveY = cmd.moveY;
 
-    const jump = input.action('jump');
-    const crouch = input.action('crouch');
-
-    cmd.jump = jump && !prev.jump;
-    cmd.jumpHeld = jump;
+    c.jump = (cmd.edge & BTN.jump) !== 0;
+    c.jumpHeld = (cmd.held & BTN.jump) !== 0;
     // Crouch is HOLD, not toggle: you duck behind a crate for the length of a
     // peek and stand the moment you release. A toggle costs a keypress on the
     // way out of cover, which is exactly the moment you cannot spare one.
-    cmd.crouchPressed = crouch && !prev.crouch;
-    cmd.crouchHeld = crouch;
+    c.crouchPressed = (cmd.edge & BTN.crouch) !== 0;
+    c.crouchHeld = (cmd.held & BTN.crouch) !== 0;
 
-    prev.jump = jump;
-    prev.crouch = crouch;
-
-    if (cmd.jump) this._jumpBuffer = MOVE.jumpBuffer;
+    if (c.jump) this._jumpBuffer = MOVE.jumpBuffer;
   }
 
   /* ==================================================================== */
@@ -181,19 +174,6 @@ export class Movement {
     const c = this.character;
     if (!c) return;
     const cmd = this.cmd;
-
-    // A rendered frame contains 0..N fixed steps but only ever *one* key press.
-    // Edge flags are therefore consumed by the first substep of the frame; the
-    // rest see them cleared. (Without this a 60 fps frame runs two substeps and
-    // toggles crouch twice — i.e. never crouches, and cancels a slide on the
-    // same step that started it.)
-    const frame = this.ctx.time.frame;
-    if (frame !== this._edgeFrame) {
-      this._edgeFrame = frame;
-    } else {
-      cmd.jump = false;
-      cmd.crouchPressed = false;
-    }
 
     this.prevPosition.copy(this.position);
     this.stateTime += h;

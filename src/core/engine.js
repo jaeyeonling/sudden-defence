@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { Registry, EventBus } from './registry.js';
 import { FIXED_DT, MAX_SUBSTEPS } from './config.js';
 import { Input } from './input.js';
+import { CommandStream } from './command.js';
 import { Rng } from './rng.js';
 
 /**
@@ -9,8 +10,9 @@ import { Rng } from './rng.js';
  * subsystem. It does NOT know what any subsystem does — it only sequences them.
  *
  * Frame order:
- *   1. input.beginFrame()
+ *   1. input.beginFrame() + commands.sample()
  *   2. fixedUpdate(FIXED_DT) xN   — physics, deterministic gameplay
+ *                                   (each preceded by commands.build(tick))
  *   3. update(dt)                 — animation, cameras, AI decisions
  *   4. lateUpdate(dt)             — anything that must observe final transforms
  *   5. render subsystem draws
@@ -23,6 +25,7 @@ export class Engine {
     this.registry = new Registry();
     this.events = new EventBus();
     this.input = new Input(canvas, config);
+    this.commands = new CommandStream();
     this.rng = new Rng(config.deterministic ? 0x5eed1234 : (Math.random() * 2 ** 32) >>> 0);
 
     this.scene = new THREE.Scene();
@@ -42,6 +45,13 @@ export class Engine {
       /** Interpolation alpha between the last two physics steps, 0..1. */ alpha: 0,
       scale: 1,
       frame: 0,
+      /**
+       * Fixed steps since boot. `frame` counts what was DRAWN and depends on
+       * the machine; `tick` counts what was SIMULATED and does not. Anything a
+       * server would have to agree with us about is keyed on this one, starting
+       * with the input command sequence.
+       */
+      tick: -1,
     };
 
     this.ctx = {
@@ -54,6 +64,7 @@ export class Engine {
       config,
       events: this.events,
       input: this.input,
+      commands: this.commands,
       time: this.time,
       rng: this.rng,
       get: (id) => this.registry.get(id),
@@ -127,12 +138,18 @@ export class Engine {
     t.frame++;
 
     this.input.beginFrame();
+    // Fold the device state into the pending command HERE, where `pressed` is
+    // valid. Everything downstream reads `commands.current` and is spared the
+    // frame-vs-tick mismatch that hard rule 7 exists to warn about.
+    this.commands.sample(this.input);
 
     this._accum += t.dt;
     let steps = 0;
     const fixedSystems = this.registry.with('fixedUpdate');
     while (this._accum >= FIXED_DT && steps < MAX_SUBSTEPS) {
+      this.commands.build(++t.tick, FIXED_DT);
       for (const sys of fixedSystems) sys.fixedUpdate(FIXED_DT, this.ctx);
+      this.commands.endTick();
       this._accum -= FIXED_DT;
       steps++;
     }

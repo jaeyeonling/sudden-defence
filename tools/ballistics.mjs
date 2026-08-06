@@ -419,14 +419,29 @@ const out = await page.evaluate(
       }
 
       // ---- recoil pattern --------------------------------------------------
+      // The CUMULATIVE path of the muzzle, which is what a player learns —
+      // per-shot deltas are what the table stores, and reading those tells you
+      // nothing about the shape they trace.
       let climb = 0;
       let drift = 0;
       let maxDrift = 0;
+      let right = 0;      // furthest the muzzle ever gets to the right
+      let left = 0;       // ...and to the left. Together: is it a snake or a hook?
+      let perShotClimb = 0;
+      let killBurstLateral = 0; // worst |lateral| inside the four rounds that kill
+      let crossings = 0;
+      let prev = 0;
       const plen = Math.min(def.recoil.patternLength, (st.pattern?.length ?? 0) >> 1);
       for (let i = 0; i < plen; i++) {
+        perShotClimb = Math.max(perShotClimb, st.pattern[i * 2]);
         climb += st.pattern[i * 2];
         drift += st.pattern[i * 2 + 1];
         maxDrift = Math.max(maxDrift, Math.abs(drift));
+        right = Math.max(right, drift);
+        left = Math.min(left, drift);
+        if (i > 0 && Math.sign(drift) !== Math.sign(prev)) crossings++;
+        prev = drift;
+        if (i < 4) killBurstLateral = Math.max(killBurstLateral, Math.abs(drift));
       }
 
       results[id] = {
@@ -456,6 +471,14 @@ const out = await page.evaluate(
         sustainedSpread: sustained,
         patternClimbDeg: +((climb * 180) / Math.PI).toFixed(2),
         patternDriftDeg: +((maxDrift * 180) / Math.PI).toFixed(2),
+        patternRightDeg: +((right * 180) / Math.PI).toFixed(2),
+        patternLeftDeg: +((left * 180) / Math.PI).toFixed(2),
+        patternLateralDeg: +(((right - left) * 180) / Math.PI).toFixed(2),
+        patternPerShotClimbDeg: +((perShotClimb * 180) / Math.PI).toFixed(3),
+        patternKillBurstLateralDeg: +((killBurstLateral * 180) / Math.PI).toFixed(3),
+        patternCrossings: crossings,
+        /** The declared shape, carried out so the gate can hold it to it. */
+        signature: def.recoil.signature ?? null,
         patternLen: plen,
         patternHead: Array.from((st.pattern ?? []).slice(0, 4)).map((v) => +v.toFixed(6)),
       };
@@ -570,6 +593,61 @@ for (const [id, w] of Object.entries(R)) {
     warn.push(`${id}: ${close.torso} shots to kill at BOTH 5 m and 35 m — no range identity`);
   }
 
+  // 4b. THE SPRAY IS THE SHAPE IT SAYS IT IS.
+  //
+  //     Four numbers make each pattern (`pitch`, `climbShape`, `drift`,
+  //     `driftShape`/`driftBias`) and a fifth — the seed — decides which
+  //     particular squiggle comes out of them. Nothing tied any of that to the
+  //     prose beside it, and the prose was wrong: all three weapons passed a
+  //     total-climb check while the M4A1 wandered sideways through its killing
+  //     burst and the MPX-9, described as the gun you counter by sweeping
+  //     across a body, swept 4.99 degrees left and 0.18 right.
+  //
+  //     `recoil.signature` in `defs.js` is that intent written as data. This is
+  //     the half that makes it mean something.
+  const sig = w.signature;
+  if (!sig) {
+    warn.push(`${id}: no recoil signature declared — its shape is unchecked`);
+  } else {
+    const band = (label, v, [lo, hi]) => {
+      if (v < lo || v > hi) {
+        fail.push(`${id}: ${label} ${v}° is outside the declared ${lo}–${hi}°`);
+      }
+    };
+    band('pattern climb', w.patternClimbDeg, sig.climbDeg);
+    band('lateral travel', w.patternLateralDeg, sig.lateralDeg);
+    if (sig.perShotClimbDeg) {
+      band('worst per-shot climb', w.patternPerShotClimbDeg, sig.perShotClimbDeg);
+    }
+    // The first four rounds are the ones that kill at every range this map
+    // contains, so a weapon that declares a straight opening has to deliver one
+    // there specifically — a magazine-wide average would hide it completely.
+    if (sig.killBurstLateralDeg !== null && sig.killBurstLateralDeg !== undefined &&
+        w.patternKillBurstLateralDeg > sig.killBurstLateralDeg) {
+      fail.push(
+        `${id}: the killing burst wanders ${w.patternKillBurstLateralDeg}° sideways, ` +
+        `over the declared ${sig.killBurstLateralDeg}° — the first four rounds are not a straight line`
+      );
+    }
+    const R = w.patternRightDeg;
+    const L = -w.patternLeftDeg;
+    if (sig.lean === 'right' && R <= L) {
+      fail.push(`${id}: declares a right-hand hook and travels ${L}° left against ${R}° right`);
+    } else if (sig.lean === 'left' && L <= R) {
+      fail.push(`${id}: declares a left-hand hook and travels ${R}° right against ${L}° left`);
+    } else if (sig.lean === 'both') {
+      // A snake has to actually change sides, and do it evenly. One-sided
+      // "wander" is a hook with extra steps, and it is what this weapon was.
+      const bal = Math.min(R, L) / Math.max(R, L, 1e-9);
+      if (bal < 0.7 || w.patternCrossings < 2) {
+        fail.push(
+          `${id}: declares a two-way snake but travels ${R}° right / ${L}° left ` +
+          `(balance ${bal.toFixed(2)}, needs 0.70) and crosses centre ${w.patternCrossings}× (needs 2)`
+        );
+      }
+    }
+  }
+
   // 5. The band that is the reason to carry the gun has to reach the distance
   //    people fight at. This is the MPX-9 lesson stated as a check: at 27 damage
   //    its four-round band closed at 11.5 m against a median engagement of 13,
@@ -608,6 +686,12 @@ for (const [id, w] of Object.entries(R)) {
   console.log(
     `${' '.repeat(8)}bands ${formatBands(stkBands(w))}` +
     ` · head 1-tap ${w.headOneTapTo === null ? 'everywhere' : `to ${w.headOneTapTo} m`}`
+  );
+  // The spray, as a shape rather than as one number.
+  console.log(
+    `${' '.repeat(8)}spray climb ${w.patternClimbDeg}° (worst shot ${w.patternPerShotClimbDeg}°) · ` +
+    `lateral ${w.patternLateralDeg}° [R ${w.patternRightDeg} / L ${w.patternLeftDeg}, ${w.patternCrossings}× centre] · ` +
+    `kill burst ${w.patternKillBurstLateralDeg}° off line`
   );
 }
 console.log(`\nmedian engagement taken as ${MEDIAN_ENGAGEMENT} m (tools/botfight.mjs)`);

@@ -81,6 +81,28 @@ import { DEG } from './mathx.js';
  * The four-round band and the one-tap head range are ALWAYS the same distance:
  * both ask for 25 damage on the round (4 x 25 = 100 = 1 x 4 x 25). They are one
  * fact wearing two hats, so nothing can move one without moving the other.
+ *
+ * ────────────────────────────────────────────────────────────────────────────
+ * THE THREE SPRAYS, as measured
+ * ────────────────────────────────────────────────────────────────────────────
+ *
+ *                climb   worst shot   lateral (R / L)    kill burst off line
+ *   M4A1        15.4°       0.82°      1.8° (1.25/0.56)        0.009°
+ *   MPX-9        8.1°       0.31°      5.3° (2.65/2.66)        2.27°
+ *   P-19        15.3°       1.00°      0.5° (0.44/0.04)        0.37°
+ *
+ * Read across the rows rather than down the columns: the M4A1 and the P-19
+ * climb the same total and are nothing alike, because one pays it over thirty
+ * rounds and the other over seventeen. That is the axis this table used to be
+ * flat on — every weapon landed between 11 and 15 degrees of climb and the
+ * differences that were supposed to separate them lived in the horizontal,
+ * which nobody controlled.
+ *
+ * Each weapon now declares its shape in `recoil.signature` and
+ * `tools/ballistics.mjs` holds it to it. Verified by breaking all three: gating
+ * the rifle's horizontal on from round one puts 0.19° into its killing burst,
+ * restoring the SMG's old seed drops its balance to 0.04, and softening the
+ * P-19's kick fails both the climb and the per-shot band.
  */
 
 export const WEAPON_DEFS = {
@@ -146,7 +168,37 @@ export const WEAPON_DEFS = {
        * you are meant to let go.
        */
       climbShape: [1.7, 1.45, 1.2, 1.05, 1.0], // per-shot multiplier on `pitch`
-      drift: 0.55, // horizontal wander — low: this gun goes UP, not sideways
+      drift: 0.5, // horizontal wander — low: this gun goes UP, not sideways
+      /**
+       * Dead straight for the first three rounds, then it hooks.
+       *
+       * This is the half of the "7" that was missing. Four rounds is a kill at
+       * every range (see the STK table), so the first four are the ones every
+       * engagement is actually fought with — and a weapon whose killing burst
+       * also wanders sideways is one you cannot aim by memory, however
+       * learnable the rest of the magazine is. Gate the horizontal off until
+       * the burst is over, and the pull-down a player learns is a straight
+       * line for exactly as long as it matters.
+       */
+      driftShape: [0, 0, 0.08, 0.22, 0.45, 0.72, 1],
+      /** Right. The stroke of the 7, and a choice rather than a seed draw. */
+      driftBias: 1.15,
+      /**
+       * What this pattern CLAIMS to be, checked by `tools/ballistics.mjs`.
+       *
+       * A shape chosen in prose and tuned by four numbers is a shape that goes
+       * quietly wrong the next time any of the four moves — and the gate that
+       * existed measured only total climb, which all three weapons passed while
+       * being far less distinct than their comments said. Writing the intent
+       * down as data is what makes "the M4A1 is the straight one" falsifiable.
+       */
+      signature: {
+        climbDeg: [13, 18],
+        lateralDeg: [1.2, 2.6],
+        /** The killing burst has to be a straight line. That is the point. */
+        killBurstLateralDeg: 0.15,
+        lean: 'right',
+      },
     },
     /* --- handling (seconds) --- */
     reloadTac: 2.1,
@@ -310,7 +362,12 @@ export const WEAPON_DEFS = {
     spreadMax: 2.4,
     spreadDecay: 4.2,
     recoil: {
-      pitch: 0.0058,
+      /* 0.0044, down from 0.0058. "Low and wide" is one statement about two
+       * axes and the low half was never done: this gun climbed 11.0 degrees
+       * against the rifle's 15.4, which is lower but not by enough to read as a
+       * different weapon. 8.3 is. What it trades for that is the widest
+       * horizontal in the game — see `drift` below. */
+      pitch: 0.0044,
       yaw: 0.0026,
       kickBack: 0.0135,
       kickUp: 0.0052,
@@ -319,7 +376,13 @@ export const WEAPON_DEFS = {
       freq: 10.5,
       damping: 0.4,
       patternLength: 32,
-      patternSeed: 0x9ac31f,
+      /* Chosen, not inherited. `driftBias` sets which way a pattern leans but
+       * not where its snake STARTS, and the starting phase is the seed's — so
+       * at 0x9ac31f this weapon swept 4.99 degrees left and 0.18 right while
+       * claiming to be the gun you counter by sweeping across a body. Searched
+       * 40k seeds for one that is wide, crosses the centre at least twice, and
+       * is symmetric about it; this one is 2.65 right against 2.66 left. */
+      patternSeed: 0x102d32,
       /**
        * ═══ SPRAY SHAPE ═══
        *
@@ -330,7 +393,23 @@ export const WEAPON_DEFS = {
        * and why the same muscle memory does not transfer between the two.
        */
       climbShape: [1.25, 1.15, 1.08, 1.0],
-      drift: 1.05,
+      /** Widest of the three, and it starts wide — no straight phase at all. */
+      drift: 1.75,
+      driftShape: [1],
+      /**
+       * No bias, deliberately. The rifle hooks one way and is countered by a
+       * pull; this one has to be countered by a SWEEP, and a sweep only reads
+       * as a sweep if the muzzle goes both ways. Leaving the seeded draw in
+       * would put a net lean on it that nobody chose.
+       */
+      driftBias: 0,
+      /** Half the rifle's climb, three times its width, and even about centre. */
+      signature: {
+        climbDeg: [7, 10],
+        lateralDeg: [4.5, 6.5],
+        killBurstLateralDeg: null, // wandering inside the burst IS this weapon
+        lean: 'both',
+      },
     },
     reloadTac: 1.85,
     reloadEmpty: 2.5,
@@ -382,7 +461,13 @@ export const WEAPON_DEFS = {
     spreadMax: 2.8,
     spreadDecay: 5.4,
     recoil: {
-      pitch: 0.0125,
+      /* 0.0158, up from 0.0125, and the largest per-shot kick in the game by a
+       * wide margin — 0.90 degrees against the M4A1's 0.83 on its hardest round
+       * and 0.25 on its softest. This is the whole punishment model for a
+       * semi-automatic: there is no spray to learn, so the cost of mashing has
+       * to be paid per shot, and the reward for waiting is that the spring has
+       * cleared it by the time a deliberate second shot goes. */
+      pitch: 0.0158,
       yaw: 0.0032,
       kickBack: 0.012,
       kickUp: 0.0105,
@@ -403,7 +488,28 @@ export const WEAPON_DEFS = {
        * wide drift means it does not walk in a straight, correctable line.
        */
       climbShape: [1.0],
-      drift: 1.2,
+      /**
+       * Almost none. A semi-only weapon has no spray to sweep, so horizontal
+       * wander is not a pattern to learn — it is just a shot you did not
+       * deserve to miss. What punishes mashing here is the per-shot kick
+       * (`pitch`, the largest of the three), which walks the muzzle straight up
+       * fast and recovers fast if you let it.
+       */
+      drift: 0.22,
+      driftShape: [1],
+      driftBias: 0,
+      /**
+       * Straight, and paid for per shot rather than per magazine. The lateral
+       * band is the tight one here; `perShotClimbDeg` is the floor that keeps
+       * the "mashing costs you" half honest if `pitch` is ever softened.
+       */
+      signature: {
+        climbDeg: [13, 18],
+        lateralDeg: [0, 1.0],
+        killBurstLateralDeg: 0.6,
+        perShotClimbDeg: [0.85, 1.15],
+        lean: 'either',
+      },
     },
     reloadTac: 1.6,
     reloadEmpty: 2.2,
@@ -430,6 +536,26 @@ export const WEAPON_DEFS = {
  * in a smooth, repeatable S. Everything comes from one fixed seed so the same
  * weapon always kicks the same way — including in capture mode.
  *
+ * ────────────────────────────────────────────────────────────────────────────
+ * WHY THERE ARE TWO HORIZONTAL KNOBS AND NOT ONE
+ * ────────────────────────────────────────────────────────────────────────────
+ *
+ * `climbShape` has always let a weapon say WHEN it climbs. The horizontal had
+ * no equivalent: the snake's starting phase and the net `bias` were both drawn
+ * from the seed, so a weapon could not say "no sideways for the first four
+ * rounds" or "hook right" — only "reroll and see". That is not a small gap,
+ * because the horizontal signature is most of what distinguishes one spray from
+ * another, and it meant the three weapons' directions were an accident: the
+ * M4A1 drifted only left, the P-19 only right, and nobody had chosen either.
+ *
+ *   `driftShape`  a per-shot gate on the horizontal, same convention as
+ *                 `climbShape` (last entry repeats). `[0, 0, 0.5, 1]` climbs
+ *                 dead straight for two rounds before it starts to wander.
+ *   `driftBias`   the net direction, in roughly [-1, 1]. Positive is right.
+ *                 Omit it to keep the seeded draw, which is a symmetric snake.
+ *
+ * Both are optional; a weapon that sets neither behaves exactly as before.
+ *
  * @returns {Float32Array} pairs of [pitch, yaw] in radians, length n*2.
  */
 export function buildRecoilPattern(def, Rng) {
@@ -441,18 +567,26 @@ export function buildRecoilPattern(def, Rng) {
   // rather than as noise.
   const phase = rng.float() * Math.PI * 2;
   const phase2 = rng.float() * Math.PI * 2;
-  const bias = rng.signed() * 0.35;
+  // Drawn unconditionally even when `driftBias` overrides it, so the number of
+  // draws — and therefore every later value in the stream — does not depend on
+  // which fields a weapon happens to set.
+  const drawnBias = rng.signed();
+  const bias = (r.driftBias ?? drawnBias) * 0.35;
   for (let i = 0; i < n; i++) {
     const shot = i;
     const climb = r.climbShape[Math.min(shot, r.climbShape.length - 1)];
     // Vertical: strong early, tapering, with a per-shot signature bump.
     const sig = 0.88 + rng.float() * 0.24;
     out[i * 2] = r.pitch * climb * sig;
-    // Horizontal: a smooth snake plus a fixed per-shot signature.
+    // Horizontal: a smooth snake plus a fixed per-shot signature, gated by
+    // `driftShape` so a weapon can climb straight before it starts to wander.
     const t = i / Math.max(1, n - 1);
     const snake =
       Math.sin(phase + t * Math.PI * 2.6) * 0.75 + Math.sin(phase2 + t * Math.PI * 5.1) * 0.35;
-    out[i * 2 + 1] = r.yaw * (snake * r.drift * 3.2 + bias + rng.signed() * 0.25);
+    const gate = r.driftShape
+      ? r.driftShape[Math.min(shot, r.driftShape.length - 1)]
+      : 1;
+    out[i * 2 + 1] = r.yaw * gate * (snake * r.drift * 3.2 + bias + rng.signed() * 0.25);
   }
   return out;
 }

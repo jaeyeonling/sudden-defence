@@ -284,6 +284,30 @@ export class AiSystem {
       //
       // Adding and removing an object around a compile draws nothing, so the
       // pixel gate is unaffected.
+      //
+      // NOT FULLY CLOSED. This removed the common case; a residue survives at
+      // roughly one profile run in six — a ~140 ms frame with one late program,
+      // caught and keyed:
+      //
+      //   frame 865  physical,STANDARD,...,ow-patch-9-4-2   every map flag false
+      //
+      // Mapless standard material is this grenade and nothing else in the build
+      // (shells, decals and the kit all carry maps), and frame 865 of ~900 is a
+      // first throw late in a firefight, so the attribution is solid.
+      //
+      // What is NOT established is why the warmed permutation does not match.
+      // The leading candidate is the LIGHT COUNT: three bakes it into the
+      // program key, this warm runs at boot with no muzzle flashes alive, and a
+      // grenade first drawn while `fx.lights.flash` is lit needs a permutation
+      // nothing has compiled. That would explain both the rarity and the timing.
+      // It is a hypothesis and has not been tested — testing it needs the
+      // program key captured at warm time as well as at the stall, which
+      // `tools/profile.mjs` does not currently record.
+      //
+      // If it holds, the fix is probably not more warming (the count varies) but
+      // giving the grenade a material that is already on screen all match — the
+      // soldier `polymer` or `steel` set — so it inherits whatever permutation
+      // the frame is already using.
       scene.remove(mesh);
       const g = new THREE.Mesh(this._grenadeGeo, this._grenadeMat);
       this.root.add(g);

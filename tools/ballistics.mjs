@@ -313,7 +313,12 @@ const out = await page.evaluate(
       for (let i = 0; i < Math.round(TTK_HOLD_S * TTK_FPS); i++) {
         refill();
         freezeAim();
-        weapons.update(dtFixed, e.ctx);
+        // `fixedUpdate`, because the shot clock and the cone live on the tick
+        // now. `update` is the viewmodel and the muzzle flash and would advance
+        // neither. Driven directly rather than through a command because this
+        // measures the CLOCK, not the trigger: `tryFire` is called by hand below
+        // exactly as the cone measurement does it.
+        weapons.fixedUpdate(dtFixed, e.ctx);
         clock += dtFixed;
         // The real auto path is `while (tryFire())`: a frame that lasted two
         // intervals owes two rounds. A semi gets one press, so one round —
@@ -406,7 +411,11 @@ const out = await page.evaluate(
         weapons.tryFire();
         sustained.push(+weapons.spreadDegrees.toFixed(3));
         // Advance the clock by exactly one shot interval so decay is real.
-        weapons.update(60 / def.rpm, e.ctx);
+        // `fixedUpdate`: spread decay moved to the tick with the shot clock,
+        // because the cone a round leaves through is simulation whatever draws
+        // it. Calling `update` here decayed nothing and reported a cone that
+        // only ever grew.
+        weapons.fixedUpdate(60 / def.rpm, e.ctx);
       }
 
       // ---- recoil pattern --------------------------------------------------

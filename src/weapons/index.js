@@ -754,10 +754,35 @@ export class WeaponSystem {
   }
 
   /* ====================================================================== */
-  /*  frame                                                                 */
+  /*  tick — everything that decides IF and WHEN a round leaves               */
   /* ====================================================================== */
 
-  update(dt, ctx) {
+  /**
+   * The shot clock, the cone and the trigger, on the fixed step.
+   *
+   * NETCODE STEP 4, and the last one the single-player build can do. `457cc65`
+   * made the interval carry its overshoot so the RATE stopped being the
+   * monitor's; `710c630` moved the AIM off the composed camera so the DIRECTION
+   * stopped being the frame's. Both left the trigger itself in `update`, which
+   * meant the tick a round belonged to was still "whichever one happened to be
+   * last before the frame that fired it".
+   *
+   * Read from `ctx.commands.current`, never from the device. That is hard rule 7
+   * — an edge query in a fixed step has to come from the command, because the
+   * device's `pressed` set is frame-scoped and a fixed step is not a frame. It is
+   * also the whole point: a command is addressable, a keyboard is not.
+   *
+   * The SPREAD moves here too, and it is not a free rider. `spreadDecay * dt` on
+   * the rendered frame made the cone frame-rate dependent in exactly the way the
+   * fire timer was — the cone a round leaves through is simulation, whatever
+   * draws it.
+   *
+   * WHAT STAYS ON THE FRAME: the viewmodel, muzzle flash, brass, tracers, weapon
+   * selection, fire-mode cycling and inspect. None of them decide where a round
+   * goes or when it leaves, and the viewmodel in particular is driven from
+   * `lateUpdate` because its clip events complete a weapon swap.
+   */
+  fixedUpdate(h, ctx) {
     const s = this.state;
     if (!s) return;
     const def = s.def;
@@ -765,41 +790,80 @@ export class WeaponSystem {
     const player = this.player ?? (this.player = ctx.peek('player'));
     const st = this._state;
 
+    this._sinceShot += h;
+    this._advanceFireTimer(h, def);
+    if (this._burstCooldown > 0) this._burstCooldown -= h;
+
+    // ---- spread recovery -------------------------------------------------
+    const rest = this._restSpread(def, player, st);
+    this._spread = Math.max(rest, this._spread - def.spreadDecay * h);
+    if (this._sinceShot > 0.6) this._shotIndex = 0;
+
+    st.speed = player?.horizontalSpeed ?? player?.speed ?? 0;
+    st.crouch = player?.stance === 'crouch';
+    st.airborne = player?.airborne === true;
+    st.empty = s.mag === 0 && !s.chambered;
+
+    if (!this._live(input, player)) return;
+
+    // No command stream means no trigger. NOT a fall back to the device: two
+    // sources for one decision is the defect this file has spent three commits
+    // removing, and a harness that drives `weapons` directly can build commands
+    // itself — `CommandStream.build` is public and `commands.BTN` names the bits.
+    const cmd = ctx.commands?.current;
+    if (!cmd) return;
+    const BTN = ctx.commands.BTN;
+    const held = (cmd.held & BTN.fire) !== 0;
+    const pressed = (cmd.edge & BTN.fire) !== 0;
+
+    if (cmd.edge & BTN.reload) this.reload();
+    this._runTrigger(h, held, pressed, def, s);
+    st.trigger = held && this.canFire();
+    // Auto-reload on a dry trigger pull, like every modern shooter.
+    if (pressed && st.empty) this.reload();
+  }
+
+  /**
+   * "A real player is driving": not the capture harness, not a scripted debug
+   * pose, not a dead or frozen one.
+   *
+   * `player.canFire` folds in freeze time, round end and death. It is read
+   * through the player rather than from `match` directly so this subsystem keeps
+   * its two dependencies (materials, physics) and never learns that rounds
+   * exist. A missing player (a weapons-only harness) reads as fireable.
+   */
+  _live(input, player) {
+    return (
+      !input.frozen &&
+      input.enabled !== false &&
+      this.debugMode === null &&
+      player?.canFire !== false
+    );
+  }
+
+  /* ====================================================================== */
+  /*  frame                                                                 */
+  /* ====================================================================== */
+
+  update(dt, ctx) {
+    const s = this.state;
+    if (!s) return;
+    const input = ctx.input;
+    const player = this.player ?? (this.player = ctx.peek('player'));
+
     // Hands off the screen while the player is down. The viewmodel is drawn in
     // a separate scene at the camera's origin, so a spectator camera following
     // a team-mate 20 m away would still have the dead player's rifle floating
     // in front of it.
     if (this.viewmodel?.anchor) this.viewmodel.anchor.visible = player?.dead !== true;
 
-    this._sinceShot += dt;
-    this._advanceFireTimer(dt, def);
-    if (this._burstCooldown > 0) this._burstCooldown -= dt;
-
-    // ---- spread recovery -------------------------------------------------
-    const rest = this._restSpread(def, player, st);
-    this._spread = Math.max(rest, this._spread - def.spreadDecay * dt);
-    if (this._sinceShot > 0.6) this._shotIndex = 0;
-
-    // ---- gather state ----------------------------------------------------
-    // "live" means a real player is driving: not the capture harness, not a
-    // scripted debug pose.
-    // `player.canFire` folds in freeze time, round end and death. It is read
-    // through the player rather than from `match` directly so this subsystem
-    // keeps its two dependencies (materials, physics) and never learns that
-    // rounds exist. A missing player (a weapons-only harness) reads as fireable.
-    const live =
-      !input.frozen &&
-      input.enabled !== false &&
-      this.debugMode === null &&
-      player?.canFire !== false;
-    st.speed = player?.horizontalSpeed ?? player?.speed ?? 0;
-    st.crouch = player?.stance === 'crouch';
-    st.airborne = player?.airborne === true;
-    st.empty = s.mag === 0 && !s.chambered;
+    const live = this._live(input, player);
 
     // ---- input -----------------------------------------------------------
+    // What is left here is the UI half: choosing a weapon, a fire mode, or to
+    // look at the thing. Edges are legal in `update` (hard rule 7) and none of
+    // these change what a round does.
     if (live) {
-      if (input.actionPressed('reload')) this.reload();
       if (input.pressed('KeyB')) this.cycleFireMode();
       if (input.pressed('KeyI')) this.inspect();
       if (input.actionPressed('weapon1')) this.setWeapon('rifle');
@@ -807,15 +871,14 @@ export class WeaponSystem {
       if (input.actionPressed('weapon3')) this.setWeapon('pistol');
       if (input.actionPressed('swapWeapon')) this.nextWeapon();
       if (input.wheel) this.nextWeapon();
-      this._runTrigger(dt, input.fire, input.firePressed, def, s);
-      st.trigger = input.fire && this.canFire();
-      // Auto-reload on a dry trigger pull, like every modern shooter.
-      if (input.firePressed && st.empty) this.reload();
     } else if (this.debugMode) {
+      // The capture harness fires by frame number, not by trigger, and it is a
+      // frame-numbered thing by definition — `tools/capture.mjs` names the
+      // frames it wants a muzzle flash on. It sets `_fireTimer` to zero and
+      // calls `tryFire` directly, so none of the tick machinery is involved.
       this._runDebug(ctx);
-      st.trigger = this._sinceShot < 0.09;
+      this._state.trigger = this._sinceShot < 0.09;
     }
-
   }
 
   /**

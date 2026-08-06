@@ -28,11 +28,18 @@
  * correction. Both need commands to be *addressable*, which is why they are kept
  * in a ring keyed by sequence rather than overwritten in place.
  *
- * What is deliberately NOT here yet: firing. `weapons` still runs on the render
- * frame because it is welded to the viewmodel and the muzzle FX, and moving it
- * is its own change. When it moves, it adds `fire`/`reload` bits to `BTN` and
- * reads them from `current` — the format has room and nothing else changes.
- * Adding the bits now, unread, would only be a claim that the work was done.
+ * Step 3 was the AIM (`710c630`): `weapons.tryFire` read the composed camera,
+ * which is written after every fixed step, so a shot could not be a function of
+ * a tick no matter what the trigger did. `player` owns `aimOrigin`/`aimForward`
+ * on the tick now.
+ *
+ * Step 4 is this file gaining `fire` and `reload`, and `weapons` gaining a
+ * `fixedUpdate` that reads them. The bits were deliberately left out until
+ * something read them — an unread bit is a claim that the work is done.
+ *
+ * What is still on the rendered frame, and should be: the viewmodel animation,
+ * muzzle flash, brass, tracers, weapon selection, fire-mode cycling and inspect.
+ * None of them decide where a round goes or when it leaves.
  */
 
 /**
@@ -42,6 +49,8 @@
 export const BTN = Object.freeze({
   jump: 1 << 0,
   crouch: 1 << 1,
+  fire: 1 << 2,
+  reload: 1 << 3,
 });
 
 /**
@@ -76,6 +85,16 @@ export class CommandStream {
     /** The command being simulated right now. Null before the first tick. */
     this.current = null;
     this.seq = -1;
+
+    /**
+     * The bit names, reachable from an instance.
+     *
+     * Anything that writes `override` has to name the bits, and the two callers
+     * that do — a future server and the harnesses in `tools/` — reach this
+     * object without being able to import from `src`. Duplicating `1 << 2` at
+     * each of those sites is how a bit layout drifts.
+     */
+    this.BTN = BTN;
 
     /**
      * Replace the local device as the source of commands. Set to an object
@@ -117,12 +136,20 @@ export class CommandStream {
     let held = 0;
     if (input.action('jump')) held |= BTN.jump;
     if (input.action('crouch')) held |= BTN.crouch;
+    // `fire` is the mouse, not an action binding — see `Input.fire`.
+    if (input.fire) held |= BTN.fire;
+    if (input.action('reload')) held |= BTN.reload;
     this._held = held;
 
     // OR, not assign. A frame that produces no tick must hand its press to the
     // frame that does, or fast machines quietly eat inputs.
     if (input.actionPressed('jump')) this._edge |= BTN.jump;
     if (input.actionPressed('crouch')) this._edge |= BTN.crouch;
+    // The one that made a semi-automatic worth doing this for: a click that
+    // began and ended inside a frame with no tick used to be a round that never
+    // left. `firePressed` is a frame-scoped edge, so it has to be caught here.
+    if (input.firePressed) this._edge |= BTN.fire;
+    if (input.actionPressed('reload')) this._edge |= BTN.reload;
   }
 
   /**

@@ -118,6 +118,18 @@ const out = await page.evaluate(
     e.input.frozen = false;
     e.input.down.add('Mouse0');
 
+    // ...and then hand it to the trigger the way the ENGINE does.
+    //
+    // The trigger moved to `weapons.fixedUpdate` and reads `commands.current`,
+    // never the device (hard rule 7: a fixed step is not a frame, so a
+    // frame-scoped `pressed` set is not a valid edge there). This loop drives
+    // `weapons` directly and never yields, so the engine's own rAF cannot run
+    // and cannot build a command — the harness has to build them, with the same
+    // public calls the engine makes.
+    const cs = e.ctx.commands;
+    if (!cs?.build) return { fatal: 'no command stream; the trigger has nothing to read' };
+    const BTN = cs.BTN;
+
     if (player && player.canFire !== true) {
       return { fatal: `player.canFire is ${player.canFire}; the trigger branch is off` };
     }
@@ -139,14 +151,28 @@ const out = await page.evaluate(
       return ok;
     };
 
+    let seq = (cs.seq | 0) + 1;
+    /**
+     * One tick of the weapon subsystem, command and all.
+     *
+     * `held`/`edge` are handed in per tick rather than sampled, because the
+     * device sample only happens inside an engine frame and there are none here.
+     * `endTick` matters: it closes the command so nothing can back-patch it,
+     * which is the property that makes a replay mean anything.
+     */
+    const tick = (h, held, edge) => {
+      cs.override = { moveX: 0, moveY: 0, held, edge };
+      cs.build(seq++, h);
+      weapons.fixedUpdate(h, e.ctx);
+      cs.endTick();
+    };
+
     /**
      * One frame of the weapon subsystem, both hooks.
      *
      * `lateUpdate` is not optional here. The weapon SWITCH completes on a clip
      * event from the viewmodel, and the viewmodel is driven from `lateUpdate` —
-     * so a pump that calls only `update` leaves `activeId` on the rifle forever,
-     * which is what the first version of this did while cheerfully printing
-     * "nominal 800" for a 950 rpm SMG.
+     * so a pump that calls only `update` leaves `activeId` on the rifle forever.
      */
     const step = (dt) => {
       weapons.update(dt, e.ctx);
@@ -158,6 +184,7 @@ const out = await page.evaluate(
       // Trigger off across the swap: rounds fired mid-holster belong to neither
       // weapon's measurement.
       e.input.down.delete('Mouse0');
+      cs.override = { moveX: 0, moveY: 0, held: 0, edge: 0 };
       weapons.setWeapon(id);
       // Switching takes time and BLOCKS the trigger, so run it out and then
       // assert it landed. Timing the swap out by eye is how the first version
@@ -185,28 +212,48 @@ const out = await page.evaluate(
         // Clicking every frame asks the right one: does the cap hold, and does
         // it hold at the same value on every machine?
         const semi = s.mode !== 'auto' && s.mode !== 'burst';
+        // Every rate starts from the SAME gun state.
+        //
+        // Without this the runs inherit whatever phase the previous one left the
+        // shot clock in: 360 ticks over a 7.579-tick interval is 47.5 rounds, so
+        // the count alternated 48/47 down the list and the measured rate read
+        // 951/949/951/949/951. That tracks the ORDER of the runs, not their
+        // frame rate — and it showed up as a 0.14-degree cone difference that
+        // looked exactly like a frame-rate dependence in the spread model.
+        weapons._fireTimer = 0;
+        weapons._shotIndex = 0;
+        weapons._sinceShot = 10;
+        weapons._spread = weapons._restSpread(def, weapons.player, weapons._state);
+
         shots = 0;
         firstAt = -1;
         lastAt = -1;
-        for (let i = 0; i < steps; i++) {
+        // The frame rate is now a property of the CAMERA and nothing else, and
+        // this loop says so: the ticks are always 1/120 and `fps` only decides
+        // how many rendered frames are interleaved between them. That is the
+        // claim under test — a gun whose cadence still moved with `fps` would
+        // have to be reading something frame-scoped, which is the defect.
+        //
+        // A semi takes a fresh press per round, and a press is a one-tick pulse
+        // on the command, so it is issued as an EDGE on every tick. Held down,
+        // a semi fires exactly once, which is the gun working correctly and the
+        // harness asking the wrong question.
+        const H = 1 / 120;
+        let frameAcc = 0;
+        let ticks = 0;
+        for (let i = 0; i < Math.round(HOLD_S * 120); i++) {
           stepIdx = i;
           s.mag = def.magSize;
           s.chambered = true;
-          // `firePressed` reads the edge set that `Input.beginFrame` fills, and
-          // this harness drives `weapons` directly without an engine frame.
-          e.input._pressed.clear();
-          if (semi) e.input._pressed.add('Mouse0');
-          step(dt);
-          if (weapons.fixedUpdate) {
-            // Feed the same wall-clock to the fixed step, in 120 Hz slices, so
-            // both implementations see the identical amount of time.
-            let acc = dt;
-            while (acc >= 1 / 120) {
-              weapons.fixedUpdate(1 / 120, e.ctx);
-              acc -= 1 / 120;
-            }
+          tick(H, BTN.fire, semi ? BTN.fire : 0);
+          ticks++;
+          frameAcc += H;
+          while (frameAcc >= dt) {
+            step(dt);
+            frameAcc -= dt;
           }
         }
+        void ticks;
         rows.push({
           id,
           fps,
@@ -219,13 +266,36 @@ const out = await page.evaluate(
           // the elapsed time adds one whole shot to the average, which at 30 fps
           // over three seconds reads as +20 rpm and looks exactly like a defect.
           // `(n - 1)` intervals over `last - first` is what "rate of fire" means.
+          // `stepIdx` counts TICKS now, so the interval is in units of 1/120 s
+          // and not of the frame. Leaving `dt` here after the loop moved to the
+          // tick would have scaled every rate by fps/120 — the rifle would have
+          // read 400 rpm at 30 fps and 960 at 144, which looks exactly like the
+          // defect this file was written to catch.
           measured:
-            shots > 1 ? Math.round(((shots - 1) / ((lastAt - firstAt) * dt)) * 60) : 0,
+            shots > 1 ? Math.round(((shots - 1) / ((lastAt - firstAt) * (1 / 120))) * 60) : 0,
           shots,
-          // A semi cannot beat the frame rate no matter how fast the cap is —
-          // one press per frame is one round per frame. Below that the printed
-          // number is unreachable for a reason that is not a defect.
-          reachable: semi ? Math.min(def.rpm, fps * 60) : def.rpm,
+          // The printed rate is reachable for every weapon now. A semi is capped
+          // by how often a PRESS can be delivered, and a press is a one-tick
+          // pulse on the command, so the ceiling is 120/s = 7200 rpm rather than
+          // the frame rate. In play the edge is OR-accumulated from frames into
+          // the tick, so even a 30 fps player clears 1800 rpm.
+          reachable: def.rpm,
+          /**
+           * The CONE after the same held burst, which is the other half of
+           * "does the frame rate change this gun".
+           *
+           * Spread gains per shot and decays per second, and the decay used to
+           * run on the rendered frame while the gain ran on the shot — so a
+           * player at 144 fps recovered accuracy 2.4x faster between rounds
+           * than one at 60, for the same trigger. Nothing measured it, because
+           * `ballistics.mjs` drives decay with `weapons.update(60 / def.rpm)`,
+           * a dt chosen to be exactly one shot interval: the same shape of
+           * blind spot that hid the rate of fire for two years.
+           *
+           * It rides on the tick now, so this should be identical across rates
+           * rather than merely close.
+           */
+          spread: +weapons.spreadDegrees.toFixed(6),
         });
       }
     }
@@ -280,7 +350,24 @@ for (const [id, rows] of byWeapon) {
   if (spread / rows[0].nominal > TOL) {
     fail.push(`${id}: ${spread} rpm spread across ${rows.length} frame rates`);
   }
-  console.log(`  ${id.padEnd(7)} nominal ${rows[0].nominal} · measured ${parts.join(' ')}`);
+  // The cone, gated as an EXACT invariant rather than a tolerance. Once the
+  // decay left the rendered frame the arithmetic is the same on every machine,
+  // so anything but equality means something frame-scoped crept back in — and a
+  // tolerance sized to "what a player would notice" would wave it through, the
+  // way `tools/aim.mjs` found a 1e-4 ceiling waving through a 5e-5 defect.
+  const cones = rows.map((r) => r.spread);
+  const coneSpread = Math.max(...cones) - Math.min(...cones);
+  if (coneSpread > 1e-9) {
+    fail.push(
+      `${id}: spread cone depends on the frame rate — ` +
+      rows.map((r) => `${r.fps}:${r.spread}`).join(' ') +
+      ` (${coneSpread.toExponential(2)} deg apart)`
+    );
+  }
+  console.log(
+    `  ${id.padEnd(7)} nominal ${rows[0].nominal} · measured ${parts.join(' ')} · ` +
+    `cone ${cones[0]}° at every rate`
+  );
 }
 
 if (errors.length) fail.push(`page errors: ${errors.slice(0, 3).join(' | ')}`);

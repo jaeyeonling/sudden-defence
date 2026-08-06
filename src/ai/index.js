@@ -844,6 +844,57 @@ export class AiSystem {
     this.ctx.events.emit('weapon:reload', { weapon: 'ai_rifle', phase: 'start', actor: agent });
   }
 
+  /**
+   * Stage a grenade so `prewarm`'s `warmDraw()` binds it through the REAL path.
+   *
+   * `prewarmMaterials` already compiles this material, at both directional-light
+   * counts and into the HDR target, and that genuinely removed the late shader
+   * program — the gate has held at zero since. It did not remove the STALL, and
+   * the reason is written a few lines above the compile itself: adding and
+   * removing an object around a compile draws nothing. Compiling a program and
+   * drawing a primitive with it are two different events, and only the second
+   * makes the driver build a pipeline for the target it draws into.
+   *
+   * So the first thrown grenade still cost ~125 ms, on about one run in four.
+   * `tools/profile.mjs --passes --draws --visdiff` attributed it three ways on
+   * the same frame:
+   *
+   *   passes   world 126.5 (x6) seq[0.2 0.9 0 0.2 11.8 113.4]   <- the 6th call
+   *   draws    112.9 ms, 88 % of the frame, ONE draw, tris=80
+   *   visdiff  Mesh#754fa7 became visible, parents ['ai','Scene']
+   *
+   * `IcosahedronGeometry(0.045, 1)` is 80 faces, which is what names it. It was
+   * the only mesh to appear in the entire 900-frame run.
+   *
+   * `fx` and `weapons` have had this hook since the decal and muzzle-flash
+   * stalls. `ai` never got one, because apart from the grenade nothing it owns
+   * is hidden at boot — every soldier is on screen from frame 0 and warms itself.
+   *
+   * `frustumCulled = false` is load-bearing. A culled mesh issues no draw call,
+   * and a warm that issues no draw call warms nothing — the same mistake as
+   * compiling, one level down, and indistinguishable from outside: a hook that
+   * runs, reports ok, and moves no number.
+   */
+  prewarmTransients() {
+    this._ensureGrenade();
+    if (!this._warmGrenade) {
+      this._warmGrenade = new THREE.Mesh(this._grenadeGeo, this._grenadeMat);
+      this._warmGrenade.frustumCulled = false;
+    }
+    const mesh = this._warmGrenade;
+    // A few metres down the boot camera's forward axis, so it actually
+    // rasterises rather than being clipped away. Drivers may defer pipeline
+    // finalisation until something covers a sample, and a warm that relies on
+    // them not doing so is a warm that works on one machine. `warmDraw` renders
+    // into targets every real pass clears first, so these pixels reach no frame.
+    const cam = this.ctx.camera;
+    mesh.position.set(0, 0, -3).applyQuaternion(cam.quaternion).add(cam.position);
+    mesh.updateMatrixWorld(true);
+    this.root.add(mesh);
+
+    return { ok: true, restore: () => this.root.remove(mesh) };
+  }
+
   /** Grenade geometry + material. Built at prewarm, not on the first throw. */
   _ensureGrenade() {
     if (this._grenadeGeo) return;

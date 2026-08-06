@@ -36,6 +36,14 @@
  *   node tools/profile.mjs --port=8080 --dpr=2 --w=1512 --h=982
  *   node tools/profile.mjs --noaudio     # control: is the stall in WebAudio?
  *   node tools/profile.mjs --prefire     # control: is it a one-time first-shot warm?
+ *
+ * Zooming in on a stall, coarse to fine. Each answers the question the previous
+ * one leaves open, and each costs more than the last, which is why none of them
+ * are on by default:
+ *
+ *   --passes    which renderer.render call    (phase timing said "render.render")
+ *   --draws     which draw inside it          (--passes said "the 6th world pass")
+ *   --visdiff   what became visible that frame (a new draw has to come from somewhere)
  */
 import { chromium } from 'playwright';
 import { resolve } from 'node:path';
@@ -53,6 +61,16 @@ const W = Number(args.w ?? 1512);
 const H = Number(args.h ?? 982);
 const DPR = Number(args.dpr ?? 2);
 const FRAMES = Number(args.frames ?? 900);
+/**
+ * What counts as a stall worth explaining. 50 ms is the reporting default: three
+ * missed frames at 60 Hz, i.e. the point a player notices.
+ *
+ * It is a flag because a probe that reports nothing is indistinguishable from a
+ * probe that is broken. Drop it to 5 and every ordinary frame prints its
+ * breakdown, which is how you prove the instrumentation is alive BEFORE trusting
+ * it to stay silent through a run that had no stall.
+ */
+const STALL_MS = Number(args.stallms ?? 50);
 
 const portOpen = (port) =>
   new Promise((res) => {
@@ -331,6 +349,65 @@ if (args.passes) {
   });
 }
 
+// `--draws` breaks the stalling PASS open into individual draw calls.
+//
+// `--passes` narrowed the surviving stall to one call — "world 129.7 over 6
+// calls, seq[0.1 0.9 0 0.1 0.2 128.4]", the sixth render of the world scene —
+// and then stopped being useful for the same reason the phase timing did one
+// level up: a forward pass is a thousand draws, and "the forward pass" is not a
+// thing you can go and pre-warm.
+//
+// The reproduction rate is about one run in four. Adding retries buys a coin
+// flip; adding resolution buys an answer, so this is the cheaper move even
+// though it is more code. One catch now has to name an object.
+//
+// three funnels every draw through `renderBufferDirect`, so wrapping that one
+// method and keeping the WORST SINGLE CALL of each frame attributes the stall to
+// a mesh and a material. Worst-single rather than a total: the hypothesis on the
+// table is a driver building a pipeline for a draw it has not seen before, which
+// is one call blocking for a tenth of a second, not a thousand calls each
+// costing a hundred microseconds. If the worst call turns out to be 2 ms on a
+// 130 ms frame, that hypothesis is dead and the cost is somewhere between the
+// draws — which is a different investigation, and worth knowing.
+//
+// Off by default: two `performance.now()` calls per draw per frame.
+if (args.draws) {
+  await page.evaluate(() => {
+    const e = window.__ENGINE__;
+    const r = e.ctx.get('render').renderer;
+    const worst = { ms: 0, what: '', n: 0, total: 0 };
+    window.__DRAW__ = worst;
+    const orig = r.renderBufferDirect.bind(r);
+    r.renderBufferDirect = (camera, scene, geometry, material, object, group) => {
+      const t = performance.now();
+      try {
+        return orig(camera, scene, geometry, material, object, group);
+      } finally {
+        const ms = performance.now() - t;
+        worst.n++;
+        worst.total += ms;
+        if (ms > worst.ms) {
+          worst.ms = ms;
+          const g = geometry;
+          const tris = g?.index ? g.index.count / 3 : (g?.attributes?.position?.count ?? 0) / 3;
+          // Everything that would distinguish one permutation of this material
+          // from another, because the answer to "why was this draw new" is
+          // usually one of these flipping: a skinned mesh, a shadow caster, an
+          // instanced batch, a material that only exists once someone dies.
+          worst.what =
+            `${object?.name || object?.type}` +
+            ` mat=${material?.name || material?.type}#${material?.uuid?.slice(0, 6)}` +
+            ` tris=${Math.round(tris)}` +
+            (object?.isSkinnedMesh ? ' skinned' : '') +
+            (object?.isInstancedMesh ? ` instanced(${object.count})` : '') +
+            (material?.transparent ? ' transparent' : '') +
+            (material?.wireframe ? ' wireframe' : '');
+        }
+      }
+    };
+  });
+}
+
 // Enable player control and run a scripted gameplay sequence while sampling.
 await page.evaluate(() => {
   const e = window.__ENGINE__;
@@ -344,7 +421,7 @@ await page.evaluate(() => {
   if (ai && ai.agents.length === 0) ai.populate({ perTeam: 8 });
 });
 
-const result = await page.evaluate((FRAMES) => new Promise((done) => {
+const result = await page.evaluate(([FRAMES, STALL_MS]) => new Promise((done) => {
   const e = window.__ENGINE__;
   const r = e.ctx.peek('render');
   const samples = [];
@@ -442,7 +519,7 @@ const result = await page.evaluate((FRAMES) => new Promise((done) => {
     // The map holds the PREVIOUS frame's phase totals, because this callback runs
     // before the engine steps again. A frame that stalled is therefore explained by
     // the numbers standing here at the top of the frame after it.
-    if (dt > 50 && phaseAcc?.size) {
+    if (dt > STALL_MS && phaseAcc?.size) {
       const top = [...phaseAcc.entries()]
         .filter(([, ms]) => ms > 1)
         .sort((a, b) => b[1] - a[1])
@@ -455,7 +532,22 @@ const result = await page.evaluate((FRAMES) => new Promise((done) => {
           .slice(0, 6)
           .map(([k, v]) => `${k} ${v.ms.toFixed(1)}(x${v.n}) seq[${v.seq.slice(0, 8).join(' ')}]`)
         : undefined;
-      stalls.push({ frame: i, ms: +dt.toFixed(1), top, ...(passes ? { passes } : {}) });
+      // The worst single draw of the frame, and what fraction of the stall it
+      // is. `share` is the number that decides the hypothesis: near 1 means one
+      // draw blocked, near 0 means the cost is spread and the pipeline story is
+      // wrong.
+      const dw = window.__DRAW__;
+      const draw = dw?.n
+        ? `${dw.ms.toFixed(1)} ms (${((dw.ms / dt) * 100).toFixed(0)}% of frame) ` +
+          `of ${dw.n} draws totalling ${dw.total.toFixed(1)} ms — ${dw.what}`
+        : undefined;
+      stalls.push({
+        frame: i,
+        ms: +dt.toFixed(1),
+        top,
+        ...(passes ? { passes } : {}),
+        ...(draw ? { draw } : {}),
+      });
     } else if (i > 60) {
       // Same 60-frame warmup the percentiles drop, and stalls excluded by the
       // branch above — so this is the distribution of ordinary frames only.
@@ -468,6 +560,8 @@ const result = await page.evaluate((FRAMES) => new Promise((done) => {
     // Same one-frame lag as `phaseAcc`, and cleared in the same place for the
     // same reason: these totals describe the frame that just ended.
     window.__RPASS__?.clear();
+    const dw0 = window.__DRAW__;
+    if (dw0) { dw0.ms = 0; dw0.what = ''; dw0.n = 0; dw0.total = 0; }
 
     if (window.__VISDIFF__) {
       const now = new Set();
@@ -598,7 +692,7 @@ const result = await page.evaluate((FRAMES) => new Promise((done) => {
     requestAnimationFrame(tick);
   };
   requestAnimationFrame(tick);
-}), FRAMES);
+}), [FRAMES, STALL_MS]);
 const appeared = result.appeared ?? [];
 const lateProgs = result.lateProgs ?? [];
 const stalls = result.stalls ?? [];
@@ -784,6 +878,18 @@ if (server) { try { process.kill(-server.pid); } catch { /* already gone */ } }
  * `stall` is the number that actually describes how the game FEELS. A 150 ms
  * frame is a visible lurch, and no amount of good median hides one.
  *
+ * It was 250 ms, and that ceiling is precisely what let the last one live. The
+ * first thrown grenade cost 122-142 ms on about one run in four, and every
+ * single occurrence passed a 250 ms gate while being plainly visible to play.
+ * A bound set at the size of the WORST bug you happened to have measured is a
+ * bound that only ever catches that bug again.
+ *
+ * 100 ms is set from the post-fix distribution instead: across 11 runs that
+ * threw a grenade, no frame reached even the 50 ms reporting threshold, so this
+ * is 2x headroom over anything measured and still well under the class of
+ * hitch it exists to catch. See `ai.prewarmTransients` for the fix — compiling
+ * a program is not drawing with it, and only the draw builds the pipeline.
+ *
  * `compiledDuringPlay` is required to be 0. It was bounded at 1 for as long as
  * the job was unfinished, and the thing that finished it was not another idea
  * about renderers but the `nearest` diff added below: a late cache key beside
@@ -800,7 +906,7 @@ if (server) { try { process.kill(-server.pid); } catch { /* already gone */ } }
  */
 if (args.gate) {
   const P50_FPS_FLOOR = 35;
-  const STALL_CEIL_MS = 250;
+  const STALL_CEIL_MS = 100;
   const LATE_PROGRAM_CEIL = 0;
   const bad = [];
   const p50 = fpsOut.p50;

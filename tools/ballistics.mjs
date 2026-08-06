@@ -17,11 +17,19 @@
  * fighting" — 2.05 degrees sounds tight and is 0.72 m of radius at 20 m, which
  * is wider than a torso.
  *
- * Falloff is `1 - (1 - dropoff) * (travelled/maxRange)^2`. With `maxRange` in
- * the hundreds of metres and a 48x36 m depot, `travelled/maxRange` never leaves
- * the flat part of that parabola, so every weapon does full damage everywhere
- * and the range axis — the thing that is supposed to separate an SMG from a
- * carbine — does not exist.
+ * Falloff is `1 - (1 - dropoff) * (travelled/falloffRange)^2`. It used to read
+ * `maxRange`, which is in the hundreds of metres, so on a 48x36 m depot the
+ * ratio never left the flat part of that parabola: every weapon did full damage
+ * everywhere and the range axis — the thing that is supposed to separate an SMG
+ * from a carbine — did not exist. `falloffRange` (55/30/38) is what fixed it,
+ * and the STK row in the summary is where you check it is still true.
+ *
+ * WHAT THIS TOOL CANNOT TELL YOU is which side of a crossover matters, because
+ * that is a fact about the map and not about the guns. `tools/botfight.mjs`
+ * measures it — shooter-to-impact distance on every hit, median 13-15 m across
+ * runs — and the two have to be read together. A four-round band that closes
+ * before that median is a gun nobody should pick, however good its top line
+ * looks here; that is exactly what the MPX-9 was until its damage went to 29.
  *
  *   node tools/ballistics.mjs
  */

@@ -215,11 +215,38 @@ export const WEAPON_DEFS = {
     magSize: 32,
     reserve: 224,
     muzzleVelocity: 400,
-    /* 27, up from 24. Four rounds is 108, so the SMG kills in four inside its
-     * effective range — at 950 rpm that is 189 ms, the fastest kill in the game
-     * and the entire reason to carry it. 24 needed five rounds (253 ms), which
-     * was slower than the rifle's four while also being less accurate. */
-    damage: 27,
+    /* 29, up from 27, up from 24.
+     *
+     * Four rounds is the entire reason to carry this: at 950 rpm that is 189 ms,
+     * the fastest kill in the game, against the M4A1's 225 ms. 24 needed five
+     * (253 ms), which was slower than the rifle while also being less accurate.
+     * 27 fixed that arithmetic and left the real problem, which is that "four
+     * rounds" is not a property of the gun — it is a property of the DISTANCE,
+     * and nothing had ever measured the distances this map actually produces.
+     *
+     * It does now. `tools/botfight.mjs` records the shooter-to-impact distance
+     * of every hit, and across three bot fights the median engagement came out
+     * at 13.0, 14.7 and 15.4 m. At 27 damage the four-round band closed at ~12:
+     *
+     *     27 dmg   5m:4  10m:4  15m:5  25m:6  35m:8
+     *
+     * So the fastest kill in the game was unavailable at the distance people
+     * actually fight at. The advantage covered roughly the closest tenth of
+     * engagements and the penalty covered more than half of them, which is not a
+     * close-range specialist — it is a trap pick.
+     *
+     * 29 puts the crossover ON the median instead of in front of it:
+     *
+     *     29 dmg   5m:4  14m:4  16m:5  20m:5  25m:6  35m:7
+     *
+     * Inside ~15 m the MPX-9 kills in 189 ms and the M4A1 in 225. Outside it the
+     * MPX-9 needs five (253 ms) and loses; past 25 m it is not in the fight.
+     * `falloffRange` stays at 30 precisely so that collapse stays sharp —
+     * widening the range would buy the same four-round band by making the gun
+     * mediocre everywhere instead of decisive somewhere.
+     *
+     * Re-derive before touching it: the median moves if the map does. */
+    damage: 29,
     penetration: 0.45,
     /* The steepest curve of the three, and the shortest reach. 4 shots to kill
      * close, 5 at 15 m, 6 at 25 m, 8 at 35 m — the SMG loses a lane fight and

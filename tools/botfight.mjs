@@ -160,6 +160,28 @@ const out = await page.evaluate(
         });
       });
 
+      // ENGAGEMENT DISTANCE, because it is what decides whether the SMG is a
+      // weapon or a trap.
+      //
+      // `tools/ballistics.mjs` measures each gun against the range axis and the
+      // two primaries cross over: the MPX-9 kills in 189 ms against the M4A1's
+      // 225 ms, but its shots-to-kill runs 4/5/6/8 across 5/15/25/35 m while the
+      // rifle holds 4 everywhere. Which of those is the better gun is not a
+      // property of the guns — it is a property of how far apart people actually
+      // are when they shoot, and nothing here had ever measured that.
+      //
+      // Taken from `damage:dealt`, which carries both the shooter and the impact
+      // point. Read immediately: that payload object is REUSED per event
+      // (`physics._damagePayload`), so keeping a reference records the last round
+      // of the fight N times over instead of N different rounds.
+      const hitDist = [];
+      const offDmg = e.events.on('damage:dealt', (d) => {
+        const p = d.source?.position;
+        const q = d.point;
+        if (!p || !q) return;
+        hitDist.push(Math.hypot(p.x - q.x, p.y - q.y, p.z - q.z));
+      });
+
       const start = e.time.elapsed;
       const stallPrev = new Map();
       const stalls = new Map();
@@ -240,6 +262,7 @@ const out = await page.evaluate(
         const over = a === 0 || b === 0;
         if (over || elapsed > SECONDS) {
           off();
+          offDmg();
           const byTeam = {};
           for (const c of match.combatants) {
             const t = (byTeam[c.team] ??= { kills: 0, deaths: 0, damage: 0 });
@@ -370,6 +393,20 @@ const out = await page.evaluate(
                   bravoIds: B.map((x) => x.id),
                 }
                 : null;
+            })(),
+            // Percentiles, not a mean: the question is what share of hits land
+            // inside the SMG's window, and a mean is dragged around by the long
+            // cross-hall tail that no gun is contested at.
+            range: (() => {
+              if (!hitDist.length) return null;
+              const v = hitDist.slice().sort((x, y) => x - y);
+              const q = (f) => +v[Math.min(v.length - 1, Math.floor(v.length * f))].toFixed(1);
+              const under = (m) => +(v.filter((x) => x <= m).length / v.length).toFixed(2);
+              return {
+                n: v.length,
+                p10: q(0.1), p50: q(0.5), p90: q(0.9),
+                under10: under(10), under15: under(15), under25: under(25),
+              };
             })(),
             survivorGap: over ? null : (() => {
               const live = ai.agents.filter((x) => x.alive);
@@ -535,7 +572,13 @@ console.log(
       `${out.headshots} headshots, 0 team kills · ` +
       // Reported every run, like pressShare: a stall figure that only appears
       // when it trips the gate is a number nobody can see drifting toward it.
-      `worst blocked-move ${(out.stalls?.[0]?.worst ?? 0)}s`
+      `worst blocked-move ${(out.stalls?.[0]?.worst ?? 0)}s` +
+      // Reported, not gated. It is an observation about the map that the weapon
+      // table has to answer to, and there is no value of it that is a bug.
+      (out.range
+        ? ` · hits at ${out.range.p10}/${out.range.p50}/${out.range.p90} m ` +
+          `(p10/50/90, n=${out.range.n}) · ${Math.round(out.range.under15 * 100)}% inside 15 m`
+        : '')
     : `\nBOTFIGHT FAILED (${fail.length}):\n  ${fail.join('\n  ')}`
 );
 

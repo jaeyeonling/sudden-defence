@@ -1,5 +1,41 @@
 /**
- * Camera feel.
+ * Camera feel — and, kept deliberately separate from it, the AIM.
+ *
+ * ────────────────────────────────────────────────────────────────────────────
+ * TWO VALUES, NOT ONE
+ * ────────────────────────────────────────────────────────────────────────────
+ *
+ * This rig produces two transforms and they are not the same transform:
+ *
+ *   AIM     `aimOrigin` / `aimForward` / `aimPitch` / `aimYaw`
+ *           Stepped in `stepAim()`, on the FIXED TICK. Command angles plus the
+ *           recoil pattern, nothing else. This is what rounds fly along.
+ *
+ *   CAMERA  `eyePosition` / `rotation`
+ *           Composed in `update()`, on the RENDERED FRAME. The aim plus every
+ *           presentation channel below plus render interpolation. This is what
+ *           the player looks through.
+ *
+ * `weapons.tryFire()` used to read the composed camera, which meant bob, breath
+ * sway and trauma shake all steered live rounds — not as a decision anybody
+ * made, but because the camera was the only transform in the building. Measured
+ * at 20 m against a 0.2 m torso half-width and a 0.137 m rifle cone: breath
+ * moved the impact 0.042 m, bob up to 0.087 m, and trauma shake at full
+ * amplitude 0.47 m — three and a half times the weapon's own cone, so an
+ * explosion took a gun's accuracy away more completely than its spread model
+ * ever could. All three are presentation now.
+ *
+ * The other half of the reason is netcode. A shot that is a function of the
+ * rendered frame cannot be stamped with a tick or replayed from a command, and
+ * the recoil springs were integrated with the frame dt, so the same magazine
+ * climbed differently at 60 and 144 fps. `stepAim` runs at the fixed rate, so
+ * the aim is a pure function of the command stream. See `core/command.js`.
+ *
+ * WHAT IS STILL FRAME-RATE OWNED, on purpose: bob, breath, shake, the roll
+ * channels, the positional springs (dip/step/punch) and FOV. None of them touch
+ * a bullet, all of them want to be as smooth as the display is.
+ *
+ * ────────────────────────────────────────────────────────────────────────────
  *
  * Everything a modern shooter does to make a floating pair of eyes read as a
  * body, layered so no single effect ever dominates:
@@ -47,7 +83,16 @@ export class CameraRig {
     this.recoilYaw = new RecoilAxis(C.recoil.freq * 1.08, C.recoil.damping + 0.06, C.recoil.residualTau, C.recoil.residualShare);
     this.recoilRoll = new RecoilAxis(C.recoil.freq * 0.86, C.recoil.damping + 0.1, C.recoil.residualTau, 0.24);
     this.punch = new Spring(C.recoil.punchFreq, C.recoil.punchDamping, 0);
-    /** Second, independent channel: `weapons` pushes into this one. */
+    /**
+     * Second, independent channel, and PRESENTATION ONLY.
+     *
+     * It has no callers. The comment here used to say `weapons` pushes into it;
+     * `weapons` pushes into `addRecoil`, and `addKick` is reachable from
+     * `player.addKick` and invoked by nothing in the tree. Left in place because
+     * it is a documented seam and the split above gives it a meaning it did not
+     * have: a channel that shakes the view without moving the round. Anything
+     * that should move the round belongs in `stepAim`, on the tick.
+     */
     this.kickPitch = new RecoilAxis(11, 0.58, 0.22, 0.28);
     this.kickYaw = new RecoilAxis(11.5, 0.6, 0.22, 0.28);
     this.kickRoll = new RecoilAxis(9, 0.62, 0.22, 0.22);
@@ -68,6 +113,13 @@ export class CameraRig {
     this.baseFov = ctx.config.fov;
     this.fov = this.baseFov;
     this.fovMove = 1;
+
+    // ---- AIM: the simulation half, stepped on the fixed tick -------------
+    // Read by `weapons` through `player.aimOrigin` / `player.aimForward`.
+    this.aimPitch = 0;
+    this.aimYaw = 0;
+    this.aimOrigin = new THREE.Vector3();
+    this.aimForward = new THREE.Vector3(0, 0, -1);
 
     // ---- outputs (read by weapons for counter-motion) --------------------
     this.viewKick = { pitch: 0, yaw: 0, roll: 0, punch: 0 };
@@ -144,6 +196,66 @@ export class CameraRig {
   }
 
   /* ==================================================================== */
+  /* per-tick simulation — the AIM                                        */
+  /* ==================================================================== */
+
+  /**
+   * Advance the half of this rig that a bullet is allowed to see.
+   *
+   * Called from `player.fixedUpdate`, at the fixed rate, ALWAYS — including
+   * when control is disabled. A harness that teleports the player, freezes it
+   * and fires still needs a direction, and before the aim moved off the camera
+   * it got one for free because the camera was composed regardless.
+   * `tools/ballistics.mjs` fires 960 rounds that way.
+   *
+   * Eye height rides along rather than staying with the camera. It is not a
+   * presentation detail — it decides what you can see over and where the round
+   * leaves from — and a smoothing integrated on the frame would put the muzzle
+   * at a different height than the tick during every crouch transition. At 20 m
+   * the ~0.3 m of stance travel is 0.3 m of vertical miss, which is more than a
+   * torso half-width.
+   *
+   * @param {number} h  fixed step, seconds
+   * @param {import('./movement.js').Movement} m
+   */
+  stepAim(h, m) {
+    // ---- stance / eye height --------------------------------------------
+    const targetEye = m.eyeHeight;
+    const growing = targetEye > this.eye;
+    const tau = growing ? MOVE.stanceTau.crouchStand : MOVE.stanceTau.standCrouch;
+    this.eye = approach(this.eye, targetEye, tau, h);
+    this.crouchBlend = clamp01(1 - (this.eye - 1.0) / 0.66);
+
+    // ---- recoil, the only channel that steers a round --------------------
+    // Roll is NOT here and does not need to be: a rotation about the view axis
+    // leaves the forward vector untouched, so `recoilRoll` is presentation by
+    // construction rather than by choice. It steps with the camera.
+    this.recoilPitch.step(h);
+    this.recoilYaw.step(h);
+
+    this.aimPitch = clamp(
+      m.pitch + this.recoilPitch.value, -CAMERA.pitchLimit, CAMERA.pitchLimit
+    );
+    this.aimYaw = m.yaw + this.recoilYaw.value;
+
+    // The SIMULATION eye: this tick's position, not the interpolated render
+    // position and none of the presentation offsets. The camera is drawn from
+    // somewhere between the last two ticks, so a round leaves from up to one
+    // tick ahead of what is on screen — 4 cm at 5 m/s and 120 Hz. That is the
+    // correct direction for the error to point: the shot belongs to the tick.
+    this.aimOrigin.set(m.position.x, m.position.y + this.eye, m.position.z);
+
+    // Forward for a YXZ euler with roll dropped. Written out rather than routed
+    // through a quaternion because this runs every tick and allocates nothing.
+    const cp = Math.cos(this.aimPitch);
+    this.aimForward.set(
+      -Math.sin(this.aimYaw) * cp,
+      Math.sin(this.aimPitch),
+      -Math.cos(this.aimYaw) * cp
+    );
+  }
+
+  /* ==================================================================== */
   /* per-frame composition                                                */
   /* ==================================================================== */
 
@@ -156,12 +268,8 @@ export class CameraRig {
     const C = CAMERA;
     const cfg = this.ctx.config;
 
-    // ---- stance / eye height --------------------------------------------
-    const targetEye = m.eyeHeight;
-    const growing = targetEye > this.eye;
-    const tau = growing ? MOVE.stanceTau.crouchStand : MOVE.stanceTau.standCrouch;
-    this.eye = approach(this.eye, targetEye, tau, dt);
-    this.crouchBlend = clamp01(1 - (this.eye - 1.0) / 0.66);
+    // Eye height and the two aim-bearing recoil axes are NOT stepped here —
+    // they belong to `stepAim` and the tick. See the header.
 
     // ---- yaw basis -------------------------------------------------------
     const sy = Math.sin(m.yaw), cy = Math.cos(m.yaw);
@@ -175,8 +283,6 @@ export class CameraRig {
     this.dip.step(dt);
     this.step.step(dt);
     this.punch.step(dt);
-    this.recoilPitch.step(dt);
-    this.recoilYaw.step(dt);
     this.recoilRoll.step(dt);
     this.kickPitch.step(dt);
     this.kickYaw.step(dt);
@@ -242,13 +348,15 @@ export class CameraRig {
     );
 
     // ---- assemble rotation ----------------------------------------------
+    // Built ON TOP of the tick's aim, not alongside it. `aimPitch` already
+    // carries `m.pitch` and the recoil spring; everything added here is a
+    // presentation channel that deliberately does not reach the round.
     const pitch = clamp(
-      m.pitch + this.recoilPitch.value + this.kickPitch.value + breathPitch +
-        this.bobPitch + shakePitch,
+      this.aimPitch + this.kickPitch.value + breathPitch + this.bobPitch + shakePitch,
       -CAMERA.pitchLimit,
       CAMERA.pitchLimit
     );
-    const yaw = m.yaw + this.recoilYaw.value + this.kickYaw.value + breathYaw + shakeYaw;
+    const yaw = this.aimYaw + this.kickYaw.value + breathYaw + shakeYaw;
     const roll =
       this.strafeRoll + this.turnRoll + this.airRoll +
       this.bobRoll + this.recoilRoll.value + this.kickRoll.value + shakeRoll;

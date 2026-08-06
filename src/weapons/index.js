@@ -88,7 +88,24 @@ export class WeaponSystem {
     this._right = new THREE.Vector3();
     this._up = new THREE.Vector3();
     this._tmp = new THREE.Vector3();
-    this._camDir = new THREE.Vector3();
+    this._aimDir = new THREE.Vector3();
+    /**
+     * The firing basis, resolved once per shot in `_syncAim`.
+     *
+     * Not the camera. The camera carries bob, breath sway and trauma shake, and
+     * reading it here is how all three came to steer live rounds — see the
+     * header of `player/camera.js` for what that measured. `player` owns the aim
+     * now and steps it on the fixed tick.
+     */
+    this._aimQuat = new THREE.Quaternion();
+    this._aimEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+    /**
+     * Set to `{ pitch, yaw }` to aim without a player: `prewarmTransients`
+     * fires three rounds at the ceiling before anything has ticked. It used to
+     * do that by writing `ctx.camera.rotation.x` and putting it back, which
+     * worked only because the camera WAS the aim.
+     */
+    this._aimOverride = null;
     this._firePayload = { weapon: null, origin: new THREE.Vector3(), dir: new THREE.Vector3(), seed: 0 };
     this._reloadPayload = { weapon: null, phase: 'start' };
     // `weapon:shell` carries the canonical { position, velocity } plus the real
@@ -333,6 +350,46 @@ export class WeaponSystem {
   }
 
   /** One round leaves the barrel. Returns false if the trigger clicked dry. */
+  /**
+   * Resolve the firing basis: `_eye` (origin), `_aimDir` (forward) and
+   * `_aimQuat` (the frame the spread cone is built in).
+   *
+   * Three sources, in falling order of authority:
+   *
+   *   1. `_aimOverride`   an explicit pose. `prewarmTransients` only.
+   *   2. `player`         the simulation aim, stepped on the fixed tick. This
+   *                       is the path every real shot takes.
+   *   3. `ctx.camera`     a weapons-only harness with no player registered.
+   *
+   * The camera fallback is the old behaviour and it is kept deliberately narrow.
+   * Two aim sources that can silently disagree is exactly the defect this split
+   * exists to remove, so it is reached only when there is no aim to be had, and
+   * `tools/aim.mjs` asserts that the real path is the one being taken.
+   */
+  _syncAim() {
+    const o = this._aimOverride;
+    if (o) {
+      this._aimEuler.set(o.pitch, o.yaw, 0);
+      this._aimQuat.setFromEuler(this._aimEuler);
+      this._aimDir.set(0, 0, -1).applyQuaternion(this._aimQuat);
+      if (o.origin) this._eye.copy(o.origin);
+      return;
+    }
+    const p = this.player ?? (this.player = this.ctx.peek('player'));
+    if (p?.aimForward) {
+      this._aimEuler.set(p.aimPitch, p.aimYaw, 0);
+      this._aimQuat.setFromEuler(this._aimEuler);
+      this._aimDir.copy(p.aimForward).normalize();
+      this._eye.copy(p.aimOrigin);
+      return;
+    }
+    const cam = this.ctx.camera;
+    cam.updateMatrixWorld();
+    this._aimQuat.copy(cam.quaternion);
+    this._aimDir.set(0, 0, -1).applyQuaternion(this._aimQuat).normalize();
+    this._eye.setFromMatrixPosition(cam.matrixWorld);
+  }
+
   tryFire() {
     const s = this.state;
     if (!s) return false;
@@ -362,16 +419,14 @@ export class WeaponSystem {
     const yaw = s.pattern[idx * 2 + 1];
     this._shotIndex++;
 
-    // ---- aim: camera forward + a spread cone ----
-    const cam = this.ctx.camera;
-    cam.updateMatrixWorld();
-    this._camDir.set(0, 0, -1).applyQuaternion(cam.quaternion).normalize();
-    this._dir.copy(this._camDir);
+    // ---- aim: the tick's aim + a spread cone ----
+    this._syncAim();
+    this._dir.copy(this._aimDir);
     const spreadRad = this._spread * DEG;
     if (spreadRad > 1e-5) {
       const d = this.rng.disc(this._disc ?? (this._disc = { x: 0, y: 0 }));
-      this._right.set(1, 0, 0).applyQuaternion(cam.quaternion);
-      this._up.set(0, 1, 0).applyQuaternion(cam.quaternion);
+      this._right.set(1, 0, 0).applyQuaternion(this._aimQuat);
+      this._up.set(0, 1, 0).applyQuaternion(this._aimQuat);
       this._dir
         .addScaledVector(this._right, Math.tan(spreadRad) * d.x)
         .addScaledVector(this._up, Math.tan(spreadRad) * d.y)
@@ -391,7 +446,6 @@ export class WeaponSystem {
     // muzzle still owns the flash and the tracer, which are cosmetic.
     this.viewmodel.muzzleWorld(this._muzzle);
     const seed = this.rng.u32();
-    this._eye.setFromMatrixPosition(cam.matrixWorld);
     this.physics.fireBullet({
       origin: this._eye,
       dir: this._dir,
@@ -467,7 +521,6 @@ export class WeaponSystem {
       shotIndex: this._shotIndex, spread: this._spread,
       fireTimer: this._fireTimer, sinceShot: this._sinceShot,
       fired: this.stats.fired, decals: fx?._suppressDecals,
-      pitch: this.ctx.camera.rotation.x,
       // DEFERRED WORK, which is the part that is easy to miss and the part the
       // pixel gate actually caught. `tryFire` does not emit its own feedback: it
       // increments `_pendingShots`, stamps `_fireSeed` and queues shells, and
@@ -487,8 +540,18 @@ export class WeaponSystem {
     // Straight up. The roof is solid collision, but a round leaving at this pitch
     // exits through the skylight run rather than into anything a player will look
     // at, and either way the solve it performs is the one being warmed.
-    this.ctx.camera.rotation.x = -Math.PI * 0.48;
-    this.ctx.camera.updateMatrixWorld(true);
+    //
+    // Posed on the AIM, not by writing `ctx.camera.rotation.x` and putting it
+    // back. That worked only while the camera was the aim, and it meant a warm
+    // pass mutated a transform three other subsystems read. The yaw and origin
+    // come from wherever the player currently is; pitch is the only thing this
+    // needs to choose.
+    const p = this.player ?? (this.player = this.ctx.peek('player'));
+    this._aimOverride = {
+      pitch: -Math.PI * 0.48,
+      yaw: p?.aimYaw ?? 0,
+      origin: p?.aimOrigin ?? this.ctx.camera.position,
+    };
     let fired = 0;
     let flashed = 0;
     for (let i = 0; i < 3; i++) {
@@ -509,8 +572,7 @@ export class WeaponSystem {
       flashed += this._flushShots(this.ctx);
     }
     if (fx) fx._suppressDecals = saved.decals;
-    this.ctx.camera.rotation.x = saved.pitch;
-    this.ctx.camera.updateMatrixWorld(true);
+    this._aimOverride = null;
     s.mag = saved.mag;
     s.chambered = saved.chambered;
     s.reserve = saved.reserve;

@@ -131,7 +131,32 @@ const out = await page.evaluate(
     const ph = e.ctx.get('physics');
 
     match.stopMatch();
-    player.setControlEnabled(false); // camera frozen => the cone is pure spread
+    player.setControlEnabled(false);
+
+    /**
+     * Hold the aim still, so the cone that comes out is PURE SPREAD.
+     *
+     * `setControlEnabled(false)` alone used to do this, and only by accident:
+     * with control off `player.update` never called `rig.applyTo`, so the engine
+     * camera was frozen — and `tryFire` traced from the camera. The recoil the
+     * rig accumulated went nowhere. Now that rounds follow the rig's aim
+     * directly, that accidental isolation is gone and the accumulation is
+     * visible: `measure` fires 240 rounds without stepping the engine, so 240
+     * recoil impulses pile up unintegrated and then unwind all at once during
+     * the next weapon swap. Measured, that put the SMG cone at 18.5 m and the
+     * pistol at 26.4 m while the rifle — measured first, before anything had
+     * accumulated — came out correct at 0.132 m.
+     *
+     * So say it outright. The recoil pattern is measured separately below
+     * (`patternClimbDeg`); it has no business inside the spread figure.
+     */
+    const freezeAim = () => {
+      const rig = player.cameraRig;
+      rig.recoilPitch.reset();
+      rig.recoilYaw.reset();
+      rig.recoilRoll.reset();
+      rig.stepAim(0, player.movement);
+    };
 
     const frames = (n) =>
       new Promise((res) => {
@@ -148,7 +173,30 @@ const out = await page.evaluate(
     player.teleport({ x: FEET.x, y: FEET.y + EYE_H, z: FEET.z }, YAW);
     await frames(2);
 
-    const eye = e.ctx.camera.position.clone();
+    /**
+     * The AIM origin, which is where rounds actually leave from.
+     *
+     * NOT `ctx.camera.position`, which is what this read for its whole life.
+     * `player.update` only writes the engine camera while control is enabled
+     * and this harness disables it two lines up — so the camera stays wherever
+     * the boot frames left it, at the spawn, and never learns about the
+     * teleport. That was invisible while `tryFire` ALSO traced from the camera:
+     * origin, direction and this reference point were the same stale transform,
+     * so the cone came out right and the tool was quietly measuring a stance it
+     * was not standing in. The moment the round started leaving from the tick's
+     * eye (`player/camera.js`), projecting impacts from the camera reported
+     * 90th-percentile cone radii of 17, 56 and 71 metres.
+     */
+    const eye = player.aimOrigin.clone();
+    // Assert the aim landed where the teleport asked, because everything below
+    // is measured relative to it and "the reference point is somewhere else"
+    // reads exactly like "this weapon is wildly inaccurate".
+    const aimDrift = Math.hypot(
+      eye.x - FEET.x, eye.y - (FEET.y + EYE_H), eye.z - FEET.z
+    );
+    if (aimDrift > 0.05) {
+      return { fatal: `aim origin is ${aimDrift.toFixed(2)} m from the teleport target` };
+    }
 
     /* ---- falloff, straight off the model physics actually applies -------- */
     const rangeMul = (def, d) => {
@@ -201,6 +249,7 @@ const out = await page.evaluate(
       for (let i = 0; i < shots; i++) {
         refill();
         weapons._fireTimer = 0;
+        freezeAim();
         armed = true;
         if (weapons.tryFire()) fired++;
         setup(); // re-clamp the cone to the stance floor for the next round
@@ -228,6 +277,9 @@ const out = await page.evaluate(
       for (let i = 0; i < 240 && (weapons.activeId !== id || weapons.switching); i++) {
         await frames(1);
       }
+      // These are the only real engine frames in the run, so they are the only
+      // place unintegrated recoil can unwind. Land the aim before measuring.
+      freezeAim();
       const def = weapons.current;
       const st = weapons.states.get(id);
       /** Reloading also blocks the trigger; top the magazine up by hand. */
@@ -260,6 +312,7 @@ const out = await page.evaluate(
       weapons._fireTimer = 0;
       for (let i = 0; i < Math.round(TTK_HOLD_S * TTK_FPS); i++) {
         refill();
+        freezeAim();
         weapons.update(dtFixed, e.ctx);
         clock += dtFixed;
         // The real auto path is `while (tryFire())`: a frame that lasted two
@@ -349,6 +402,7 @@ const out = await page.evaluate(
       for (let i = 0; i < 20; i++) {
         refill();
         weapons._fireTimer = 0;
+        freezeAim();
         weapons.tryFire();
         sustained.push(+weapons.spreadDegrees.toFixed(3));
         // Advance the clock by exactly one shot interval so decay is real.
@@ -411,6 +465,14 @@ const out = await page.evaluate(
 );
 
 /* ---------------------------------------------------------------- verdict */
+
+// A precondition that did not hold is not a measurement. Say which one.
+if (out?.fatal) {
+  console.log(`\nBALLISTICS FAILED — harness precondition: ${out.fatal}`);
+  await browser.close();
+  if (vite) process.kill(-vite.pid);
+  process.exit(1);
+}
 
 const fail = [];
 const warn = [];

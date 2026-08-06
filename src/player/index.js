@@ -160,6 +160,10 @@ export class PlayerSystem {
     this.movement.pitch = 0;
     this._prevYaw = spawn.yaw;
     this.rig.reset(STANCE.stand.eye);
+    // Aim first. `update` composes the camera ON TOP of the aim now, so a rig
+    // that has never had a tick would compose from a zeroed aim and point the
+    // camera down -Z at the origin on frame one.
+    this.rig.stepAim(1 / 120, this.movement);
     this.rig.update(1 / 60, this.movement, this.health);
     this.rig.applyTo(ctx.camera);
 
@@ -283,8 +287,11 @@ export class PlayerSystem {
     // ground probe keep working and the capsule stays settled on the floor.
     this.movement.controlEnabled = this.controlEnabled && !this.frozen && !this.dead;
     this.movement.applyCommand(ctx.commands?.current);
-    if (!this.controlEnabled) return;
-    this.movement.step(h);
+    if (this.controlEnabled) this.movement.step(h);
+    // The aim is the simulation's, so it advances on the tick and it advances
+    // even with control off — see `CameraRig.stepAim`. After `step`, so the
+    // round leaves from where this tick put the body rather than the last one's.
+    this.rig.stepAim(h, this.movement);
   }
 
   update(dt, ctx) {
@@ -471,8 +478,37 @@ export class PlayerSystem {
   get velocity() {
     return this.movement.velocity;
   }
+  /**
+   * The COMPOSED view direction — where the player is looking, bob and shake
+   * and all. Audio, spectating and UI want this. A weapon does not: see
+   * `aimForward`.
+   */
   get forward() {
     return this.rig.forward;
+  }
+  /* ---- the simulation aim, owned by the fixed tick -------------------- */
+  /**
+   * Where a round leaves from, and along what.
+   *
+   * Separate from `eyePosition` / `forward` on purpose — those are the camera,
+   * which carries bob, breath sway, trauma shake and render interpolation, none
+   * of which anybody decided should steer a bullet. See the header of
+   * `camera.js` for the measured sizes and why they are out.
+   *
+   * Both are live references into the rig, refreshed every tick. Copy before
+   * holding one across a step.
+   */
+  get aimOrigin() {
+    return this.rig.aimOrigin;
+  }
+  get aimForward() {
+    return this.rig.aimForward;
+  }
+  get aimPitch() {
+    return this.rig.aimPitch;
+  }
+  get aimYaw() {
+    return this.rig.aimYaw;
   }
   get yaw() {
     return this.movement.yaw;
@@ -604,6 +640,11 @@ export class PlayerSystem {
     }
     this.movement.teleport(eyeOrPos.x, feetY, eyeOrPos.z);
     this.rig.reset(eyeH);
+    // Snap the aim to the new pose instead of waiting for a tick. A harness
+    // that teleports and fires in the same breath — `tools/ballistics.mjs`
+    // waits two frames, `prewarm` waits none — would otherwise trace from the
+    // previous position along the previous heading.
+    this.rig.stepAim(0, this.movement);
     this.rig.eyePosition.set(eyeOrPos.x, eyeOrPos.y, eyeOrPos.z);
     this.rig.fov = this.ctx.config.fov;
     this._lookFrame = this.ctx.time.frame;
@@ -631,6 +672,7 @@ export class PlayerSystem {
     this.movement.pitch = 0;
     this.movement.teleport(sp.position.x, feetY, sp.position.z);
     this.rig.reset(STANCE.stand.eye);
+    this.rig.stepAim(0, this.movement);
   }
 
   /** Named states for dev overlays and future shots. */

@@ -239,6 +239,19 @@ await page.evaluate(() => {
       }
     }
 
+    // Release the seam the moment this harness stops driving.
+    //
+    // `override` is a LATCH: once set, `CommandStream.build` reads it every tick
+    // forever and the device is ignored. This block sets it and used to have no
+    // matching clear, so turning `__DRIVE__` off left the player pinned at
+    // moveX/moveY 0 — indistinguishable from a movement bug, and now also from a
+    // dead trigger, because `held` carries `BTN.fire` since the trigger moved to
+    // the tick. Nothing depended on the leak while observe only ever drove; it
+    // would have been someone else's afternoon the first time it did not.
+    if (!window.__DRIVE__ || player.dead || match.frozen) {
+      if (e.ctx.commands.override) e.ctx.commands.override = null;
+    }
+
     if (window.__DRIVE__ && !player.dead && !match.frozen) {
       // Drive through the command stream, not by poking `movement.cmd`. The
       // stream rebuilds `cmd` from a command every tick, so a direct poke would

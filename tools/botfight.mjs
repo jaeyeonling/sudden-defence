@@ -29,6 +29,7 @@
 import { chromium } from 'playwright';
 import { spawn } from 'node:child_process';
 import net from 'node:net';
+import { bandEdge, stkBands, formatBands } from './lethality.mjs';
 
 const args = Object.fromEntries(
   process.argv.slice(2).map((a) => {
@@ -394,6 +395,28 @@ const out = await page.evaluate(
                 }
                 : null;
             })(),
+            // The weapon table, so the caller can score these distances against
+            // each gun's OWN band edges instead of against a round number.
+            //
+            // `under15` was a magic 15. It was close to the MPX-9's four-round
+            // edge by luck — the edge is 15.8 m at 29 damage and was 11.5 m at
+            // 27 — so the one run of this harness that mattered most, the one
+            // that justified the damage change, was scored against a threshold
+            // that did not track the thing being decided. `tools/lethality.mjs`
+            // solves the edge from the same falloff model physics applies.
+            weapons: (() => {
+              const wp = e.ctx.peek('weapons');
+              if (!wp?.states) return null;
+              return [...wp.states.entries()].map(([id, s]) => ({
+                id,
+                label: s.def.label,
+                damage: s.def.damage,
+                dropoff: s.def.dropoff,
+                falloffRange: s.def.falloffRange ?? s.def.maxRange,
+                maxRange: s.def.maxRange,
+                rpm: s.def.rpm,
+              }));
+            })(),
             // Percentiles, not a mean: the question is what share of hits land
             // inside the SMG's window, and a mean is dragged around by the long
             // cross-hall tail that no gun is contested at.
@@ -406,6 +429,17 @@ const out = await page.evaluate(
                 n: v.length,
                 p10: q(0.1), p50: q(0.5), p90: q(0.9),
                 under10: under(10), under15: under(15), under25: under(25),
+                // Every distance, sorted, one decimal.
+                //
+                // A single fight produces 20-50 hits, and a p50 out of 21 samples
+                // is a coin toss dressed as a measurement — three runs here gave
+                // medians of 9.6, 9.9 and 15.9 m, a spread wide enough to move
+                // the MPX-9 from "band covers the median comfortably" to "band
+                // closes on it". The percentiles above are per-run and stay
+                // per-run; this is what lets several runs be POOLED, which is the
+                // only honest way to quote a median for the map rather than for
+                // an afternoon.
+                all: v.map((x) => +x.toFixed(1)),
               };
             })(),
             survivorGap: over ? null : (() => {
@@ -577,10 +611,36 @@ console.log(
       // table has to answer to, and there is no value of it that is a bug.
       (out.range
         ? ` · hits at ${out.range.p10}/${out.range.p50}/${out.range.p90} m ` +
-          `(p10/50/90, n=${out.range.n}) · ${Math.round(out.range.under15 * 100)}% inside 15 m`
+          `(p10/50/90, n=${out.range.n})`
         : '')
     : `\nBOTFIGHT FAILED (${fail.length}):\n  ${fail.join('\n  ')}`
 );
+
+/**
+ * What this map's distances do to each gun.
+ *
+ * Reported, never gated. There is no share of hits inside a band that is a
+ * defect — it is the observation the weapon table has to answer to, and the
+ * answer is a design call. What was wrong before was not the absence of a gate
+ * but the absence of the number: the MPX-9 spent a release as a trap pick
+ * because "how often is the four-round band actually available" had never been
+ * printed anywhere.
+ */
+if (out.range && out.weapons) {
+  console.log('\n─── this map, against the weapon table ' + '─'.repeat(31));
+  const v = out.range.all ?? [];
+  for (const w of out.weapons) {
+    const edge = bandEdge(w, 4);
+    const share = Number.isFinite(edge)
+      ? v.filter((d) => d <= edge).length / v.length
+      : 1;
+    console.log(
+      `  ${w.label.padEnd(7)} 4-round band ` +
+      (Number.isFinite(edge) ? `to ${edge.toFixed(1)} m` : 'everywhere').padEnd(14) +
+      `· covers ${(share * 100).toFixed(0)}% of ${v.length} hits · ${formatBands(stkBands(w))}`
+    );
+  }
+}
 
 await browser.close();
 if (vite) process.kill(-vite.pid);

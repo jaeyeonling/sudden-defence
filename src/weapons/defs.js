@@ -64,12 +64,23 @@ import { DEG } from './mathx.js';
  * THE THREE ROLES, as measured (100 HP, head x4)
  * ────────────────────────────────────────────────────────────────────────────
  *
- *   M4A1   800 rpm   4 shots to kill at EVERY range, 1-tap head everywhere.
- *                    225 ms. The weapon with no bad matchup and no best one.
- *   MPX-9  950 rpm   4 shots inside ~10 m falling to 8 at 35 m. 189 ms close —
- *                    the fastest kill in the game — and useless down a lane.
- *   P-19   460 rpm   4 shots close, 1-tap head to ~18 m, 391 ms. Precise when
- *                    tapped, punishing when mashed. A sidearm that can win.
+ * Band edges are SOLVED from the falloff curve (`tools/lethality.mjs`), not read
+ * off a grid of sample ranges — the grid this table used to quote ran 5/15/25/35
+ * and straddled every edge that matters. RPM and TTK are MEASURED through the
+ * fire path at 60 fps, not copied from the `rpm` field below; see the note on
+ * `_advanceFireTimer` for the two years in which those were different numbers.
+ *
+ *   M4A1   802 rpm   4 shots to kill at EVERY range, 1-tap head everywhere.
+ *                    224 ms. The weapon with no bad matchup and no best one.
+ *   MPX-9  951 rpm   4 shots to 15.8 m, then 5 to 23.6, 6 to 27.7, 7 beyond.
+ *                    189 ms close — the fastest kill in the game — and useless
+ *                    down a lane. 1-tap head to 15.8 m.
+ *   P-19   460 rpm   4 shots to 18.5 m, 1-tap head to the same 18.5, 391 ms.
+ *                    Precise when tapped, punishing when mashed.
+ *
+ * The four-round band and the one-tap head range are ALWAYS the same distance:
+ * both ask for 25 damage on the round (4 x 25 = 100 = 1 x 4 x 25). They are one
+ * fact wearing two hats, so nothing can move one without moving the other.
  */
 
 export const WEAPON_DEFS = {
@@ -245,12 +256,47 @@ export const WEAPON_DEFS = {
      * widening the range would buy the same four-round band by making the gun
      * mediocre everywhere instead of decisive somewhere.
      *
-     * Re-derive before touching it: the median moves if the map does. */
+     * Re-derive before touching it: the median moves if the map does.
+     *
+     * ── RE-DERIVED after the fire-rate fix (`_advanceFireTimer`) ─────────────
+     *
+     * The 189 / 225 ms pair above was never what the game did. `_fireTimer`
+     * rounded every interval up to a whole frame, so at 60 fps the MPX-9 ran at
+     * 900 rpm and the M4A1 at 720 — 200 against 250 ms. The SMG's close-range
+     * edge was therefore 50 ms in play while this comment argued from 36, and
+     * fixing the timer took 14 ms of real advantage off this gun without anyone
+     * touching its damage. That is the whole reason to re-check: the argument
+     * was made against numbers the code did not produce.
+     *
+     * It survives, and not narrowly. Eight bot fights pooled — 255 hits, not the
+     * 20-40 a single fight yields, which is a sample too small to site a
+     * crossover with — give p25 9.3, p50 14.4, p75 19.8 m. Against that
+     * distribution, the four-round band covers:
+     *
+     *     26 dmg -> band  8.3 m -> 22 % of hits
+     *     27 dmg -> band 11.5 m -> 29 %
+     *     28 dmg -> band 13.9 m -> 43 %
+     *     29 dmg -> band 15.8 m -> 60 %      <- here
+     *     30 dmg -> band 17.3 m -> 73 %
+     *
+     * 29 sits on the steepest step of that curve and puts the edge just past the
+     * median rather than in front of it. 27 was worse than this comment claimed
+     * — "roughly the closest tenth" was optimistic; it was 29 % — and 30 starts
+     * to make the gun simply better than the rifle across most of the map, which
+     * is the failure in the other direction.
+     *
+     * What the fire-rate fix DID cost is real and is the trade: inside 15.8 m
+     * the MPX-9 now kills 35 ms faster than the M4A1 rather than 50, in 60 % of
+     * engagements, and is strictly worse in the other 40 % — five rounds against
+     * four, through a wider cone. That is a specialist. */
     damage: 29,
     penetration: 0.45,
     /* The steepest curve of the three, and the shortest reach. 4 shots to kill
-     * close, 5 at 15 m, 6 at 25 m, 8 at 35 m — the SMG loses a lane fight and
-     * is supposed to. Head is a one-tap only inside ~11 m. */
+     * out to 15.8 m, 5 to 23.6, 6 to 27.7, 7 beyond — the SMG loses a lane fight
+     * and is supposed to. Head is a one-tap inside that same 15.8 m, necessarily
+     * (see the header). This paragraph read "5 at 15 m ... 8 at 35 m ... one-tap
+     * inside ~11 m" until the ladder was solved rather than sampled: those are
+     * the 27-damage numbers, left behind when the damage moved to 29. */
     dropoff: 0.5,
     falloffRange: 30,
     maxRange: 200,

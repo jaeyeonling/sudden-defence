@@ -36,6 +36,7 @@
 import { chromium } from 'playwright';
 import { spawn } from 'node:child_process';
 import net from 'node:net';
+import { stkBands, formatBands, bandEdge } from './lethality.mjs';
 
 const args = Object.fromEntries(
   process.argv.slice(2).map((a) => {
@@ -47,6 +48,40 @@ const PORT = Number(args.port ?? 5173);
 const RANGES = [5, 15, 25, 35];
 /** Where the cone is measured. Median engagement distance on this map. */
 const MEASURE_AT = 20;
+/**
+ * The frame time every TTK below is measured at.
+ *
+ * 60, because it is both the commonest operating point and the one the fire
+ * timer used to be worst at for the rifle (-10 %). It is one rate on purpose —
+ * sweeping five of them is `tools/firerate.mjs`'s job, and duplicating the sweep
+ * here would be two implementations of the same measurement free to disagree.
+ * What this needs is narrower: is the cadence this tool prints TTKs from the
+ * cadence the code produces, right here, right now.
+ */
+const TTK_FPS = 60;
+/** Seconds of fire per weapon for that measurement. */
+const TTK_HOLD_S = 3;
+/** How far the measured rate may sit from the printed one before it is a fault. */
+const RPM_TOL = 0.05;
+/**
+ * Median shooter-to-impact distance on this map, in metres.
+ *
+ * NOT a design choice — a reading, and the only reason it is a constant here is
+ * that the tool that takes it is a different process. `tools/botfight.mjs`
+ * records every hit's distance; POOLED across eight fights (n=255) the current
+ * warehouse gives p25 9.3, p50 14.4, p75 19.8 m.
+ *
+ * Pooled, because a single fight yields 20-40 hits and its p50 is a coin toss
+ * dressed as a measurement — the eight runs behind this number had per-run
+ * medians of 7.3, 12.2, 13.8, 14.4, 14.6, 16.1, 16.5 and 20.0 m. Quoting any
+ * one of those would move the MPX-9 verdict; quoting the pool does not.
+ *
+ * It is used for ONE thing: warning when a primary's four-round band closes in
+ * front of the distance people actually fight at, which is what made the MPX-9 a
+ * trap pick at 27 damage (band 11.5 m, 29 % of hits). Re-derive it whenever
+ * `world/warehouse.js` moves — cover is what sets it.
+ */
+const MEDIAN_ENGAGEMENT = Number(args.median ?? 14.4);
 
 const portOpen = (port) =>
   new Promise((res) => {
@@ -88,7 +123,7 @@ await page.goto(`http://127.0.0.1:${PORT}/?prewarm=0`, { waitUntil: 'load' });
 await page.waitForFunction('window.__READY__ === true', null, { timeout: 120000 });
 
 const out = await page.evaluate(
-  async ({ RANGES, MEASURE_AT }) => {
+  async ({ RANGES, MEASURE_AT, TTK_FPS, TTK_HOLD_S }) => {
     const e = window.__ENGINE__;
     const match = e.ctx.get('match');
     const weapons = e.ctx.get('weapons');
@@ -199,6 +234,56 @@ const out = await page.evaluate(
       refill = () => { st.mag = def.magSize; st.chambered = true; };
       refill();
 
+      // ---- the cadence every TTK below is derived from, MEASURED -----------
+      //
+      // This used to read `def.rpm` — the number in the table — and that is a
+      // claim about the code, not a reading of it. The claim was false for the
+      // whole life of this tool: `_fireTimer` rounded each interval up to a
+      // whole frame, so at 60 fps the M4A1 ran at 720 rpm and the MPX-9 at 900.
+      // Every TTK printed here was short, by a DIFFERENT fraction per gun
+      // (-10 % against -5.3 %), which means the matchup this tool exists to
+      // arbitrate was partly the monitor's. `_advanceFireTimer` carries the
+      // overshoot now and `tools/firerate.mjs` gates it across five frame
+      // rates; what is left for this tool is to stop asserting the input.
+      //
+      // Driven through `tryFire()` rather than the held-trigger path because
+      // `player.setControlEnabled(false)` above — which this tool needs, to
+      // freeze the camera so the cone is pure spread — switches the trigger
+      // branch off. `_advanceFireTimer` runs before that gate, so the timer
+      // arithmetic under test is live either way.
+      const dtFixed = 1 / TTK_FPS;
+      const auto = (def.modes ?? []).includes('auto');
+      let shots = 0;
+      let tFirst = -1;
+      let tLast = -1;
+      let clock = 0;
+      weapons._fireTimer = 0;
+      for (let i = 0; i < Math.round(TTK_HOLD_S * TTK_FPS); i++) {
+        refill();
+        weapons.update(dtFixed, e.ctx);
+        clock += dtFixed;
+        // The real auto path is `while (tryFire())`: a frame that lasted two
+        // intervals owes two rounds. A semi gets one press, so one round —
+        // and its printed rpm is a CAP on clicking, not a cadence, so it is
+        // only reachable up to one round per frame.
+        let fired = 0;
+        if (auto) { while (weapons.tryFire()) fired++; }
+        else if (weapons.tryFire()) fired = 1;
+        if (fired) {
+          shots += fired;
+          if (tFirst < 0) tFirst = clock;
+          tLast = clock;
+        }
+      }
+      // Rate BETWEEN shots. The gun is ready when the loop starts, so the first
+      // round belongs to no interval and counting it against elapsed time adds a
+      // whole shot to the average — which reads as a defect and is not one.
+      const measuredRpm =
+        shots > 1 ? Math.round(((shots - 1) / (tLast - tFirst)) * 60) : 0;
+      const reachableRpm = auto ? def.rpm : Math.min(def.rpm, TTK_FPS * 60);
+      weapons._fireTimer = 0;
+      refill();
+
       // ---- lethality ----
       const table = {};
       for (const d of RANGES) {
@@ -208,8 +293,14 @@ const out = await page.evaluate(
           dmg: +body.toFixed(1),
           torso: stk(body),
           head: stk(body * 4),
-          // Time from the first round leaving the barrel to the killing one.
-          ttkMs: Math.round(((stk(body) - 1) * 60000) / def.rpm),
+          // Time from the first round leaving the barrel to the killing one,
+          // at the cadence the code actually produces.
+          ttkMs: measuredRpm
+            ? Math.round(((stk(body) - 1) * 60000) / measuredRpm)
+            : null,
+          // What the table claims it would be. Kept alongside rather than
+          // dropped: when the two diverge, the gap is the finding.
+          ttkNominalMs: Math.round(((stk(body) - 1) * 60000) / def.rpm),
         };
       }
 
@@ -278,6 +369,10 @@ const out = await page.evaluate(
       results[id] = {
         label: def.label,
         rpm: def.rpm,
+        measuredRpm,
+        reachableRpm,
+        measuredAtFps: TTK_FPS,
+        measuredShots: shots,
         magSize: def.magSize,
         damage: def.damage,
         dropoff: def.dropoff,
@@ -312,7 +407,7 @@ const out = await page.evaluate(
       torsoHalfWidth: 0.2,
     };
   },
-  { RANGES, MEASURE_AT }
+  { RANGES, MEASURE_AT, TTK_FPS, TTK_HOLD_S }
 );
 
 /* ---------------------------------------------------------------- verdict */
@@ -321,7 +416,38 @@ const fail = [];
 const warn = [];
 const R = out.results;
 
+/**
+ * Where each weapon's shots-to-kill steps, solved rather than sampled.
+ *
+ * The 5/15/25/35 grid above cannot show this and the whole balance argument
+ * turns on it: the MPX-9's four-round band closes at 15.8 m, which the grid
+ * straddles. See `tools/lethality.mjs`.
+ */
+for (const w of Object.values(R)) {
+  w.torsoBands = stkBands(w).map((b) => ({ shots: b.shots, to: b.to === Infinity ? null : +b.to.toFixed(1) }));
+  const oneTapHead = bandEdge(w, 1, { mult: 4 });
+  w.headOneTapTo = oneTapHead === Infinity ? null : oneTapHead === null ? 0 : +oneTapHead.toFixed(1);
+  w.fourRoundTo = bandEdge(w, 4);
+}
+
 for (const [id, w] of Object.entries(R)) {
+  // 0. The cadence this tool's own TTKs are derived from has to be the cadence
+  //    the code produces. Before `_advanceFireTimer` carried its overshoot, it
+  //    was not, and every number in the summary was quietly wrong — see the long
+  //    note at the measurement. A tool that scores the spec cannot notice that
+  //    the spec is not what runs.
+  if (w.measuredShots < 2) {
+    fail.push(`${id}: fired ${w.measuredShots} round(s) in ${TTK_HOLD_S}s — the cadence was not measured`);
+  } else {
+    const err = (w.measuredRpm - w.reachableRpm) / w.reachableRpm;
+    if (Math.abs(err) > RPM_TOL) {
+      fail.push(
+        `${id}: measured ${w.measuredRpm} rpm at ${TTK_FPS} fps against ${w.reachableRpm} reachable ` +
+        `(${(err * 100).toFixed(1)} %) — every TTK below is derived from this, so the table is fiction`
+      );
+    }
+  }
+
   // 1. The falloff curve has to be reachable on this map. Below ~0.35 of
   //    maxRange the parabola is flat enough that damage is constant, which
   //    deletes the range axis entirely.
@@ -372,6 +498,19 @@ for (const [id, w] of Object.entries(R)) {
   if (close.torso === far.torso && id !== 'rifle') {
     warn.push(`${id}: ${close.torso} shots to kill at BOTH 5 m and 35 m — no range identity`);
   }
+
+  // 5. The band that is the reason to carry the gun has to reach the distance
+  //    people fight at. This is the MPX-9 lesson stated as a check: at 27 damage
+  //    its four-round band closed at 11.5 m against a median engagement of 13,
+  //    so the fastest kill in the game was unavailable in most of the fights it
+  //    was tuned for — a close-range specialist on paper and a trap pick in
+  //    play. A grid of four ranges cannot see this; the solved edge can.
+  if (id !== 'pistol' && Number.isFinite(w.fourRoundTo) && w.fourRoundTo < MEDIAN_ENGAGEMENT) {
+    warn.push(
+      `${id}: four-round band closes at ${w.fourRoundTo.toFixed(1)} m, inside the ` +
+      `${MEDIAN_ENGAGEMENT} m median engagement — the top line is unreachable in most fights`
+    );
+  }
 }
 
 // 5. Two weapons that kill in the same number of shots at the same range with
@@ -388,13 +527,19 @@ console.log('\n─── summary ' + '─'.repeat(58));
 for (const [id, w] of Object.entries(R)) {
   const l = w.lethality;
   console.log(
-    `${w.label.padEnd(7)} ${String(w.rpm).padStart(4)} rpm · ` +
+    `${w.label.padEnd(7)} ${String(w.measuredRpm).padStart(4)} rpm measured (print ${w.rpm}) · ` +
     `STK ${l['5m'].torso}/${l['15m'].torso}/${l['25m'].torso}/${l['35m'].torso} ` +
     `(5/15/25/35 m) · TTK ${String(l['5m'].ttkMs).padStart(3)} ms · ` +
     `cone@20m still ${w.coneAt20m.standStill.r90} m · ` +
     `climb ${w.patternClimbDeg}°`
   );
+  // The solved ladder, which is what a balance argument is actually about.
+  console.log(
+    `${' '.repeat(8)}bands ${formatBands(stkBands(w))}` +
+    ` · head 1-tap ${w.headOneTapTo === null ? 'everywhere' : `to ${w.headOneTapTo} m`}`
+  );
 }
+console.log(`\nmedian engagement taken as ${MEDIAN_ENGAGEMENT} m (tools/botfight.mjs)`);
 console.log(
   fail.length === 0
     ? `\nBALLISTICS OK${warn.length ? ` (${warn.length} warning)\n  ${warn.join('\n  ')}` : ''}`

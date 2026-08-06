@@ -220,6 +220,7 @@ export class AiSystem {
     const t0 = performance.now();
     const out = { ok: false, materials: 0, programs: 0, ms: 0 };
     this._prewarmed = out;
+    let restoreTarget = null;
     try {
       const mats = [];
       const seen = new Set();
@@ -250,6 +251,37 @@ export class AiSystem {
       scene.add(mesh);
       mesh.bind(skeleton);
 
+      // COMPILE INTO THE TARGET THE GAME DRAWS INTO.
+      //
+      // three folds the bound render target's output colour space into the
+      // program cache key, so a permutation compiled against the canvas is not
+      // the one a pass into the HDR buffer needs. This warm was doing exactly
+      // that: whatever target happened to be bound during init, which is the
+      // canvas. `render`'s own prewarm has always saved and restored the target
+      // around its work; this one never bound one at all.
+      //
+      // It cost a ~140 ms frame on about one profile run in six, and it took
+      // three rounds to find because every OTHER character material is on screen
+      // from frame 0 and quietly compiles its real permutation there, where
+      // nothing counts it as late. Only the grenade — first drawn when a bot
+      // throws one, late in a firefight — was left holding a canvas-only
+      // program. `tools/profile.mjs` now diffs a late key against its nearest
+      // compiled neighbour, and it named this in one catch:
+      //
+      //     #4  srgb -> srgb-linear     the target
+      //     #35 3    -> 2
+      //
+      // The previous round's hypothesis was the light count, on the reasoning
+      // that muzzle flashes change it mid-firefight. It was wrong, and it was
+      // wrong in the way hypotheses about renderers usually are: plausible,
+      // untested, and about the game rather than about the key.
+      const prevTarget = renderer.getRenderTarget();
+      out.hdrTarget = !!r.hdrRt;
+      // Restored in `finally`, not after the compiles: leaving the HDR buffer
+      // bound because something threw halfway would redirect the first real
+      // frame of the match into it.
+      restoreTarget = () => renderer.setRenderTarget(prevTarget);
+      if (r.hdrRt) renderer.setRenderTarget(r.hdrRt);
       const compile = async (target) => {
         try {
           await renderer.compileAsync(scene, this.ctx.camera, target);
@@ -285,36 +317,53 @@ export class AiSystem {
       // Adding and removing an object around a compile draws nothing, so the
       // pixel gate is unaffected.
       //
-      // NOT FULLY CLOSED. This removed the common case; a residue survives at
-      // roughly one profile run in six — a ~140 ms frame with one late program,
-      // caught and keyed:
-      //
-      //   frame 865  physical,STANDARD,...,ow-patch-9-4-2   every map flag false
-      //
-      // Mapless standard material is this grenade and nothing else in the build
-      // (shells, decals and the kit all carry maps), and frame 865 of ~900 is a
-      // first throw late in a firefight, so the attribution is solid.
-      //
-      // What is NOT established is why the warmed permutation does not match.
-      // The leading candidate is the LIGHT COUNT: three bakes it into the
-      // program key, this warm runs at boot with no muzzle flashes alive, and a
-      // grenade first drawn while `fx.lights.flash` is lit needs a permutation
-      // nothing has compiled. That would explain both the rarity and the timing.
-      // It is a hypothesis and has not been tested — testing it needs the
-      // program key captured at warm time as well as at the stall, which
-      // `tools/profile.mjs` does not currently record.
-      //
-      // If it holds, the fix is probably not more warming (the count varies) but
-      // giving the grenade a material that is already on screen all match — the
-      // soldier `polymer` or `steel` set — so it inherits whatever permutation
-      // the frame is already using.
+      // That fixed the SCENE. It left the TARGET, which cost another round: a
+      // ~140 ms frame on about one run in six, always this grenade, always a
+      // first throw late in a firefight. See the `setRenderTarget` note above —
+      // the warm was compiling against the canvas and the game draws into the
+      // HDR buffer, and every other character material hid the bug by being on
+      // screen from frame 0.
       scene.remove(mesh);
       const g = new THREE.Mesh(this._grenadeGeo, this._grenadeMat);
       this.root.add(g);
-      try {
-        await renderer.compileAsync(this.ctx.scene, this.ctx.camera);
-      } catch {
-        try { renderer.compile(this.ctx.scene, this.ctx.camera); } catch { /* driver */ }
+      const compileLive = async () => {
+        try {
+          await renderer.compileAsync(this.ctx.scene, this.ctx.camera);
+        } catch {
+          try { renderer.compile(this.ctx.scene, this.ctx.camera); } catch { /* driver */ }
+        }
+      };
+
+      // BOTH DIRECTIONAL-LIGHT COUNTS, because the count is not a constant.
+      //
+      // `numDirLights` is field 35 of three's program cache key, and `render`
+      // flips `sun.visible` off the moment the sky's own key light takes over
+      // (see its sun-selection pass). So the scene runs at 3 directional lights
+      // early and 2 once the sky is up, and a material warmed at one count has
+      // no program for the other.
+      //
+      // Every other character material hides this: they are on screen from the
+      // first frame, so they compile whatever they are missing inside the boot
+      // window where nothing is watching. The grenade is the only thing here
+      // that first appears MID-MATCH, and it landed on the count nobody had
+      // compiled — a ~140 ms frame, on half the profile runs after the render
+      // target was fixed, with the diff naming exactly one field:
+      //
+      //     #35  3 -> 2      (numDirLights)
+      //
+      // Warming both states costs one extra compile at boot and removes the
+      // dependency on WHEN this runs relative to the sky, which is the sort of
+      // ordering coupling that comes back the next time init order changes.
+      const sunFallback = r.sun;
+      const sunWasVisible = sunFallback?.visible;
+      if (sunFallback) {
+        for (const vis of [true, false]) {
+          sunFallback.visible = vis;
+          await compileLive();
+        }
+        sunFallback.visible = sunWasVisible;
+      } else {
+        await compileLive();
       }
       this.root.remove(g);
 
@@ -324,6 +373,8 @@ export class AiSystem {
       out.ok = true;
     } catch (err) {
       out.error = String(err?.message ?? err);
+    } finally {
+      try { restoreTarget?.(); } catch { /* renderer gone */ }
     }
     out.ms = Math.round(performance.now() - t0);
     console.info(`[ai] prewarmMaterials ${JSON.stringify(out)}`);

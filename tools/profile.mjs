@@ -497,11 +497,42 @@ const result = await page.evaluate((FRAMES) => new Promise((done) => {
     // compiled program that spells out the permutation — material type, lights,
     // shadows, skinning, the lot — so diffing the cache against the previous frame
     // turns "a program" into the exact permutation the pre-warm missed.
+    // ...and WHICH FIELD of it differs, which is the part that names a fix.
+    //
+    // Knowing that a permutation arrived late still leaves you guessing at why
+    // the warm missed it: the previous round of this hunt ended in a documented
+    // hypothesis (light count) that nothing in the tool could confirm or kill.
+    // But a cache key is a comma-separated field list, and the program that
+    // SHOULD have covered the newcomer is already in the cache — so diffing it
+    // against its nearest already-compiled neighbour turns "why" into a field
+    // index and a pair of values. One field differing is the answer. Several
+    // mean it is a genuinely new material and the warm never had it at all.
     for (const p of r.renderer.info.programs ?? []) {
       const k = p.cacheKey;
       if (!k || seenProg.has(k)) continue;
+      if (i > 0) {
+        const f = String(k).split(',');
+        let best = null;
+        for (const q of seenProg) {
+          const g = q.split(',');
+          if (g.length !== f.length) continue;
+          let d = 0;
+          const at = [];
+          for (let x = 0; x < f.length; x++) {
+            if (f[x] === g[x]) continue;
+            d++;
+            if (at.length < 6) at.push(`#${x} ${g[x] || "''"} -> ${f[x] || "''"}`);
+          }
+          if (!best || d < best.d) best = { d, at };
+        }
+        lateProgs.push({
+          frame: i,
+          lights: (r.lights ?? []).reduce((n, l) => n + (l.light?.visible ? 1 : 0), 0),
+          nearest: best,
+          key: String(k).slice(0, 200),
+        });
+      }
       seenProg.add(k);
-      if (i > 0) lateProgs.push({ frame: i, key: String(k).slice(0, 400) });
     }
 
     // Drive gameplay: orbit the view, walk, and fire in bursts.
@@ -753,18 +784,24 @@ if (server) { try { process.kill(-server.pid); } catch { /* already gone */ } }
  * `stall` is the number that actually describes how the game FEELS. A 150 ms
  * frame is a visible lurch, and no amount of good median hides one.
  *
- * `compiledDuringPlay` is reported and bounded at 1 rather than required to be
- * 0, and that is an honest description of an unfinished job. Warming the
- * grenade in the live scene (see `ai.prewarmMaterials`) took the stall rate from
- * roughly two runs in three to one in three; the residual is a program this
- * profile has not been able to attribute — forcing a throw and forcing a death
- * both compile nothing, so whatever it is needs a real firefight to appear. The
- * bound stops it growing while it is unsolved; it does not pretend it is fixed.
+ * `compiledDuringPlay` is required to be 0. It was bounded at 1 for as long as
+ * the job was unfinished, and the thing that finished it was not another idea
+ * about renderers but the `nearest` diff added below: a late cache key beside
+ * its closest already-compiled neighbour names the field, and the field names
+ * the fix. Two rounds of it, both in `ai.prewarmMaterials`:
+ *
+ *     #4   srgb -> srgb-linear     warming against the canvas, not the HDR target
+ *     #35  3    -> 2               numDirLights, which `render` flips when the
+ *                                  sky takes the key light over
+ *
+ * Verified 12 runs clean, from 6 in 12 immediately before the second fix. The
+ * bound is 0 now because a residue nobody can attribute is exactly what a bound
+ * of 1 lets back in.
  */
 if (args.gate) {
   const P50_FPS_FLOOR = 35;
   const STALL_CEIL_MS = 250;
-  const LATE_PROGRAM_CEIL = 1;
+  const LATE_PROGRAM_CEIL = 0;
   const bad = [];
   const p50 = fpsOut.p50;
   const worstStall = stalls.length ? Math.max(...stalls.map((s) => s.ms)) : 0;

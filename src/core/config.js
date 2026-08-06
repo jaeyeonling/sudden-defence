@@ -27,7 +27,9 @@ export const UNITS = {
  *
  *   gtao off ............ -12.9 ms    <- more than a third of the frame
  *   volumetrics off .....  -4.7 ms
- *   ssr off .............  -3.6 ms
+ *   ssr off .............  -3.6 ms     <- taken: `high` now ships ssr off, see
+ *                                         the note on that key. Re-measured at
+ *                                         -2.4 ms on a quiet machine.
  *   taa / motionBlur / bloom off ..... inside the noise
  *
  * It is 3 slices x 8 steps per pixel plus a temporal resolve and a two-pass blur,
@@ -107,7 +109,30 @@ export const QUALITY_PRESETS = {
     taa: true,
     gtao: true,
     aoScale: 0.5,
-    ssr: true,
+    /**
+     * OFF at the DEFAULT tier, and this is the one preset value here decided by
+     * looking at the picture rather than by reasoning about the effect.
+     *
+     * Cost, re-measured on a quiet box — the earlier attempt sat UNRESOLVED
+     * because a security agent was pinning a core through it:
+     *
+     *     abperf q=high vs q=high&q.ssr=0     -2.4 ms, 5/5 pairs agree
+     *
+     * That is 13 % of a 17.9 ms frame. What it buys, across the eleven baseline
+     * shots, is a mean per-channel delta of 2.0/255. Two shots carry nearly all
+     * of it — the spawn bays, 5.5-5.8 over 91-94 % of their pixels — and stacked
+     * one above the other those two are indistinguishable: same floor, same
+     * paint stripes, same weapon. Nothing in the frame is legibly different.
+     *
+     * For scale, the same comparison for volumetrics is 4.7 ms for a mean delta
+     * of 24.7. Volumetrics costs twice as much and does twelve times as much,
+     * and it stays. SSR is about six times worse per unit of picture, and in a
+     * mode where the frame rate is the aim assist, 13 % is not a rounding error.
+     *
+     * `ultra` keeps it, so the effect is one flag away and the comparison stays
+     * runnable. Re-derive with the two commands above before turning it back on.
+     */
+    ssr: false,
     volumetrics: true,
     motionBlur: true,
     bloom: true,

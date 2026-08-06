@@ -414,7 +414,9 @@ export class WeaponSystem {
       p.addRecoil(pitch, yaw, def.recoil.roll * 0.35, def.recoil.punch);
     }
     this._spread = Math.min(def.spreadMax, this._spread + def.spreadPerShot);
-    this._fireTimer = 60 / def.rpm;
+    // `+=`, NOT `=`. See `_advanceFireTimer` — the overshoot this carries is the
+    // difference between the printed RPM and the one the player gets.
+    this._fireTimer += 60 / def.rpm;
     this._sinceShot = 0;
     this.stats.fired++;
     this._pendingShots++;
@@ -708,7 +710,7 @@ export class WeaponSystem {
     if (this.viewmodel?.anchor) this.viewmodel.anchor.visible = player?.dead !== true;
 
     this._sinceShot += dt;
-    if (this._fireTimer > 0) this._fireTimer -= dt;
+    this._advanceFireTimer(dt, def);
     if (this._burstCooldown > 0) this._burstCooldown -= dt;
 
     // ---- spread recovery -------------------------------------------------
@@ -778,11 +780,50 @@ export class WeaponSystem {
     this.ctx.events.emit('bullet:tracer', this._tracerPayload);
   }
 
+  /**
+   * Run the shot clock down, KEEPING the overshoot.
+   *
+   * This used to be `if (this._fireTimer > 0) this._fireTimer -= dt;`, with
+   * `tryFire` then ASSIGNING `60 / rpm`. Between them those two lines threw away
+   * however far past zero the frame had carried the timer, every single shot. So
+   * the interval was rounded up to a whole number of frames and the loss was
+   * whatever the remainder happened to be — which depends on the frame rate, and
+   * not even monotonically. Measured with `tools/firerate.mjs`, holding the
+   * trigger for three seconds:
+   *
+   *     M4A1, printed 800 rpm
+   *       30 fps  600      60 fps  720      100 fps  760
+   *      120 fps  720     144 fps  780
+   *
+   * A player on a 144 Hz monitor got a gun 30 % faster than one at 30 fps, and
+   * nobody at all got 800. Worse for balance: the error differs BETWEEN guns
+   * (-10 % rifle, -5.3 % SMG at 60 fps), so the matchup between them moved with
+   * the monitor too — which quietly undermines every TTK in
+   * `tools/ballistics.mjs`, since those are computed from the printed number.
+   *
+   * Carrying the overshoot makes the long-run rate exact at ANY frame rate: the
+   * time a shot is early is repaid by the next one being late.
+   *
+   * The floor is one interval. Without it the timer runs unboundedly negative
+   * while the trigger is up, and the first squeeze after a quiet minute would
+   * empty half a magazine in one frame. One interval of credit means at most one
+   * catch-up shot — which is right, because a frame that really did last two
+   * intervals really did contain two shots.
+   */
+  _advanceFireTimer(dt, def) {
+    this._fireTimer -= dt;
+    const floor = -(60 / (def?.rpm || 600));
+    if (this._fireTimer < floor) this._fireTimer = floor;
+  }
+
   /** Fire-mode state machine. */
   _runTrigger(dt, held, pressed, def, s) {
     switch (s.mode) {
       case 'auto':
-        if (held) this.tryFire();
+        // Loop, because one frame can owe more than one round. `tryFire` stops
+        // it the moment the timer goes positive, and the floor above bounds the
+        // credit at one interval, so this runs at most twice.
+        if (held) while (this.tryFire());
         break;
       case 'burst':
         if (pressed && this._burstLeft === 0 && this._burstCooldown <= 0) {
@@ -791,7 +832,9 @@ export class WeaponSystem {
         if (this._burstLeft > 0 && this._fireTimer <= 0) {
           if (this.tryFire()) {
             this._burstLeft--;
-            this._fireTimer = 60 / def.burstRpm;
+            // `+=` for the same reason as the auto path: a burst whose interval
+            // is rounded up per round is a burst whose cadence is the monitor's.
+            this._fireTimer += 60 / def.burstRpm;
             if (this._burstLeft === 0) this._burstCooldown = def.burstDelay;
           } else {
             this._burstLeft = 0;

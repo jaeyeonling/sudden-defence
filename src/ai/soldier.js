@@ -20,6 +20,9 @@ const MATERIALS = {
   cloth: { tile: CLOTH_TILE },
   plate: { tile: 0.42 },
   gear: { tile: 0.26 },
+  // Same cordura bake as the gear, different tint and roughness — see the
+  // `team` case in resolveMaterials.
+  team: { tile: 0.26 },
   // Boots and gloves share the cordura bake with the pouches but NOT its
   // roughness: leather-and-rubber footwear is markedly smoother than webbing,
   // and having the whole kit sit at one gloss is half of why the figure reads as
@@ -94,6 +97,150 @@ const GEAR = {
   // instead of another patch of tan cloth.
   mask: [0.62, 0.63, 0.66],
 };
+
+/**
+ * How hard the team colour is pushed into the plate carrier's vertex tint.
+ *
+ * Friend/foe was supposed to rest on camo family alone (wolf grey against tan,
+ * see `breacher` below). It does not work. Measured at 9 m, the chest pixels of
+ * the two team variants sit at a chromaticity distance of 0.0123 — for scale,
+ * `tools/markings.mjs` demands 0.100 between the two spawn bays, and the broken
+ * state that gate was written to catch measured 0.036. The two uniforms are, to
+ * the eye, the same colour. Under the warehouse's own light they have to be:
+ * both camo sets are calibrated into the same 0.16-0.32 albedo window, and that
+ * window is most of what "reads as a soldier and not a toy" means here.
+ *
+ * So the team read gets its own surface instead of being asked to fall out of
+ * the camo. The plate carrier is the one it should be: it is the largest flat
+ * area on the body, it faces the shooter from the front AND the back, and it is
+ * the only part in the whole build that draws with material slot `plate`, so
+ * tinting it touches nothing else.
+ *
+ * Two properties of the vertex-tint path matter more than the number:
+ *
+ *  - it multiplies into the albedo, so the AO / grime / dust / wear bake in
+ *    `geo.js` survives on top of it. A flat emissive panel would erase all of
+ *    it, which is what the first attempt at this did.
+ *  - it adds no geometry. Geometry construction draws from the shared RNG
+ *    stream, so a new part would shift every downstream random draw and repaint
+ *    the whole picture; changing a colour cannot. The capture baseline moves by
+ *    exactly the carrier and nothing else.
+ *
+ * 0.85 rather than 1.0: at full strength the carrier goes to the flat HUD blue
+ * and stops looking like dyed nylon under a shadow. 0.85 keeps a little of the
+ * variant's own plate value in it and still measures far past the gate.
+ *
+ * ──────────────────────────────────────────────────────────────────────────
+ * WHY THE UNIFORM IS TINTED TOO, AND MORE GENTLY
+ *
+ * The carrier alone was tried first and measured 0.0538 head-on at 9 m — half
+ * the gate. The reason is visible the moment the shot is staged rather than
+ * imagined: a man at low ready holds his rifle ACROSS HIS CHEST, and both
+ * forearms with it. The largest flat panel on the body is one of the least
+ * visible surfaces from the front, and the pixels a shooter actually integrates
+ * are sleeves, shoulders, thighs and helmet.
+ *
+ * So the garment carries the team read and the carrier reinforces it, rather
+ * than the carrier carrying it alone. `CLOTH` is deliberately about half the
+ * carrier's strength: enough that the two sides are never confusable at a
+ * glance, gentle enough that the camo macro pattern still reads as camo and not
+ * as a solid team jersey. Both go through the same value-preserving path, so
+ * neither changes the albedo window the whole character set is calibrated to.
+ *
+ * Head wrap, gloves and boots are deliberately left out. A figure tinted from
+ * crown to sole is a paper cut-out; leaving the extremities in their own kit
+ * colours is what keeps the internal value structure that makes a procedural
+ * character read as a person. Helmet and shoulders are also not tinted here —
+ * they are the bright marker instead, on the `team` material slot.
+ */
+const TEAM_ACCENT_STRENGTH = { carrier: 0.85, cloth: 0.45 };
+
+/**
+ * Turn a team colour into a vertex tint that rotates hue and never clips.
+ *
+ * The accent is normalised so its LARGEST channel is 1, not so its mean is 1.
+ * Mean-normalising is the obvious choice — it holds luminance, which is exactly
+ * what a hue-only push wants — and it does not work, because `geo.js` finishes
+ * every baked vertex colour with `clamp01`. Any channel asked to go above 1 is
+ * silently truncated, so a mean-normalised tint does not rotate hue at all: it
+ * applies the REDUCTIONS and throws the boost away.
+ *
+ * That is not a rounding error, and it showed up as an asymmetry between the
+ * sides. Alpha's blue survived, because its boosted channel was one it could
+ * afford to lose while red came down hard. Bravo's red WAS the clipped channel,
+ * so the tan uniform lost green and blue, gained nothing, and photographed
+ * olive. One team looked blue and the other looked like nobody in particular.
+ *
+ * Max-normalising holds every channel at or below 1, so the tint is purely
+ * subtractive and both sides get the shift they asked for. It costs a little
+ * luminance; that is the price of the clamp, and it is paid evenly.
+ *
+ * The bright marker path does NOT use this. A material `color` is a uniform
+ * rather than a clamped attribute, so it can go above 1 — see `teamMarkerTint`.
+ */
+function accentTint(base, accent, strength) {
+  if (!accent) return base;
+  const peak = Math.max(accent[0], accent[1], accent[2]);
+  if (!(peak > 1e-4)) return base;
+  return base.map((c, i) => c * (1 + strength * (accent[i] / peak - 1)));
+}
+
+/**
+ * The bright team marker — helmet shell and shoulder flashes.
+ *
+ * Everything above rotates hue while holding value, and on its own that is not
+ * enough. MEASURED, and this is the finding the design turns on: with the two
+ * teams' albedo forced to PURE BLUE and PURE RED — a chromaticity distance of
+ * about 0.5 in the albedo itself — the staged 9 m frame separated by 0.0332.
+ * A factor of fifteen is lost between the texture and the pixel.
+ *
+ * It is not the post chain. Attributed by running the gate with each pass off:
+ *
+ *     default 0.0332 · q=low 0.0332 · volumetrics off 0.0267 · gtao off 0.0297
+ *     · bloom off 0.0337
+ *
+ * `q=low` disables gtao, ssr AND volumetrics together and does not move the
+ * number at all, so nothing in post is washing this out. The cause is upstream
+ * and simpler: THE UNIFORM IS NEARLY BLACK. Cloth albedo is 0.092 (see the
+ * budget table above) while the same pixels leave the frame at luminance 0.31,
+ * so most of what reaches the eye is light the surface never coloured. Hue
+ * applied to a 0.09 albedo has no energy to carry it, and the pixels that DO
+ * carry energy — face, gloves, the weapon's steel and polymer, every specular
+ * highlight — are exactly the ones no team owns.
+ *
+ * The answer is therefore not a stronger tint on a dark surface, which the
+ * pure-primary measurement rules out completely. It is a SMALL AREA OF GENUINELY
+ * BRIGHT COLOUR, and it has to be a MATERIAL colour rather than a vertex tint
+ * for the clamp reason above. `gain` multiplies value as well as hue, taking the
+ * marker to an albedo around 0.25 — a painted helmet and shoulder flashes, which
+ * is both what the measurement demands and what a real unit does when it has to
+ * be told apart at a glance.
+ *
+ * Helmet and shoulders specifically: they are the two places on a man that a
+ * rifle held at low ready cannot cover. The plate carrier is the largest flat
+ * panel on the body and, staged and photographed, mostly forearms.
+ *
+ * The albedo budget survives because the marker is a few percent of the
+ * silhouette. The rule it must not break is the hierarchy in the budget note —
+ * cloth brightest, kit under it, boots and gloves darkest — and a helmet flash
+ * sits outside that hierarchy rather than inverting it.
+ */
+const TEAM_MARKER_GAIN = 5.5;
+
+/**
+ * Material tint for the `team` slot: the accent normalised to unit mean, then
+ * scaled by the gain. Unit-mean first so both teams get the same VALUE and
+ * differ only in hue — a brighter side would be an easier target.
+ *
+ * No accent (the teamless `irregular`) falls back to the neutral kit grey the
+ * parts wore before the slot existed.
+ */
+function teamMarkerTint(accent) {
+  if (!accent) return [0.7, 0.7, 0.7];
+  const mean = (accent[0] + accent[1] + accent[2]) / 3;
+  if (!(mean > 1e-4)) return [0.7, 0.7, 0.7];
+  return accent.map((c) => (c / mean) * TEAM_MARKER_GAIN);
+}
 
 /**
  * Visual variants. Each is a different silhouette, not a recolour: helmet vs
@@ -199,10 +346,16 @@ const bp = (name) => {
  * Build one variant.
  * @returns { geometry, materials: THREE.Material[], weapon, stats }
  */
-export function buildSoldier(name, { rng, materials }) {
+export function buildSoldier(name, { rng, materials, accent = null }) {
   const V = VARIANTS[name] ?? VARIANTS.vanguard;
   const nz = new Noise(rng.fork());
   const B = new CharacterBuilder(RIG, { noise: nz, materials: MATERIALS });
+
+  // The team read. `uniform` goes on the issued garment, `marker` on the plate
+  // carrier; both hold their input's value and only rotate its hue. With no
+  // accent both are the identity, which is what `irregular` gets.
+  const uniform = (c) => accentTint(c, accent, TEAM_ACCENT_STRENGTH.cloth);
+  const carrierTint = (c) => accentTint(c, accent, TEAM_ACCENT_STRENGTH.carrier);
 
   const shR = bp('UpperArmR'), elR = bp('ForearmR'), wrR = bp('HandR');
   const shL = bp('UpperArmL'), elL = bp('ForearmL'), wrL = bp('HandL');
@@ -250,7 +403,7 @@ export function buildSoldier(name, { rng, materials }) {
     material: 'cloth',
     bones: ['Hips', 'Spine', 'Spine1', 'Spine2', 'Neck', 'ClavicleR', 'ClavicleL', 'UpperArmR', 'UpperArmL'],
     bias: [1, 1, 1, 1, 0.8, 0.55, 0.55, 0.30, 0.30],
-    colour: [1, 1, 1],
+    colour: uniform([1, 1, 1]),
     grime: 0.85,
     dirt: 0.20,
     dust: 0.34,
@@ -261,7 +414,7 @@ export function buildSoldier(name, { rng, materials }) {
     material: 'cloth',
     bones: ['Hips', 'Spine', 'UpLegR', 'UpLegL'],
     bias: [1, 0.7, 0.5, 0.5],
-    colour: [0.97, 0.97, 0.97],
+    colour: uniform([0.97, 0.97, 0.97]),
     grime: 0.9,
     dirt: 0.35,
     dust: 0.2,
@@ -271,7 +424,7 @@ export function buildSoldier(name, { rng, materials }) {
     material: 'cloth',
     bones: ['Neck', 'Spine2', 'Head'],
     bias: [1, 0.8, 0.3],
-    colour: [0.92, 0.92, 0.91],
+    colour: uniform([0.92, 0.92, 0.91]),
     grime: 1.0,
     dust: 0.3,
     name: 'collar',
@@ -286,7 +439,8 @@ export function buildSoldier(name, { rng, materials }) {
     // half of the "tube arms" read; this gives the shoulder an actual shape and
     // a highlight to catch the key light on.
     B.add(P.shoulderCap(nz, sh, side), {
-      material: 'cloth',
+      // Shoulder flash, not uniform cloth. See TEAM_MARKER_GAIN.
+      material: 'team',
       bones: [`Clavicle${suffix}`, `UpperArm${suffix}`, 'Spine2'],
       bias: [0.8, 1, 0.4],
       colour: [1, 1, 1],
@@ -310,7 +464,7 @@ export function buildSoldier(name, { rng, materials }) {
         material: 'cloth',
         bones: [`Clavicle${suffix}`, `UpperArm${suffix}`, `Forearm${suffix}`, `Hand${suffix}`, 'Spine2'],
         bias: [0.5, 1, 1, 0.7, 0.25],
-        colour: [1, 1, 1],
+        colour: uniform([1, 1, 1]),
         grime: 0.8,
         dirt: 0.15,
         dust: 0.3,
@@ -361,7 +515,7 @@ export function buildSoldier(name, { rng, materials }) {
         material: 'cloth',
         bones: ['Hips', `UpLeg${suffix}`, `Leg${suffix}`, `Foot${suffix}`],
         bias: [0.6, 1, 1, 0.5],
-        colour: [0.98, 0.98, 0.97],
+        colour: uniform([0.98, 0.98, 0.97]),
         grime: 0.8,
         dirt: 0.72,
         dust: 0.22,
@@ -381,7 +535,7 @@ export function buildSoldier(name, { rng, materials }) {
         material: 'cloth',
         bones: [`UpLeg${suffix}`, 'Hips'],
         bias: [1, 0.4],
-        colour: [0.95, 0.95, 0.94],
+        colour: uniform([0.95, 0.95, 0.94]),
         grime: 0.9,
         dirt: 0.5,
         dust: 0.4,
@@ -437,7 +591,10 @@ export function buildSoldier(name, { rng, materials }) {
     material: 'plate',
     bones: ['Spine', 'Spine1', 'Spine2', 'ClavicleR', 'ClavicleL'],
     bias: [0.7, 1, 1, 0.45, 0.45],
-    colour: [0.72, 0.72, 0.72],
+    // The team surface. See TEAM_ACCENT_STRENGTH — with no accent this is the
+    // original neutral grey, so `irregular` (which belongs to no team) is
+    // untouched.
+    colour: carrierTint([0.72, 0.72, 0.72]),
     grime: 0.85,
     dirt: 0.3,
     dust: 0.30,
@@ -607,7 +764,10 @@ export function buildSoldier(name, { rng, materials }) {
     // tint deliberately lands off the uniform value so the head separates from
     // the torso at range. A bare shell goes on the laminate set instead.
     B.add(P.helmet(nz, head, V), {
-      material: V.helmetCover ? 'cloth' : 'plate',
+      // Painted team shell, rather than the variant's own cover or plate. See
+      // TEAM_MARKER_GAIN: this is the single most visible surface on a man who
+      // is behind cover, and it is never occluded by his own weapon.
+      material: 'team',
       bone: 'Head',
       colour: V.helmetTint ?? [1, 1, 1],
       grime: 0.6,
@@ -752,7 +912,7 @@ export function buildSoldier(name, { rng, materials }) {
         'update MATERIAL_SLOTS or prewarmMaterials will reorder opaque draws'
     );
   }
-  const mats = resolveMaterials(name, built.materialNames, materials);
+  const mats = resolveMaterials(name, built.materialNames, materials, accent);
 
   return {
     geometry: built.geometry,
@@ -779,7 +939,7 @@ export function buildSoldier(name, { rng, materials }) {
  * the pixel gate. `buildSoldier` asserts the order below still matches.
  */
 export const MATERIAL_SLOTS = Object.freeze([
-  'cloth', 'gear', 'boot', 'rubber', 'plate', 'polymer', 'skin', 'glass', 'steel',
+  'cloth', 'gear', 'boot', 'rubber', 'plate', 'polymer', 'skin', 'glass', 'steel', 'team',
 ]);
 
 /**
@@ -799,8 +959,9 @@ export const MATERIAL_SLOTS = Object.freeze([
  * tile's, so the physical size of a thread is identical on a sleeve, a pouch and
  * a boot without any per-part tuning.
  */
-export function resolveMaterials(name, slots, materials) {
+export function resolveMaterials(name, slots, materials, accent = null) {
   const V = VARIANTS[name] ?? VARIANTS.vanguard;
+  const named = (m, n) => { m.name = n; return m; };
   const detail = (set, matName, normal, rough) => ({
     set,
     scale: MATERIALS[matName].tile / DETAIL_TILE,
@@ -828,6 +989,32 @@ export function resolveMaterials(name, slots, materials) {
           normalScale: 1.0,
           detail: detail('nylon', 'plate', 0.45, 0.10),
         });
+      case 'team':
+        // The one surface allowed off the albedo budget, and the only one whose
+        // brightness comes from the MATERIAL rather than the vertex tint —
+        // `geo.js` runs every baked vertex colour through `clamp01`, so a tint
+        // above 1 is silently truncated and buys nothing. A material colour is a
+        // plain uniform, so this is where a value gain can actually live.
+        //
+        // Roughness 1.0 and metalness 0, deliberately the most matte surface on
+        // the character: a specular lobe is white, and white is what dilutes the
+        // mark. At the plate's 0.55 the dome carried a broad highlight that cost
+        // measurable chroma. This is flat paint, not laminate.
+        return named(
+          materials.get('nylon', {
+            key: `${name}_team`,
+            tint: teamMarkerTint(accent),
+            rough: 1.0,
+            metal: 0,
+            normalScale: 0.9,
+            detail: detail('nylon', 'gear', 0.5, 0.14),
+          }),
+          // Named so `tools/friendfoe.mjs` can find it in the mesh's material
+          // array and hide exactly this group for one pass. That is how the gate
+          // locates the mark: by material identity, which is independent of both
+          // the pose and the colour under test.
+          'ai_team'
+        );
       case 'gear':
         return materials.get('nylon', {
           key: name,

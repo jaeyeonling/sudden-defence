@@ -224,7 +224,7 @@ export class AiSystem {
       const mats = [];
       const seen = new Set();
       for (const name in VARIANTS) {
-        for (const m of resolveMaterials(name, MATERIAL_SLOTS, this.materials)) {
+        for (const m of resolveMaterials(name, MATERIAL_SLOTS, this.materials, this._accentFor(name))) {
           if (m && !seen.has(m)) { seen.add(m); mats.push(m); }
         }
       }
@@ -426,11 +426,42 @@ export class AiSystem {
   /* assets                                                             */
   /* ================================================================== */
 
+  /**
+   * Team accent for a variant, as an [r, g, b] triple, or null.
+   *
+   * `match` owns the team colours and `ai` must not import them (hard rule 1),
+   * so the lookup runs the other way: find the team whose uniform this variant
+   * is. One variant per team makes that unambiguous, and a variant no team wears
+   * (`irregular`) correctly gets nothing.
+   *
+   * The same colour drives the HUD, the killfeed and the spawn bay paint, so a
+   * player learns one blue and one red rather than four.
+   */
+  _accentFor(name) {
+    // Dev hook: strip the team colour and change nothing else, so
+    // `tools/friendfoe.mjs --noaccent` can measure what that gate reads with no
+    // accent at all. That control is the only thing that makes its threshold
+    // defensible rather than decorative — it is what showed the two variants are
+    // 0.0024 apart on their own. Same idea and same spelling as
+    // `window.__NO_FLASH_LIGHT__` in `tools/legibility.mjs`.
+    if (typeof window !== 'undefined' && window.__NO_ACCENT__) return null;
+    const team = this.match.TEAM_IDS.find((t) => this.match.TEAMS[t].variant === name);
+    if (!team) return null;
+    const hex = this.match.TEAMS[team].color;
+    return [((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255];
+  }
+
   variant(name) {
+    // Keyed by variant name alone: the accent is a pure function of the name via
+    // `_accentFor`, so two calls can never disagree about the same key.
     let v = this._variants.get(name);
     if (!v) {
       const t0 = performance.now();
-      v = buildSoldier(name, { rng: this.rng.fork(), materials: this.materials });
+      v = buildSoldier(name, {
+        rng: this.rng.fork(),
+        materials: this.materials,
+        accent: this._accentFor(name),
+      });
       this._variants.set(name, v);
       // Hand the new materials to render immediately rather than waiting for its
       // scene walk: they are all MeshStandardMaterial, so the patcher injects the

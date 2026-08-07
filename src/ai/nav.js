@@ -351,16 +351,39 @@ export class NavGrid {
     // A cell that no neighbour can reach is one no bot can occupy, whatever the
     // down-ray says. Dropping it costs one more pass over the grid and makes
     // `nearest()` honest.
+    // A CELL WITH NO LEGAL MOVE OUT IS NOT A CELL, and "legal" means what A*
+    // means by it — see `canStep`. This pass used to ask a weaker question: the
+    // four orthogonal neighbours only, no step-height check, and a single sweep.
+    // Each of those three shortcuts leaves a different kind of trap standing:
+    //
+    //   diagonals      a cell whose only opening is a corner, where the corner
+    //                  rule then refuses the move
+    //   step height    a cell whose neighbours are all a shelf too tall
+    //   single sweep   deleting a cell can orphan one already scanned past
+    //
+    // Measured on this map before the fix: 19 survivors, three of them inside
+    // the main component and two of those the exact cells a bot stood on for
+    // 34.5 s in `tools/botfight.mjs`. They came in mirror pairs — (-4, -12.8)
+    // and (4, -12.8) — which is what a geometry-generated fault looks like on a
+    // map gated for symmetry.
+    //
+    // Iterated to a fixed point. Bounded by the cell count in the worst case and
+    // settles in two or three sweeps in practice, at bake time, once.
     let orphaned = 0;
-    for (let iz = 0; iz < this.nz; iz++) {
-      for (let ix = 0; ix < this.nx; ix++) {
-        if (!this.walkable(ix, iz)) continue;
-        let any = false;
-        for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-          if (this.walkable(ix + dx, iz + dz) && this.passable(ix, iz, dx, dz)) { any = true; break; }
+    for (let sweep = 0; ; sweep++) {
+      let removed = 0;
+      for (let iz = 0; iz < this.nz; iz++) {
+        for (let ix = 0; ix < this.nx; ix++) {
+          if (!this.walkable(ix, iz)) continue;
+          let any = false;
+          for (let d = 0; d < 8; d++) {
+            if (this.canStep(ix, iz, DX[d], DZ[d])) { any = true; break; }
+          }
+          if (!any) { this.flags[this.index(ix, iz)] = 0; removed++; }
         }
-        if (!any) { this.flags[this.index(ix, iz)] = 0; orphaned++; }
       }
+      orphaned += removed;
+      if (!removed) break;
     }
     this.walkableCount -= orphaned;
     this.orphanedCells = orphaned;
@@ -420,14 +443,20 @@ export class NavGrid {
         for (let d = 0; d < 8; d++) {
           const dx = DX[d], dz = DZ[d];
           const ix = cx + dx, iz = cz + dz;
-          if (!this.walkable(ix, iz)) continue;
-          if (dx && dz) {
-            if (!this.walkable(cx + dx, cz) || !this.walkable(cx, cz + dz)) continue;
-            if (!this.passable(cx, cz, dx, 0) || !this.passable(cx, cz, 0, dz)) continue;
-          } else if (!this.passable(cx, cz, dx, dz)) continue;
+          // BOTH directions. This label is consumed as a promise of mutual
+          // reachability — `randomMainPoint` picks destinations by it,
+          // `findPath` short-circuits "no route" by it, `_ensureGoal` recovers
+          // by it — and the step relation is not symmetric (see `canStep`), so
+          // flooding it one-way put cells in the main component that could be
+          // entered and not left. Requiring the return trip on each edge is
+          // conservative rather than exact — mutual reachability could still
+          // hold through a longer way round — but it errs toward calling a cell
+          // unreachable, which costs a destination nobody picks instead of a bot
+          // standing still for the rest of the round.
+          if (!this.canStep(cx, cz, dx, dz)) continue;
+          if (!this.canStep(ix, iz, -dx, -dz)) continue;
           const ni = this.index(ix, iz);
           if (this.component[ni] !== -1) continue;
-          if (Math.abs(this.floor[ni] - cy) > this.maxStep) continue;
           this.component[ni] = id;
           stack.push(ni);
         }
@@ -476,6 +505,38 @@ export class NavGrid {
    * Edges are stored once per pair, on the lower-index cell, so a step in the
    * negative direction reads the neighbour's flag.
    */
+  /**
+   * Can a bot legally step from (cx, cz) to (cx + dx, cz + dz)?
+   *
+   * THE definition, in one place, because three things need it and for a long
+   * time each had its own: A* expanded with the full rule, `_buildComponents`
+   * flooded with the full rule but treated it as symmetric, and the orphan pass
+   * used a reduced one — four orthogonal directions, no height check, one pass.
+   * That gap is what minted the defect this exists to prevent: 19 walkable cells
+   * with NO legal move out at all, three of them labelled inside the main
+   * component. A bot that ended up on one could never path anywhere again, and
+   * `tools/botfight.mjs` measured one standing in COMBAT for 34.5 s while its
+   * recovery fired 23 times and failed 23 times.
+   *
+   * NOT SYMMETRIC, and that is the subtle half. A diagonal tests the two
+   * orthogonal legs adjacent to the ORIGIN, so `canStep(A -> B)` and
+   * `canStep(B -> A)` consult opposite corners of the same square and can
+   * disagree. `tools/navsanity.mjs` counts both the sinks and the asymmetric
+   * edges, and is the gate that keeps this honest.
+   */
+  canStep(cx, cz, dx, dz) {
+    const ix = cx + dx, iz = cz + dz;
+    if (!this.walkable(ix, iz)) return false;
+    if (dx && dz) {
+      if (!this.walkable(cx + dx, cz) || !this.walkable(cx, cz + dz)) return false;
+      if (!this.passable(cx, cz, dx, 0) || !this.passable(cx, cz, 0, dz)) return false;
+    } else if (!this.passable(cx, cz, dx, dz)) return false;
+    const ni = this.index(ix, iz);
+    const cur = this.index(cx, cz);
+    if (Math.abs(this.floor[ni] - this.floor[cur]) > this.maxStep) return false;
+    return true;
+  }
+
   passable(ix, iz, dx, dz) {
     if (dx > 0) return this.edgeX[this.index(ix, iz)] === 1;
     if (dx < 0) return this.inside(ix - 1, iz) && this.edgeX[this.index(ix - 1, iz)] === 1;
@@ -610,16 +671,11 @@ export class NavGrid {
       for (let d = 0; d < 8; d++) {
         const dx = DX[d], dz = DZ[d];
         const ix = cxi + dx, iz = czi + dz;
-        if (!this.walkable(ix, iz)) continue;
-        if (dx && dz) {
-          // no corner cutting, and no cutting through a phantom edge either:
-          // a diagonal is only legal if BOTH orthogonal legs are legal moves.
-          if (!this.walkable(cxi + dx, czi) || !this.walkable(cxi, czi + dz)) continue;
-          if (!this.passable(cxi, czi, dx, 0) || !this.passable(cxi, czi, 0, dz)) continue;
-        } else if (!this.passable(cxi, czi, dx, dz)) continue;
+        // One definition of a legal step, shared with the component fill and the
+        // orphan pass. No corner cutting, no phantom edges, no shelf too tall.
+        if (!this.canStep(cxi, czi, dx, dz)) continue;
         const ni = this.index(ix, iz);
         const dy = this.floor[ni] - cy;
-        if (Math.abs(dy) > this.maxStep) continue;
         let cost = (dx && dz ? SQRT2 : 1) * cell;
         cost += Math.abs(dy) * 2.2; // prefer flat ground
         if (this.flags[ni] === 2) cost += cell * 1.6; // crouch-only squeeze

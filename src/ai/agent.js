@@ -1346,6 +1346,10 @@ export class Agent {
       this.noGoalTime = 0;
       this.noMoveTime = 0;
       this._progressFrom.copy(this.position);
+      // Holding on purpose is not being stuck, so the escalation history goes
+      // too. This and the displacement branch below are the only two places
+      // `stuckCount` is cleared now — both of them mean "this bot is fine".
+      this.stuckCount = 0;
       return;
     }
 
@@ -1366,6 +1370,8 @@ export class Agent {
     if (this.position.distanceTo(this._progressFrom) > 0.35) {
       this._progressFrom.copy(this.position);
       this.noMoveTime = 0;
+      // Covered ground: whatever had it wedged is behind it.
+      this.stuckCount = 0;
     } else this.noMoveTime += dt;
 
     // 1.5 s for a missing goal — a frame or two between "I want to move" and
@@ -1507,7 +1513,19 @@ export class Agent {
         }
       } else {
         this.stuckTimer = 0;
-        this.stuckCount = 0;
+        // `stuckCount` is NOT cleared here, and it used to be.
+        //
+        // It is the ESCALATION counter: `_unstick` side-steps on 1 and 2 and
+        // only reaches for the last resort — putting the body on the nearest
+        // grid cell — at 3. Clearing it in this branch made 3 unreachable for
+        // exactly the bots that needed it, because this branch is where a bot
+        // with speed 0 lands, and a bot that cannot move is the one whose
+        // side-steps are failing. `_ensureGoal` raised it to 1 every 1.5 s and
+        // the next tick put it back to 0; measured over a 34.5 s stall,
+        // `stuckCount` never passed 1 and `snapUnsticks` stayed at 0.
+        //
+        // Cleared on PROGRESS instead — see `_ensureGoal`, which already owns
+        // the displacement test. Not shoving is not the same as being fine.
       }
     } else {
       this.position.x += this._steer.x * this.speed * dt;
@@ -1647,7 +1665,31 @@ export class Agent {
     // inventing a height rule that would have to be kept in step with the map.
     const grid = this.ai.grid;
     if (grid) {
-      const cell = grid.nearest(lx, lz, y);
+      // THE LANDING'S OWN CELL, not the nearest one to it.
+      //
+      // This asked `nearest(lx, lz, y)`, whose ring search reaches eight cells —
+      // 6.4 m — before giving up. So a landing on top of a container could be
+      // accepted on the strength of a floor cell three metres away, which is the
+      // exact outcome the check exists to prevent: a bot on a one-cell island,
+      // failing every path request for the rest of the round.
+      //
+      // It was strict by accident until now. The pockets and one-way cells that
+      // used to litter the map were what `nearest` found FIRST, and those fail
+      // `inMainComponent`, so the loose radius never got exercised. Removing
+      // them (see the orphan pass in `nav.js`) took the accident away and vault
+      // acceptance went from 8 of 836 staged poses to 24 — a change nobody asked
+      // for, arriving through a nav fix, which is how the loose test showed up.
+      //
+      // Asking about the cell the body will actually stand in needs no radius
+      // and no height rule of its own: `walkable` and the floor sample already
+      // encode both.
+      // One ring, and a height tolerance — `nearest` already takes both. A
+      // landing lands somewhere between cell centres, so demanding its exact
+      // cell rejects perfectly good vaults on a rounding accident (measured: 4
+      // of 836 against the shipped 8). One ring is 0.8 m, about a body radius,
+      // which is the distance a landing may legitimately be off by. Eight rings
+      // is not a tolerance, it is a different question.
+      const cell = grid.nearest(lx, lz, y, 1, grid.maxStep);
       if (cell < 0 || !grid.inMainComponent(cell)) return;
     }
     this.vaultCooldown = 2.5;

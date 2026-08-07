@@ -148,6 +148,102 @@ const out = await page.evaluate(
       // starts from, rather than from wherever the pre-roll left everybody.
       match.resetRound();
 
+      /**
+       * Two O(cells) sweeps, run once per long stall by the caller.
+       *
+       * `probePath` runs the query the bot keeps failing, using its own scratch
+       * buffer so it cannot perturb the agent. `reach` floods from the bot cell
+       * with EXACTLY the neighbour rules `findPath` expands with and compares
+       * what that reaches against what `component` claims — deduction has killed
+       * four hypotheses here, so this counts the map instead of arguing about it.
+       */
+      const deepProbe = (ag) => {
+  const probePath = (() => {
+                  const g = ai.grid;
+                  if (!g?.findPath || !ag.path?.[0]?.clone) return null;
+                  let gi = -1;
+                  for (let i = 0; i < g.flags.length; i++) {
+                    if (g.flags[i] && g.inMainComponent(i)) { gi = i; break; }
+                  }
+                  if (gi < 0) return null;
+                  const dest = {
+                    x: g.worldX(gi % g.nx),
+                    y: g.floor[gi],
+                    z: g.worldZ((gi / g.nx) | 0),
+                  };
+                  const scratch = [];
+                  for (let k = 0; k < 256; k++) scratch.push(ag.path[0].clone());
+                  const n = g.findPath(ag.position, dest, scratch);
+                  const st = g.nearest(ag.position.x, ag.position.z, ag.position.y);
+                  const go = g.nearest(dest.x, dest.z, dest.y);
+                  return {
+                    n, start: st, goal: go,
+                    startComp: g.component ? g.component[st] : null,
+                    goalComp: g.component ? g.component[go] : null,
+                    destAwayM: +Math.hypot(dest.x - ag.position.x, dest.z - ag.position.z).toFixed(1),
+                  };
+                })();
+                /**
+                 * Flood the grid from the bot's own cell using EXACTLY the
+                 * neighbour rules `findPath` expands with, and compare the size
+                 * of what that reaches against the size `component` claims.
+                 *
+                 * `component` is built by `_buildComponents` with what looks
+                 * like the identical predicate, and A* still reports no route
+                 * between two cells it labels the same — so one of the two is
+                 * wrong about the map and reading both source functions has not
+                 * said which. This counts it. `reached` far below `claimed`
+                 * means the label is promising connectivity the pathfinder does
+                 * not deliver, and every consumer of `inMainComponent` —
+                 * `randomMainPoint`, the same-component early-out in
+                 * `findPath`, the whole of `_ensureGoal`'s recovery — is built
+                 * on that promise.
+                 *
+                 * O(cells) and run once per new worst stall, which a harness can
+                 * afford and a frame cannot.
+                 */
+  const reach = (() => {
+                  const g = ai.grid;
+                  if (!g?.component) return null;
+                  const start = g.nearest(ag.position.x, ag.position.z, ag.position.y);
+                  if (start < 0) return null;
+                  const DXs = [1, -1, 0, 0, 1, 1, -1, -1];
+                  const DZs = [0, 0, 1, -1, 1, -1, 1, -1];
+                  const seen = new Uint8Array(g.component.length);
+                  const stack = [start];
+                  seen[start] = 1;
+                  let reached = 1;
+                  while (stack.length) {
+                    const cur = stack.pop();
+                    const cx = cur % g.nx;
+                    const cz = (cur / g.nx) | 0;
+                    const cy = g.floor[cur];
+                    for (let d = 0; d < 8; d++) {
+                      const dx = DXs[d], dz = DZs[d];
+                      const ix = cx + dx, iz = cz + dz;
+                      if (!g.walkable(ix, iz)) continue;
+                      if (dx && dz) {
+                        if (!g.walkable(cx + dx, cz) || !g.walkable(cx, cz + dz)) continue;
+                        if (!g.passable(cx, cz, dx, 0) || !g.passable(cx, cz, 0, dz)) continue;
+                      } else if (!g.passable(cx, cz, dx, dz)) continue;
+                      const ni = g.index(ix, iz);
+                      if (seen[ni]) continue;
+                      if (Math.abs(g.floor[ni] - cy) > g.maxStep) continue;
+                      seen[ni] = 1;
+                      reached++;
+                      stack.push(ni);
+                    }
+                  }
+                  let claimed = 0;
+                  const comp = g.component[start];
+                  for (let i = 0; i < g.component.length; i++) {
+                    if (g.component[i] === comp) claimed++;
+                  }
+                  return { start, comp, reached, claimed, mainCells: g.mainComponentCells };
+                })();
+        return { probePath, reach };
+      };
+
       const deaths = [];
       const off = e.events.on('combatant:death', (d) => {
         deaths.push({
@@ -230,12 +326,73 @@ const out = await page.evaluate(
           if (!pv) continue;
           const wants = (ag.desiredSpeed ?? 0) > 0.1;
           const moved = Math.hypot(ag.position.x - pv.x, ag.position.z - pv.z);
-          const rec = stalls.get(ag.id) ?? { cur: 0, worst: 0, state: null, at: null };
+          const rec = stalls.get(ag.id) ?? {
+            cur: 0, worst: 0, state: null, at: null,
+            // WHY the recovery did not fire, recorded while it is not firing.
+            //
+            // `Agent._ensureGoal` rescues a bot that wants to move and is not
+            // moving, and it did not rescue this one. Its two counters are
+            // public, so rather than reasoning about which of its three reset
+            // paths ran, watch them: a stall in which `noMoveTime` never
+            // reaches 3 s is a stall the recovery could not see, and the peak
+            // says by how much it missed.
+            //
+            // `crept` is the discriminator. This harness calls a bot stalled
+            // below 4 mm per frame (0.24 m/s at 60 fps) and `_ensureGoal` calls
+            // it progressing above 0.35 m in 3 s (0.117 m/s), so a bot moving
+            // between those two speeds is stalled here and healthy there. If
+            // `crept` clears 0.35 m the thresholds disagree; if it stays near
+            // zero, something reset the counters instead.
+            probe: {
+              peakNoGoal: 0, peakNoMove: 0, crept: 0,
+              sawIdle: false, sawTarget: false, sawPending: false, samples: 0,
+            },
+            anchor: null,
+          };
           if (wants && moved < 0.004) {
+            if (rec.cur === 0) {
+              rec.probe = {
+                peakNoGoal: 0, peakNoMove: 0, crept: 0,
+                sawIdle: false, sawTarget: false, sawPending: false, samples: 0,
+              };
+              rec.anchor = { x: ag.position.x, z: ag.position.z };
+            }
             rec.cur += e.time.elapsed - pv.t;
+            /**
+             * The expensive probes, ONCE per stall and only for a long one.
+             *
+             * They were computed inside the worst-moment snapshot, which is
+             * rebuilt on every sample that beats the record — and during a long
+             * stall almost every sample does. That put two O(cells) sweeps
+             * inside the rAF callback 120 times a second, so the harness became
+             * slowest exactly while the defect it is chasing was happening, and
+             * eight consecutive runs stopped reproducing it. A probe that
+             * changes the run is not measuring the run.
+             */
+            if (rec.cur > 3 && !rec.deep) rec.deep = deepProbe(ag);
+            const p = rec.probe;
+            p.samples++;
+            p.peakNoGoal = Math.max(p.peakNoGoal, ag.noGoalTime ?? 0);
+            p.peakNoMove = Math.max(p.peakNoMove, ag.noMoveTime ?? 0);
+            if (rec.anchor) {
+              p.crept = Math.max(p.crept, Math.hypot(
+                ag.position.x - rec.anchor.x, ag.position.z - rec.anchor.z
+              ));
+            }
+            if ((ag.desiredSpeed ?? 0) <= 0.1) p.sawIdle = true;
+            if (ag.hasMoveTarget) p.sawTarget = true;
+            if (ag.pathPending) p.sawPending = true;
             if (rec.cur > rec.worst) {
               rec.worst = rec.cur;
               rec.state = ag.state;
+              // Snapshot the probe HERE, with the rest of the worst-moment
+              // record. Reporting `rec.probe` directly mixed two different
+              // stalls into one line: the probe restarts with each stall and
+              // `worst`/`at` only move when a stall beats the record, so a
+              // later, shorter stall silently replaced the numbers describing
+              // the one being reported. It showed as arithmetic that could not
+              // be true — 102 samples across a 10.3 s stall, at 60 fps.
+              rec.worstProbe = { ...p };
               // The state AT the worst moment, not just its length. "8 s in
               // combat" says a bot was stuck and nothing about why; the unstick
               // path only arms on `lastMoveBlocked && speed > 0.5`, so whether
@@ -252,6 +409,61 @@ const out = await page.evaluate(
                 path: `${ag.pathIndex ?? -1}/${ag.pathLen ?? -1}`,
                 moveTarget: !!ag.hasMoveTarget,
                 pending: !!ag.pathPending,
+                /**
+                 * WHERE the bot is, in the nav grid's terms.
+                 *
+                 * The probe above establishes that `_ensureGoal` fires and
+                 * achieves nothing — `hasMoveTarget` never goes true, so every
+                 * `_goTo` it issues finds no route. The obvious next suspect is
+                 * that the bot is standing off the main connected component, in
+                 * one of the pockets `nav.js` counts, because `randomMainPoint`
+                 * only ever picks destinations IN the main component and no
+                 * route crosses between them.
+                 *
+                 * If that is it, the last-resort snap in `_unstick` cannot help
+                 * either: `grid.nearest` returns the closest WALKABLE cell and
+                 * does not consult `inMainComponent`, so it would move a
+                 * stranded bot to another cell of the same pocket.
+                 *
+                 * Two hypotheses have already died today (creeping, and a
+                 * broken recovery). Measure it rather than assume it.
+                 */
+                grid: (() => {
+                  const g = ai.grid;
+                  if (!g) return null;
+                  const ix = g.cellX(ag.position.x);
+                  const iz = g.cellZ(ag.position.z);
+                  const onCell = !!g.walkable(ix, iz);
+                  const self = onCell ? g.index(ix, iz) : -1;
+                  const near = g.nearest(ag.position.x, ag.position.z, ag.position.y);
+                  return {
+                    onWalkableCell: onCell,
+                    selfInMain: self >= 0 ? !!g.inMainComponent(self) : null,
+                    near,
+                    nearInMain: near >= 0 ? !!g.inMainComponent(near) : null,
+                    nearAwayM: near >= 0 ? +Math.hypot(
+                      g.worldX(near % g.nx) - ag.position.x,
+                      g.worldZ((near / g.nx) | 0) - ag.position.z
+                    ).toFixed(2) : null,
+                    pocketCells: g.pocketCells,
+                    walkableCount: g.walkableCount,
+                  };
+                })(),
+                /**
+                 * Run the query the bot keeps failing, right here, right now.
+                 *
+                 * Everything above says a route should exist: the bot stands on
+                 * a walkable main-component cell and `_ensureGoal` routes it to
+                 * main-component destinations. Deduction has now killed three
+                 * hypotheses in a row, so stop deducing — `findPath` is pure and
+                 * side-effect free given its own scratch buffer, so call it and
+                 * read the answer instead of arguing about it.
+                 *
+                 * The destination is the first main cell in index order rather
+                 * than a random one, so the result is comparable across runs and
+                 * costs the agent no RNG draws (this harness must not perturb
+                 * the simulation it is measuring).
+                 */
               };
             }
           } else rec.cur = 0;
@@ -278,8 +490,19 @@ const out = await page.evaluate(
             // stall look identical from the outside.
             pathsDeferred: ai.stats?.pathsDeferred ?? null,
             pathsPerFrame: ai.pathsPerFrame,
-            stalls: [...stalls].map(([id, r]) => ({ id, worst: +r.worst.toFixed(1), state: r.state, at: r.at }))
-              .sort((p, q) => q.worst - p.worst),
+            stalls: [...stalls].map(([id, r]) => ({
+              id, worst: +r.worst.toFixed(1), state: r.state, at: r.at,
+              probe: r.worstProbe && {
+                peakNoGoal: +(r.worstProbe.peakNoGoal).toFixed(2),
+                peakNoMove: +(r.worstProbe.peakNoMove).toFixed(2),
+                crept: +(r.worstProbe.crept).toFixed(3),
+                sawIdle: r.worstProbe.sawIdle,
+                sawTarget: r.worstProbe.sawTarget,
+                sawPending: r.worstProbe.sawPending,
+                samples: r.worstProbe.samples,
+              },
+              deep: r.deep ?? null,
+            })).sort((p, q) => q.worst - p.worst),
             elapsed: +elapsed.toFixed(1),
             ranOut: !over,
             aliveAlpha: a,
@@ -581,7 +804,7 @@ if (out.ranOut) {
  * combat" is a duration; it took the state at the worst moment to show that two
  * completely different faults were being averaged into one number.
  */
-const STALL_CEIL = 6;
+const STALL_CEIL = Number(args.stallceil ?? 6);
 const stalled = (out.stalls ?? []).filter((s) => s.worst > STALL_CEIL);
 if (stalled.length) {
   fail.push(
@@ -593,6 +816,54 @@ if (stalled.length) {
       .join(', ') +
     ` (ceiling ${STALL_CEIL}s)`
   );
+}
+
+/**
+ * The top stalls with their probes, EVERY run, pass or fail.
+ *
+ * A number that only appears when it trips the gate is a number nobody can
+ * watch drift toward it — and the fault this section exists for reproduces
+ * about one run in eight, so waiting for the gate to fire is waiting for a
+ * coin. Printing the near-misses turns one run into several samples of the
+ * same phenomenon at lower amplitude. Run with `--stallceil=2` to make the
+ * gate itself catch them.
+ */
+if (out.stalls?.length) {
+  console.log('\n─── worst blocked-moves, with the recovery probe ' + '─'.repeat(22));
+  for (const s of out.stalls.slice(0, 4)) {
+    if (!s.worst) continue;
+    const p = s.probe ?? {};
+    console.log(
+      `  #${s.id} ${String(s.worst).padStart(5)}s in ${String(s.state).padEnd(7)} · ` +
+      `_ensureGoal peaks noGoal ${p.peakNoGoal}/1.5 noMove ${p.peakNoMove}/3.0 · ` +
+      `crept ${p.crept} m · idle ${p.sawIdle ? 'Y' : 'n'} target ${p.sawTarget ? 'Y' : 'n'} ` +
+      `pending ${p.sawPending ? 'Y' : 'n'} · ${p.samples} samples`
+    );
+    const g = s.at?.grid;
+    if (g) {
+      console.log(
+        `        grid: on a walkable cell ${g.onWalkableCell ? 'Y' : 'n'} · ` +
+        `that cell in main component ${g.selfInMain === null ? '—' : g.selfInMain ? 'Y' : 'n'} · ` +
+        `nearest() ${g.near} at ${g.nearAwayM} m, in main ${g.nearInMain === null ? '—' : g.nearInMain ? 'Y' : 'n'} · ` +
+        `${g.pocketCells} pocket / ${g.walkableCount} walkable`
+      );
+    }
+    const pp = s.deep?.probePath;
+    if (pp) {
+      console.log(
+        `        live findPath to a main cell ${pp.destAwayM} m away -> n=${pp.n} · ` +
+        `start cell ${pp.start} (component ${pp.startComp}) -> goal ${pp.goal} (component ${pp.goalComp})`
+      );
+    }
+    const rh = s.deep?.reach;
+    if (rh) {
+      console.log(
+        `        flood from cell ${rh.start}: reaches ${rh.reached} cells · ` +
+        `component ${rh.comp} claims ${rh.claimed} · main has ${rh.mainCells}` +
+        (rh.reached < rh.claimed ? '   <<< the label over-promises' : '')
+      );
+    }
+  }
 }
 
 if (errors.length) fail.push(`page errors: ${errors.slice(0, 2).join(' | ')}`);

@@ -58,6 +58,9 @@ const BUS_FOR = {
   shot: 'weapons', explosion: 'weapons', dryfire: 'weapons',
   hitmarker: 'ui', headshot: 'ui', kill: 'ui', armour: 'ui', damage: 'ui',
   grenade_warn: 'ui', regen: 'ui', lowhealth: 'ui',
+  // Round phase cues. On the UI bus with the rest of the non-diegetic feedback,
+  // so a player who turns the HUD sounds down turns these down with them.
+  round_tick: 'ui', round_go: 'ui', round_freeze: 'ui',
   bark: 'voice', ambient: 'ambience',
 };
 
@@ -462,9 +465,12 @@ export class AudioSystem {
     return this._playDry(k, opts, opts.bus ?? BUS_FOR[k] ?? 'foley', opts.send ?? 0.15);
   }
 
-  ui(kind, level = 1) {
+  ui(kind, level = 1, opts = null) {
     const k = UI_ALIAS[kind] ?? kind;
-    return this._playDry(k, { level }, BUS_FOR[k] ?? 'ui', k === 'heartbeat' ? 0.1 : 0);
+    // `opts` carries anything the voice needs beyond loudness — the round
+    // countdown pitches its tick by `step` so 3-2-1 climbs into the bell.
+    const o = opts ? { level, ...opts } : { level };
+    return this._playDry(k, o, BUS_FOR[k] ?? 'ui', k === 'heartbeat' ? 0.1 : 0);
   }
 
   /** Adapter the `ui` subsystem probes for: playUi(id, gain). */

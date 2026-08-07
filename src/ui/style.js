@@ -596,6 +596,27 @@ const CSS = `
   font-size: calc(12px * var(--k)); letter-spacing:.3em; color: var(--amber); font-weight:700;
   text-shadow: var(--sh-o1);
 }
+/**
+ * The freeze countdown. Dead centre, and big enough that it is read without
+ * being looked at — a player waiting for the bell is watching a doorway, and a
+ * number they have to focus on to see is a number that arrives too late.
+ *
+ * pointer-events is none because it sits on the centre layer over the crosshair.
+ *
+ * No backticks in here, ever: this whole sheet is a JS template literal, so one
+ * closes it and the build fails somewhere else entirely.
+ */
+.ow-countdown {
+  position: absolute; left: 50%; top: 44%;
+  transform: translate(-50%, -50%);
+  font-family: var(--fd);
+  font-size: calc(96px * var(--k)); font-weight: 700;
+  letter-spacing: .04em;
+  color: var(--amber);
+  text-shadow: var(--sh-o2);
+  pointer-events: none;
+  opacity: .92;
+}
 .ow-banner-rule {
   margin: calc(var(--u) * 1.4) auto 0; width: calc(120px * var(--k)); height:1px;
   background: linear-gradient(to right, transparent, rgba(255,255,255,.5), transparent);

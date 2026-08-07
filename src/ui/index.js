@@ -64,7 +64,7 @@
 
 import * as THREE from 'three';
 import { installStyles, removeStyles } from './style.js';
-import { el, clamp, clamp01, damp, setStyle } from './util.js';
+import { el, clamp, clamp01, damp, setStyle, setText } from './util.js';
 import { Crosshair } from './crosshair.js';
 import { Hitmarkers } from './hitmarkers.js';
 import { DamageArcs } from './damage.js';
@@ -115,6 +115,18 @@ export class UiSystem {
     this.spectate = new SpectateOverlay(this.chromeLayer);
     this.prompt = new Prompt(this.chromeLayer);
     this.banner = new Banner(this.chromeLayer);
+    /**
+     * The freeze countdown: one big number, dead centre, last three seconds.
+     *
+     * On the CENTRE layer rather than with the banner, because it has to sit
+     * where the crosshair is — a player waiting for a round to start is looking
+     * at the door they are about to go through, not at the chrome.
+     */
+    this.countdown = el('div', 'ow-countdown', this.centreLayer, '');
+    setStyle(this.countdown, 'display', 'none');
+    /** Last whole second announced, so each tick fires exactly once. */
+    this._countdownAt = -1;
+    this._lastPhase = null;
     this.scoreboard = new Scoreboard(this.root);
     this.menu = new PauseMenu(this.root, ctx);
 
@@ -250,6 +262,56 @@ export class UiSystem {
       if (won) this.sfx('round_win', 0.8);
     });
 
+    /**
+     * THE BOUNDARY BETWEEN PHASES, made into a moment.
+     *
+     * `round:phase` has been emitted since the round machine was written and
+     * nothing subscribed to it. The only announcement a phase change made was
+     * `MatchBar` swapping a small label at the top of the screen — so the
+     * transition a player most needs to feel, freeze becoming live, arrived
+     * with no sound, no flash and nothing in the middle of the screen.
+     *
+     * Three cues, in rising order of how much they interrupt:
+     *
+     *   banner     every transition gets a title, so the change is named
+     *   countdown  the last 3 s of freeze get a big centred number and a tick
+     *              that climbs — the boundary is visible BEFORE it arrives,
+     *              which is what makes it possible to be ready for it
+     *   bell       live gets its own sound and a crosshair kick, so the moment
+     *              itself lands even if the player is looking at a doorway
+     *
+     * The countdown is the load-bearing one. A banner at the instant of the
+     * change tells you it has already happened.
+     */
+    on('round:phase', (e) => {
+      const p = e?.phase;
+      if (p === this._lastPhase) return;
+      this._lastPhase = p;
+      this._countdownAt = -1;
+      switch (p) {
+        case 'warmup':
+          this.banner.show('Warm Up', 'Match starting', 2.4);
+          break;
+        case 'freeze':
+          // Round N is announced HERE rather than at `live`: by the time the
+          // bell goes the player should be aiming, not reading.
+          this.banner.show(`Round ${e?.round ?? 1}`, 'Get Ready', 1.8);
+          this.sfx('round_freeze', 0.7);
+          break;
+        case 'live':
+          this.banner.show('Fight', '', 1.1);
+          this.sfx('round_go', 0.95);
+          // A kick on the crosshair, because that is where the eyes already are.
+          this.crosshair.onFlinch?.(0.5);
+          break;
+        default:
+          // `roundEnd` and `matchEnd` already have banners of their own, from
+          // `round:end` and `match:end`, which carry the result. A second one
+          // here would talk over them.
+          break;
+      }
+    });
+
     on('round:start', () => {
       this.state.roundResult = '';
       this.killfeed.clear();
@@ -313,11 +375,54 @@ export class UiSystem {
   }
 
   /** Fire-and-forget audio; the audio subsystem may not exist yet. */
-  sfx(id, gain = 1) {
+  /**
+   * The last three seconds of freeze, counted out loud and in the middle of the
+   * screen.
+   *
+   * This is the part that actually answers "the boundaries are hard to feel".
+   * A cue AT the transition tells a player it has already happened; a countdown
+   * lets them be ready for it, which is the whole reason a freeze phase exists.
+   *
+   * Driven off `state.timeLeft` rather than off a timer of its own, so it cannot
+   * drift from the round machine — and gated on the whole second changing, so
+   * the tick fires once per number however many frames that number spans.
+   *
+   * @param {object} s  the HUD state; `phase` and `timeLeft` are the round's own
+   */
+  _updateCountdown(s) {
+    const arm = s.phase === 'freeze' || s.phase === 'warmup';
+    const left = s.timeLeft ?? 0;
+    if (!arm || left > 3.001 || left <= 0) {
+      // Hidden unconditionally, NOT guarded on `_countdownAt`.
+      //
+      // Two places were using that field for two different things: this one as
+      // "is the element on screen", and the `round:phase` handler as "forget the
+      // last number announced". The handler zeroed it first, so by the time the
+      // round went live this branch decided there was nothing to hide and the
+      // number stayed sitting over the crosshair for the whole round.
+      this._countdownAt = -1;
+      setStyle(this.countdown, 'display', 'none');
+      return;
+    }
+    const n = Math.ceil(left);
+    setStyle(this.countdown, 'display', '');
+    if (n === this._countdownAt) return;
+    this._countdownAt = n;
+    setText(this.countdown, String(n));
+    // `step` rises 0,1,2 as the count falls 3,2,1, so the pitch climbs into the
+    // bell rather than sitting flat under it.
+    this.sfx('round_tick', 0.55 + (3 - n) * 0.12, { step: 3 - n });
+  }
+
+  sfx(id, gain = 1, opts = null) {
     const a = this.ctx.peek('audio');
     if (!a) return;
     try {
-      if (typeof a.playUi === 'function') a.playUi(id, gain);
+      // `opts` is optional and only the newest adapter takes it, so it is passed
+      // through the richest path available and dropped by the others rather than
+      // making a caller check which audio system it got.
+      if (typeof a.ui === 'function' && opts) a.ui(id, gain, opts);
+      else if (typeof a.playUi === 'function') a.playUi(id, gain);
       else if (typeof a.play === 'function') a.play(id, { gain });
       else if (typeof a.sfx === 'function') a.sfx(id, gain);
     } catch {
@@ -523,6 +628,7 @@ export class UiSystem {
     this.matchBar.update(s);
     this.prompt.update(dt);
     this.banner.update(dt);
+    this._updateCountdown(s);
 
     const player = ctx.peek('player');
     this.spectate.update(player?.spectateTarget ?? null, s.dead);

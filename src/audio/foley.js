@@ -688,6 +688,54 @@ export function uiSound(actx, bank, rng, kind, o = {}) {
       o1.stop(t0 + 0.12); o2.stop(t0 + 0.14);
       break;
     }
+    /**
+     * ── ROUND PHASE CUES ────────────────────────────────────────────────
+     *
+     * The round machine has always changed phase silently. `MatchBar` swapped a
+     * small label at the top of the screen from GET READY to ROUND 3 and that
+     * was the entire announcement, so the boundary between not-fighting and
+     * fighting — the one moment in a round that a player has to feel exactly —
+     * arrived without a sound or a flash.
+     *
+     * Three cues, pitched apart on purpose so they are told apart with the
+     * screen ignored: a dry tick that climbs as the countdown runs out, a bright
+     * rising fifth for the bell, and a low settle for the lull between rounds.
+     */
+    case 'round_tick': {
+      // Dry, short, and pitched by `level` so 3-2-1 rises. A metronome, not a
+      // melody: it should read as time passing, not as a tune.
+      const o1 = osc(actx, 'square', 700 + 260 * (o.step ?? 0));
+      const g = gain(actx, 0);
+      const lp = biquad(actx, 'lowpass', 3600, 0.7);
+      o1.connect(g); series(g, lp).connect(out);
+      hit(g.gain, t0, 0.34 * lvl, 0.03);
+      o1.start(t0); o1.stop(t0 + 0.07);
+      break;
+    }
+    case 'round_go': {
+      // The bell. A rising perfect fifth an octave over the ticks, so it lands
+      // clear of them and cannot be mistaken for another count.
+      const a = osc(actx, 'triangle', 1180);
+      const b = osc(actx, 'triangle', 1770);
+      const g = gain(actx, 0);
+      a.connect(g); b.connect(g); g.connect(out);
+      ad(g.gain, t0, 0.5 * lvl, 0.006, 0.34);
+      a.start(t0); b.start(t0 + 0.045);
+      a.stop(t0 + 0.5); b.stop(t0 + 0.5);
+      break;
+    }
+    case 'round_freeze': {
+      // Falling, low and soft: the opposite gesture to the bell, so "you may
+      // not move" and "go" are never confused when both arrive within seconds.
+      const o1 = osc(actx, 'sine', 420);
+      const g = gain(actx, 0);
+      o1.connect(g); g.connect(out);
+      o1.frequency.setValueAtTime(420, t0);
+      o1.frequency.exponentialRampToValueAtTime(240, t0 + 0.36);
+      ad(g.gain, t0, 0.3 * lvl, 0.02, 0.42);
+      o1.start(t0); o1.stop(t0 + 0.5);
+      break;
+    }
     case 'kill': {
       for (let i = 0; i < 3; i++) {
         const o1 = osc(actx, 'triangle', 900 * Math.pow(1.5, i));

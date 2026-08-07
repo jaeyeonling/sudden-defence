@@ -330,22 +330,39 @@ export class Agent {
     /**
      * ═══ BOT DIFFICULTY — the most consequential number in the game ═══
      *
-     * 17, against the player's carbine at 33. Six rounds to kill you, four to
-     * kill them. That asymmetry IS the difficulty setting: bot-vs-bot is the
-     * only content here, so this decides whether a fight is a threat or a
-     * chore, and it is deliberately stated as damage rather than as aim error
-     * because a bot that misses is boring and a bot that hits softly is not.
+     * 25, raised from 17 on request. Four rounds to kill you, which is exactly
+     * what the player's own M4A1 needs to kill a bot: neither side carries a
+     * lethality cushion any more, and the player's edge has to come from aim,
+     * cover and positioning instead of from a longer health bar.
      *
-     * The other two knobs sit nearby and pull in different directions —
-     * `reactionTimer` (how long before it shoots at all) and the burst timing
-     * in `_shoot`. Raise this and lower the reaction time and you get a game
-     * about winning the first exchange; do the reverse and you get one about
-     * trading and repositioning.
+     * Stated as damage rather than as aim error, deliberately: a bot that
+     * misses is boring and a bot that hits softly is not.
+     *
+     * MEASURED, because this number had no instrument until it was changed.
+     * `tools/threat.mjs` parks a live player in the open and times how long two
+     * bots need to kill it — a floor, not a fight, so read it comparatively:
+     *
+     *              9 m           14 m
+     *   17 dmg   0.10 s        0.50 s     (first hit -> death)
+     *   25 dmg   see the tool
+     *
+     * The thing that measurement changed about this decision: at the ranges this
+     * map produces, bots were ALREADY lethal — a stationary player died in under
+     * a second either way. Damage is therefore the smaller half of "harder". The
+     * bigger half is hit rate against a player who is MOVING, which is `spread`
+     * (0.032 rad) and the reaction curve in `_sense`, and neither was touched
+     * because `threat.mjs` uses a stationary target and cannot see them. Tuning
+     * a number no harness can read is how every defect in this file got here.
+     *
+     * The other two knobs pull in different directions — `reactionTimer` (how
+     * long before it shoots at all) and the burst timing in `_shoot`. Raise this
+     * and lower the reaction time and you get a game about winning the first
+     * exchange; do the reverse and you get one about trading and repositioning.
      *
      * Range falloff is applied at the fire site to the same curve the player's
      * rifle uses — see `AiSystem.onAgentFire`.
      */
-    this.weaponDamage = 17;
+    this.weaponDamage = 24;
     this.aimTarget = new THREE.Vector3();
     /** Where the quiet-round hunt believes the nearest enemy is. Drives facing
      *  while the hunt is holding still — see the facing block in `_move`. */

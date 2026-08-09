@@ -91,7 +91,7 @@ export class UiSystem {
 
   async init(ctx) {
     this.ctx = ctx;
-    this.rng = ctx.rng.fork();
+    this.rng = ctx.rng.fork({ snapshot: false });
     this.match = ctx.get('match');
     installStyles();
 
@@ -105,7 +105,7 @@ export class UiSystem {
     this.chromeLayer = el('div', 'ow-layer', this.root);
 
     this.health = new HealthFx(this.hurtLayer, this.chromeLayer);
-    this.markers = new WorldMarkers(this.worldLayer, this.rng.fork());
+    this.markers = new WorldMarkers(this.worldLayer, this.rng.fork({ snapshot: false }));
     this.arcs = new DamageArcs(this.centreLayer);
     this.crosshair = new Crosshair(this.centreLayer);
     this.hit = new Hitmarkers(this.centreLayer);

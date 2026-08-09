@@ -49,7 +49,7 @@ export class ShellSystem {
     geo.computeVertexNormals();
     this.geometry = geo;
 
-    const tex = buildBrassTextures(fx.rng.fork(), 128);
+    const tex = buildBrassTextures(fx.rng.fork({ snapshot: false }), 128);
     this.textures = tex;
     const mat = new THREE.MeshStandardMaterial({
       color: new THREE.Color(0.78, 0.62, 0.31), // brass F0

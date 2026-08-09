@@ -146,7 +146,12 @@ export class PlayerSystem {
   async init(ctx) {
     this.ctx = ctx;
     this.physics = ctx.get('physics');
-    this.rng = ctx.rng.fork();
+    // No stream here. There used to be a `ctx.rng.fork()` on this line and not
+    // one line in `src/player/` ever read it — the netcode-5 fork audit found
+    // it. It was carried in the snapshot-scope table as simulation state, which
+    // is how a dead stream becomes work: the table would have had us capture and
+    // restore something with no consumer, and every gate would have agreed.
+    // Spread and recoil randomness live in `weapons`; movement is deterministic.
 
     this.movement = new Movement(ctx, this);
     this.rig = new CameraRig(ctx);

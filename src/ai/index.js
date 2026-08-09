@@ -61,13 +61,27 @@ export class AiSystem {
   async init(ctx) {
     this.ctx = ctx;
     this.match = ctx.get('match');
-    this.rng = ctx.rng.fork();
+    // Two streams, because this subsystem does both jobs and one of them must
+    // not disturb the other.
+    //
+    // `rng` is simulation: spawn scatter (`_scatter`), spawn yaw jitter, and the
+    // per-agent and per-squad streams forked off it.
+    //
+    // `fxRng` is the mesh/material side. It exists because `variant()` is a lazy
+    // memo — its fork fires on a cache MISS and not otherwise. Drawing that from
+    // the simulation stream made the sequence a function of which variants had
+    // been built already, so a replay that re-entered the window with a warm
+    // memo would advance `rng` one u32 less than the original pass did. Same
+    // commands, different bullets. Splitting the streams removes the coupling
+    // rather than documenting it.
+    this.rng = ctx.rng.fork({ snapshot: true });
+    this.fxRng = ctx.rng.fork({ snapshot: false });
     this.root = new THREE.Group();
     this.root.name = 'ai';
     ctx.scene.add(this.root);
 
     const t0 = performance.now();
-    this.materials = new SoldierMaterials(this.rng.fork(), {
+    this.materials = new SoldierMaterials(this.fxRng.fork({ snapshot: false }), {
       size: 512,
       anisotropy: ctx.config.q.anisotropy ?? 8,
       camo: ['arid', 'woodland', 'urban'],
@@ -533,7 +547,9 @@ export class AiSystem {
     if (!v) {
       const t0 = performance.now();
       v = buildSoldier(name, {
-        rng: this.rng.fork(),
+        // `fxRng`, not `rng` — see the two-stream note in `init`. This line is
+        // the reason the split exists: it runs on a memo miss only.
+        rng: this.fxRng.fork({ snapshot: false }),
         materials: this.materials,
         accent: this._accentFor(name),
       });
@@ -742,7 +758,9 @@ export class AiSystem {
   }
 
   createSquad() {
-    const s = new Squad(this.rng.fork());
+    // Simulation: the squad owns peek authority, grenade authority and flank
+    // occupancy, all of which it rolls for.
+    const s = new Squad(this.rng.fork({ snapshot: true }));
     this.squads.push(s);
     return s;
   }

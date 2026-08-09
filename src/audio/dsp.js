@@ -8,7 +8,7 @@
  * user gesture or a speaker.
  *
  * Rules honoured here:
- *  - no randomness except through an injected `Rng` (ctx.rng.fork())
+ *  - no randomness except through an injected `Rng` (ctx.rng.fork({ snapshot: false }))
  *  - buffers and curve tables are built once and shared
  *  - every node a voice creates hangs off a single top gain so the caller can
  *    disconnect the whole voice in one call when its tail has decayed

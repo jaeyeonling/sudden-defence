@@ -130,7 +130,7 @@ export class AudioSystem {
 
   async init(ctx) {
     this.ctx = ctx;
-    this.rng = ctx.rng.fork();
+    this.rng = ctx.rng.fork({ snapshot: false });
     this._wireEvents(ctx);
 
     // Web Audio needs a user gesture. Arm every plausible one; the first to
@@ -166,11 +166,11 @@ export class AudioSystem {
       const actx = new AC({ latencyHint: 'interactive' });
       this.actx = actx;
 
-      this.bank = new NoiseBank(actx, this.rng.fork(), 2.4);
-      this.mixer = new Mixer(actx, this.rng.fork(), {});
+      this.bank = new NoiseBank(actx, this.rng.fork({ snapshot: false }), 2.4);
+      this.mixer = new Mixer(actx, this.rng.fork({ snapshot: false }), {});
       this.mixer.buildReverbs();
       this.field = new SpatialField(actx, this.mixer, this.ctx);
-      this.ambience = new Ambience(actx, this.bank, this.mixer, this.field, this.rng.fork());
+      this.ambience = new Ambience(actx, this.bank, this.mixer, this.field, this.rng.fork({ snapshot: false }));
       this.ambience.start();
       this.mixer.setSpace(this._space, 0.001);
 

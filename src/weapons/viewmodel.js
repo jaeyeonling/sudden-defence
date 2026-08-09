@@ -100,7 +100,7 @@ export class Viewmodel {
   constructor(ctx, mats) {
     this.ctx = ctx;
     this.mats = mats;
-    this.rng = ctx.rng.fork();
+    this.rng = ctx.rng.fork({ snapshot: false });
 
     this.anchor = new THREE.Object3D();
     this.anchor.name = 'ow-viewmodel-anchor';

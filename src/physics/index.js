@@ -255,7 +255,9 @@ export class PhysicsSystem {
 
   async init(ctx) {
     this.ctx = ctx;
-    this.rng = ctx.rng.fork();
+    // Simulation: this is the ballistics stream — `fire()` draws from it for
+    // every bullet, and the impact/ragdoll paths below take it too.
+    this.rng = ctx.rng.fork({ snapshot: true });
     this.ballistics.rng = this.rng;
     this.debug = new PhysicsDebugView(ctx.scene);
 

@@ -122,7 +122,7 @@ export async function prewarm(engine, { onProgress = () => {}, transients = fals
    *
    * `ctx.rng` was already snapshotted above, and that was not enough, because
    * every subsystem forks its own stream off it at construction
-   * (`this.rng = ctx.rng.fork()`) and thereafter advances independently. A
+   * (`this.rng = ctx.rng.fork({ snapshot })`) and thereafter advances independently. A
    * transient warm that fires three rounds pulls from `weapons.rng` for the
    * spread disc and the tracer seed, and from `fx.rng` for the flash colour
    * temperature, the lobe roll and every ember — so the shot the player actually

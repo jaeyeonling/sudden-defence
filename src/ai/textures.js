@@ -533,7 +533,7 @@ export class SoldierMaterials {
   constructor(rng, opts = {}) {
     const size = opts.size ?? 512;
     const aniso = opts.anisotropy ?? 8;
-    const nz = new TileNoise(rng.fork());
+    const nz = new TileNoise(rng.fork({ snapshot: false }));
     const t0 = (typeof performance !== 'undefined' ? performance.now() : 0);
 
     this.sets = {};

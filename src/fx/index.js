@@ -39,7 +39,7 @@ export class FxSystem {
 
   async init(ctx) {
     this.ctx = ctx;
-    this.rng = ctx.rng.fork();
+    this.rng = ctx.rng.fork({ snapshot: false });
     this.render = ctx.peek('render');
     this._physics = ctx.peek('physics');
     this._audio = ctx.peek('audio');
@@ -52,8 +52,8 @@ export class FxSystem {
 
     const t0 = performance.now();
     const atlasSize = big ? 1024 : 512;
-    const particleAtlas = buildParticleAtlas(this.rng.fork(), atlasSize);
-    const decalAtlas = buildDecalAtlas(this.rng.fork(), atlasSize);
+    const particleAtlas = buildParticleAtlas(this.rng.fork({ snapshot: false }), atlasSize);
+    const decalAtlas = buildDecalAtlas(this.rng.fork({ snapshot: false }), atlasSize);
     this._atlas = particleAtlas;
     this._decalAtlas = decalAtlas;
     const bakeMs = performance.now() - t0;

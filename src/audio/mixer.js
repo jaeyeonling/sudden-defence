@@ -144,7 +144,7 @@ export class Mixer {
       const conv = actx.createConvolver();
       conv.normalize = false;
       try {
-        conv.buffer = generateIR(actx, this.rng.fork(), IR_SPECS[name]);
+        conv.buffer = generateIR(actx, this.rng.fork({ snapshot: false }), IR_SPECS[name]);
       } catch (err) {
         console.warn('[audio] IR generation failed for', name, err);
         continue;

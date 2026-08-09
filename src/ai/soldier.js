@@ -348,7 +348,7 @@ const bp = (name) => {
  */
 export function buildSoldier(name, { rng, materials, accent = null }) {
   const V = VARIANTS[name] ?? VARIANTS.vanguard;
-  const nz = new Noise(rng.fork());
+  const nz = new Noise(rng.fork({ snapshot: false }));
   const B = new CharacterBuilder(RIG, { noise: nz, materials: MATERIALS });
 
   // The team read. `uniform` goes on the issued garment, `marker` on the plate

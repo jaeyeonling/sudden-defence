@@ -2,10 +2,45 @@
  * Deterministic PRNG (xoshiro128**). Gameplay randomness — recoil patterns,
  * spread, particle jitter, AI timing — must run through this so capture mode
  * produces byte-identical frames.
+ *
+ * WHY `fork` DEMANDS AN ANSWER
+ *
+ * Netcode step 5 rewinds the world to a tick and replays the commands since.
+ * Rewinding a stream means restoring its state, so every stream splits into two
+ * populations: the ones a snapshot must carry, and the ones it must not. Get it
+ * wrong in either direction and you lose — a missed simulation stream diverges
+ * on replay, an included presentation stream bloats the snapshot with the
+ * particle jitter of things that were never simulated in the first place.
+ *
+ * There are 29 `fork()` sites. Nothing at any of them said which population it
+ * belonged to, so the answer lived in one hand-written table in a handoff
+ * document — and that table was wrong twice, listing two streams as simulation
+ * that no line of code ever reads. A comment cannot be wrong loudly. A required
+ * argument can: the throw below is what a table cannot do.
+ *
+ * The flag asks the question it decides — "does this need saving and
+ * restoring" — not the category it correlates with. `world`'s stream is
+ * simulation by any reasonable reading (its bake decides what bullets hit) and
+ * is still `snapshot: false`, because it is frozen after boot. Naming the flag
+ * `sim` would have forced a lie about that one either way.
  */
 export class Rng {
   constructor(seed = 0x9e3779b9) {
     this.seed(seed);
+
+    /**
+     * Root-only. Every descendant forked with `snapshot: true` registers here,
+     * in creation order, so a snapshot can enumerate its targets instead of
+     * trusting each subsystem to remember its own streams.
+     *
+     * This is deliberately redundant with the per-subsystem `captureState`
+     * hooks: the gate cross-checks the two, and a stream present here but
+     * missing from the capture is exactly the failure the hooks cannot report
+     * about themselves.
+     */
+    this._snapshotForks = null;
+    /** The root of this stream's fork tree. Null on a root. */
+    this._root = null;
   }
 
   seed(s) {
@@ -22,6 +57,11 @@ export class Rng {
     this.s1 = next();
     this.s2 = next();
     this.s3 = next();
+    // `gauss` caches the second Box-Muller sample here, so it is state as much
+    // as the four words are. Leaving it across a reseed made the same seed
+    // produce different normals depending on whether the previous stream had
+    // drawn an odd number of them.
+    this._spare = undefined;
     return this;
   }
 
@@ -87,9 +127,76 @@ export class Rng {
     return out;
   }
 
-  /** Independent stream derived from this one — lets a subsystem randomise
-   *  without perturbing another subsystem's sequence. */
-  fork() {
-    return new Rng(this.u32());
+  /**
+   * Independent stream derived from this one — lets a subsystem randomise
+   * without perturbing another subsystem's sequence.
+   *
+   * `snapshot` is required, and is the caller's answer to: if the world rewinds
+   * to an earlier tick and replays, must this stream rewind with it?
+   *
+   *   true  — the stream feeds simulation. Its state is snapshot state.
+   *   false — presentation, or frozen after boot. Excluded, and the excluding
+   *           is the point: a snapshot that carried every muzzle-flash stream
+   *           would be larger and no more correct.
+   *
+   * Omitting it throws rather than defaulting. A default is a vote cast on
+   * behalf of whoever adds the next fork, and the two dead streams this
+   * argument uncovered survived precisely because forking cost nothing.
+   */
+  fork({ snapshot } = {}) {
+    if (typeof snapshot !== 'boolean') {
+      throw new TypeError(
+        'Rng.fork requires { snapshot: boolean } — does this stream rewind with the world? ' +
+          'See the class comment; there is no correct default.'
+      );
+    }
+    const child = new Rng(this.u32());
+    // Link every child to the root, not just the registered ones. A presentation
+    // stream is allowed to fork a simulation stream — `ai.fxRng` is one branch
+    // away from being that — and if the link were conditional, such a grandchild
+    // would register on its own parent and `snapshotForks()` would never see it.
+    // A registry that silently omits is worse than no registry.
+    const root = this._root ?? this;
+    child._root = root;
+    if (snapshot) (root._snapshotForks ??= []).push(child);
+    return child;
+  }
+
+  /**
+   * Every descendant stream that answered `snapshot: true`, in creation order.
+   * Root-only; a fork's own list is always empty because registration walks to
+   * the root.
+   */
+  snapshotForks() {
+    return this._snapshotForks ?? EMPTY;
+  }
+
+  /**
+   * This stream's mutable state, written into `out`.
+   *
+   * Five fields, not four. `_spare` is the Box-Muller carry and is `undefined`
+   * half the time, which is why it is written explicitly: a capture built by
+   * walking own-keys would drop the key entirely on those passes, and a diff
+   * that compares key sets would then call two different states equal.
+   */
+  captureState(out = {}) {
+    out.s0 = this.s0;
+    out.s1 = this.s1;
+    out.s2 = this.s2;
+    out.s3 = this.s3;
+    out.spare = this._spare ?? null;
+    return out;
+  }
+
+  /** Inverse of `captureState`. */
+  restoreState(s) {
+    this.s0 = s.s0 >>> 0;
+    this.s1 = s.s1 >>> 0;
+    this.s2 = s.s2 >>> 0;
+    this.s3 = s.s3 >>> 0;
+    this._spare = s.spare === null ? undefined : s.spare;
+    return this;
   }
 }
+
+const EMPTY = Object.freeze([]);

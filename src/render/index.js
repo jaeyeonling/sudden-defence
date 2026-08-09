@@ -131,7 +131,7 @@ export class RenderSystem {
     const q = cfg.q;
     this.q = q;
     this.qLevel = QUALITY_LEVEL[cfg.quality] ?? 3;
-    this.rng = ctx.rng.fork();
+    this.rng = ctx.rng.fork({ snapshot: false });
     this.frame = 0;
 
     // ---- renderer -------------------------------------------------------
@@ -475,7 +475,7 @@ export class RenderSystem {
     };
     this._applySettings();
 
-    this.probe = new RenderProbeScene(this.rng.fork());
+    this.probe = new RenderProbeScene(this.rng.fork({ snapshot: false }));
     this.probeActive = false;
     // In capture mode print the metering chain so a bad exposure is obvious
     // in the harness log rather than something to guess at from the PNG.

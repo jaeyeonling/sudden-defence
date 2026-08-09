@@ -201,7 +201,9 @@ export class Agent {
     this.ai = ai;
     this.ctx = ai.ctx;
     this.id = _nextId++;
-    this.rng = ai.rng.fork();
+    // Simulation, and the largest population of them: perception timing, burst
+    // cadence, reaction jitter and cover choice all draw from here.
+    this.rng = ai.rng.fork({ snapshot: true });
     this.variantName = opts.variant ?? 'vanguard';
     const def = ai.variant(this.variantName);
     this.def = def;
@@ -240,7 +242,10 @@ export class Agent {
 
     this.animator = new Animator(RIG, bones, {
       weapon: def.weapon,
-      rng: this.rng.fork(),
+      // No `rng`. `Animator` assigns `opts.rng` to a field and never reads it
+      // again — the fork that used to be here fed nothing, and drew a u32 off a
+      // simulation stream to do it. `Animator` still accepts one (`?? null`) so
+      // this is a deletion, not a signature change.
       scale: this.scale,
       probe: (x, z, fromY, out) => this.ai.probeGround(x, z, fromY, out),
     });

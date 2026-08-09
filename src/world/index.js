@@ -34,7 +34,11 @@ export class WorldSystem {
     this.ctx = ctx;
     const materials = ctx.get('materials');
     const physics = ctx.get('physics');
-    const rng = ctx.rng.fork();
+    // `snapshot: false` even though this stream is simulation by any reasonable
+    // reading — the bake it drives decides what bullets hit. It is excluded
+    // because it is spent here and never advanced again: the level is frozen
+    // before the first tick, so rewinding to a tick can never need it back.
+    const rng = ctx.rng.fork({ snapshot: false });
 
     this.group = new THREE.Group();
     this.group.name = 'world';

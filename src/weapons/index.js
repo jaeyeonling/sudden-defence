@@ -148,7 +148,9 @@ export class WeaponSystem {
 
   async init(ctx) {
     this.ctx = ctx;
-    this.rng = ctx.rng.fork();
+    // Simulation: the spread cone draws from this every shot (`_disc`), and the
+    // pattern seed for recoil comes off it too.
+    this.rng = ctx.rng.fork({ snapshot: true });
     this.mats = new WeaponMaterials(ctx);
     this.viewmodel = new Viewmodel(ctx, this.mats);
     // three only honours `material.envMapIntensity` when the material carries its

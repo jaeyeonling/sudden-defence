@@ -110,7 +110,7 @@ phys.ctx = {
   time: { alpha: 0, elapsed: 0, dt: 1 / 60 },
   rng,
 };
-phys.rng = rng.fork();
+phys.rng = rng.fork({ snapshot: false });
 phys.ballistics.rng = phys.rng;
 
 section('BVH build');

@@ -69,8 +69,8 @@ function measure(buf) {
 async function renderCase(seconds, seed, fn, opts = {}) {
   const ctx = new OfflineAudioContext(2, Math.ceil(SR * seconds), SR);
   const rng = new Rng(seed);
-  const bank = new NoiseBank(ctx, rng.fork(), 1.2);
-  const mixer = new Mixer(ctx, rng.fork(), {});
+  const bank = new NoiseBank(ctx, rng.fork({ snapshot: false }), 1.2);
+  const mixer = new Mixer(ctx, rng.fork({ snapshot: false }), {});
   if (opts.reverb !== false) mixer.buildReverbs();
   if (opts.space) mixer.setSpace(opts.space, 0.001);
   fn({ ctx, rng, bank, mixer, t: 0.02 });

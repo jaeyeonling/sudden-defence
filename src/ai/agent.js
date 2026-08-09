@@ -326,7 +326,47 @@ export class Agent {
     this.burstCooldown = this.rng.range(0.4, 1.4);
     this.magSize = 30;
     this.ammo = this.magSize;
-    this.spread = 0.032;
+    /**
+     * ═══ THE OTHER HALF OF BOT DIFFICULTY, and the larger one ═══
+     *
+     * 0.026, tightened from 0.032 on the same "make them harder" request that
+     * moved `weaponDamage`. Damage turned out to be the small lever and this is
+     * the big one, which `tools/threat.mjs` is what established:
+     *
+     *   spread   hit % at 9 / 14 / 20 m     seconds to kill a stationary player
+     *   0.032        38 / 19 / 10                 3.0 / 6.1 / 11.8
+     *   0.026        51 / 27 / 15                 2.3 / 4.3 /  8.0
+     *
+     * A bot at the old value needed twelve seconds to kill a target that was
+     * standing still at 20 m. Raising damage from 17 to 24 lifted its damage per
+     * second by 40 % and left that curve looking much the same, because what
+     * bounds it is how often a round arrives, not what the round does.
+     *
+     * Applied as a GAUSSIAN on the direction vector (see `_fireRound`), not as
+     * the uniform disc the player's weapons use, and squashed to 0.8 vertically.
+     * That matters: a Gaussian is far denser at the centre, so the nominal
+     * radius understates how often bots land the middle.
+     *
+     * WHY THIS AXIS AND NOT MORE DAMAGE. Damage is capped at 24 by the one-tap
+     * cliff — the head multiplier is 4, so 25 kills from full on any round that
+     * strays onto the head, which `threat.mjs` now gates. Spread has no such
+     * cliff and moves the opposite way: the aim point is 0.28 m BELOW the head
+     * (`AIM_DROP`), so a tighter cone concentrates rounds on the upper chest and
+     * makes head hits RARER. More dangerous, less random.
+     *
+     * WHAT IT DID TO BOT VS BOT, since they fight under the same number.
+     * Four matchsims at 0.026 gave 2-2, 4-0, 1-4 and 0-5 — spread across both
+     * sides with a draw among them, so no side is favoured — against six at
+     * 0.032 giving 3-2, 2-2, 2-3, 4-0, 1-1, 3-2. Mean winning margin 3.0 versus
+     * 1.17, and more rounds decided by elimination than by the clock.
+     *
+     * Small samples, and the direction is what the mechanism predicts rather
+     * than a surprise: with no respawns, first blood already compounds, and
+     * raising lethality makes it compound faster. Rounds ending in a fight
+     * instead of a timeout is the good half of that. Worth watching if it is
+     * pushed further; four matches is not a finding.
+     */
+    this.spread = 0.026;
     /**
      * ═══ BOT DIFFICULTY — the most consequential number in the game ═══
      *

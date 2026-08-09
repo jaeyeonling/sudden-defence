@@ -121,10 +121,66 @@ const out = await page.evaluate(() => {
   // that overrides any of them is what gets reported.
   const players = e.ctx.peek('player');
   const head = (e.ctx.peek('match')?.HITBOXES ?? null);
+  /**
+   * MEASURE the cone instead of trusting the arithmetic below it.
+   *
+   * `_fireRound` perturbs the direction VECTOR componentwise and renormalises:
+   *
+   *     dir.x += gauss() * spread;
+   *     dir.y += gauss() * spread * 0.8;
+   *     dir.z += gauss() * spread;
+   *
+   * which is a Gaussian, not the uniform disc the player's weapons use, and is
+   * squashed 0.8 vertically. Reading that off the source and computing from it
+   * is exactly the habit this whole session has been unpicking, so fire real
+   * rounds through the real method and measure what comes out.
+   *
+   * `onAgentFire` is stubbed for the duration so nothing is actually shot: the
+   * direction is the only thing wanted, and spawning 2000 bullets into the level
+   * would be a side effect a measurement has no business having.
+   */
+  const scatter = (() => {
+    const a = agent;
+    const origOnFire = ai.onAgentFire.bind(ai);
+    const dirs = [];
+    ai.onAgentFire = (_ag, _origin, dir) => { dirs.push({ x: dir.x, y: dir.y, z: dir.z }); };
+    const aim = a.animator?.muzzleDir;
+    const base = aim ? { x: aim.x, y: aim.y, z: aim.z } : null;
+    try {
+      for (let i = 0; i < 2000; i++) a._fireRound();
+    } finally {
+      ai.onAgentFire = origOnFire;
+    }
+    if (!base || dirs.length < 100) return null;
+    // Angle of each round off the aim axis, split into the vertical part and
+    // the part in the horizontal plane — the two the model claims differ.
+    let sh = 0;
+    let sv = 0;
+    let n = 0;
+    for (const d of dirs) {
+      const dot = d.x * base.x + d.y * base.y + d.z * base.z;
+      if (!Number.isFinite(dot)) continue;
+      // Vertical: difference in elevation angle. Horizontal: difference in
+      // heading. Small angles, so the raw differences are the angles.
+      const ev = Math.asin(Math.max(-1, Math.min(1, d.y))) - Math.asin(Math.max(-1, Math.min(1, base.y)));
+      const eh = Math.atan2(d.x, d.z) - Math.atan2(base.x, base.z);
+      const ehw = Math.atan2(Math.sin(eh), Math.cos(eh));
+      sv += ev * ev;
+      sh += ehw * ehw;
+      n++;
+    }
+    return n ? { n, sigmaH: Math.sqrt(sh / n), sigmaV: Math.sqrt(sv / n) } : null;
+  })();
+
   return {
     weaponDamage: agent.weaponDamage,
     fireRate: agent.fireRate,
     spread: agent.spread,
+    burstMin: 3,
+    burstMax: 7,
+    burstPauseMin: 0.45,
+    burstPauseMax: 1.35,
+    scatter,
     variants: [...new Set(ai.agents.map((a) => `${a.variantName ?? 'regular'}:${a.fireRate}`))],
     playerMaxHealth: players?.health?.max ?? 100,
     // Multipliers live in the hitbox tables; `hitbox.mjs` asserts the head one.
@@ -180,6 +236,68 @@ for (const d of RANGES) {
     `${n} shots · ${ttk(n)} ms of sustained fire`
   );
 }
+/* ---------------------------------------------------- danger per second --- */
+/**
+ * Lethality per hit is only half the difficulty question. The other half is how
+ * OFTEN a bot connects, and that is spread, the burst pattern and the pauses
+ * between bursts — none of which appear in a shots-to-kill table.
+ *
+ * The cone is GAUSSIAN, not the uniform disc the player's weapons use, and that
+ * matters more than it sounds: a Gaussian is far denser at the centre, so bots
+ * land the middle of the cone much more often than a nominal radius suggests.
+ * The vertical is squashed to 0.8 of the horizontal.
+ *
+ * `erf` via Abramowitz & Stegun 7.1.26 — this needs four digits, not a library.
+ */
+const erf = (x) => {
+  const s = Math.sign(x);
+  const a = Math.abs(x);
+  const t = 1 / (1 + 0.3275911 * a);
+  const y = 1 - ((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t * t
+    * Math.exp(-a * a) - 0;
+  // Written out rather than golfed, because a wrong erf here is a wrong hit rate
+  // everywhere and both look plausible.
+  const poly = ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t;
+  return s * (1 - poly * Math.exp(-a * a));
+};
+/** Chance a zero-mean Gaussian of sigma lands inside +-half. */
+const within = (half, sigma) => (sigma > 0 ? erf(half / (sigma * Math.SQRT2)) : 1);
+
+const sigH = out.scatter?.sigmaH ?? out.spread;
+const sigV = out.scatter?.sigmaV ?? out.spread * 0.8;
+/**
+ * Torso silhouette, from the hitbox table in `agent.js`: the chest and pelvis
+ * capsules are 0.185 and 0.175 in radius and together span roughly Hips to Neck.
+ * Half-width is the capsule radius; half-height is half that span.
+ */
+const TORSO_HALF_W = 0.185;
+const TORSO_HALF_H = 0.30;
+/** Rounds actually delivered per second once the burst pauses are counted. */
+const burstLen = (out.burstMin + out.burstMax) / 2;
+const pause = (out.burstPauseMin + out.burstPauseMax) / 2;
+const dutyRate = burstLen / (burstLen / out.fireRate + pause);
+
+console.log(
+  `  cone: measured sigma ${sigH.toFixed(4)} horizontal / ${sigV.toFixed(4)} vertical rad ` +
+  `(declared ${out.spread} and ${(out.spread * 0.8).toFixed(4)}) · ${out.scatter?.n ?? 0} rounds`
+);
+console.log(
+  `  cadence: bursts of ${out.burstMin}-${out.burstMax} at ${out.fireRate}/s with ` +
+  `${out.burstPauseMin}-${out.burstPauseMax}s between -> ${dutyRate.toFixed(2)} rounds/s sustained`
+);
+console.log('  danger against a stationary torso, one bot:');
+const danger = RANGES.map((d) => {
+  const p = within(TORSO_HALF_W, sigH * d) * within(TORSO_HALF_H, sigV * d);
+  const dps = p * dutyRate * damageAt(botRound, d);
+  return { d, p, dps, ttk: dps > 0 ? hp / dps : Infinity };
+});
+for (const r of danger) {
+  console.log(
+    `    ${String(r.d).padStart(3)} m · hit ${(r.p * 100).toFixed(0)}% · ` +
+    `${r.dps.toFixed(0)} dps · ${r.ttk === Infinity ? 'never' : `${r.ttk.toFixed(1)}s to kill`}`
+  );
+}
+
 const headDmg = out.weaponDamage * out.headMultiplier;
 console.log(
   `  head hit: ${headDmg.toFixed(0)} against ${hp} HP ` +

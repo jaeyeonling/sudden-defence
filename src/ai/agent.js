@@ -1310,15 +1310,56 @@ export class Agent {
        * state is 29-35 % of all COMBAT time, with `lastKnownAge` a median 1.3 s
        * and `awareness` a median 0.11.
        *
-       * Which is to say: for a third of a firefight a bot is holding a position
-       * it believes an enemy is at, with the weapon silent. Whether that should
-       * change is a question about how aggressive this game wants its bots to
-       * be, and bot difficulty is one of the three things the plan reserves for
-       * the person whose game it is. The comment is corrected; the behaviour is
-       * left where it was found.
+       * Which is to say: for a third of a firefight a bot was holding a position
+       * it believed an enemy was at, with the weapon silent. Widened on request.
+       *
+       * WHAT THAT STATE ACTUALLY IS, since "no target" sounds like the bot knows
+       * nothing: `_sense` drops the target and zeroes `awareness` the frame its
+       * man dies, while `lastKnown` keeps being refreshed by the gunfire around
+       * it. So it is a bot whose opponent just went down or broke contact,
+       * standing in a firefight it can still hear. Putting rounds into that is
+       * what a person would do, and it is the difference between cover that is
+       * safe and cover that is merely cover.
+       *
+       * TWO RATES, not one. An acquired target the bot has momentarily lost
+       * sight of is a better guess than a noise, so it keeps the original 0.35
+       * and the unacquired case gets 0.2. Both still require a fresh belief
+       * (`lastKnownAge < 2.2`) and the bot to be leaning out, so this adds
+       * volume to a peek that was already happening rather than a new behaviour.
+       *
+       * WATCH THE TEAM KILLS. Blind fire toward a believed position is the one
+       * change here that can put a round through a team-mate crossing the line;
+       * `tools/botfight.mjs` fails on any team kill and is the check. Ten fights
+       * after the change: zero.
+       *
+       * ── AND IT IS NOT THE DIFFICULTY CHANGE IT WAS EXPECTED TO BE ──────────
+       *
+       * Measured after the fact, and kept because it makes the code match the
+       * intent its comment always described, not because it moved a number.
+       *
+       * The choice to widen this rested on a breakdown of why a bot holds fire
+       * that said "no target" was a third of the cause. That breakdown was a
+       * PRIORITY CHAIN — `if (!hasTarget) ... else if (moving) ... else if
+       * (!peeking)` — so every sample that was target-less AND not peeking
+       * landed wholly in the first bucket. It read like independent causes and
+       * was not. Counted independently, across three fights:
+       *
+       *     not peeking 70-92% · no sight 66-78% · repositioning 27-37%
+       *     no target 23-36% · stale belief 12-21%      (they overlap)
+       *     blocked by the target gate ALONE: 2-6%
+       *
+       * Two to six per cent, at a 0.2 rate, is about one per cent of combat
+       * time. Ten botfights before and after are indistinguishable, which is
+       * exactly what that arithmetic predicts.
+       *
+       * THE BOTTLENECK IS `peeking` AND `targetVisible`. A bot is silent
+       * overwhelmingly because it is behind cover, not because it does not know
+       * where the enemy is. Anything that wants bots meaningfully more dangerous
+       * has to touch the peek rotation or the cover discipline in `_combat`, and
+       * that changes what the game feels like rather than how hard it is.
        */
-      if (!this.wantFire && this.hasTarget && this.lastKnownAge < 2.2 && this.peeking) {
-        this.wantFire = this.rng.float() < 0.35;
+      if (!this.wantFire && this.peeking && this.lastKnownAge < 2.2) {
+        this.wantFire = this.rng.float() < (this.hasTarget ? 0.35 : 0.2);
       }
     }
 

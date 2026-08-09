@@ -318,7 +318,7 @@ const out = await page.evaluate(
        */
       let combatSamples = 0;
       let combatArmed = 0;
-      const hold = { noTarget: 0, moving: 0, notPeeking: 0, noSight: 0, other: 0 };
+      const hold = { noTarget: 0, moving: 0, notPeeking: 0, noSight: 0, stale: 0, onlyTarget: 0, other: 0 };
       const noTargetAge = [];
       const noTargetAware = [];
 
@@ -339,8 +339,31 @@ const out = await page.evaluate(
            * Tuning before knowing which one dominates is how the damage number
            * got raised 40 % for almost no effect.
            */
-          if (!ag.hasTarget) {
-            hold.noTarget++;
+          /**
+           * INDEPENDENT counts, not a priority chain.
+           *
+           * The first version was `if (!hasTarget) ... else if (moving) ... else
+           * if (!peeking)`, which is a decision tree and reads like a cause
+           * breakdown. It is not: a sample that is both target-less AND not
+           * peeking lands wholly in the first bucket, so "no target 30 %" was
+           * never "30 % would fire if the target gate were opened".
+           *
+           * It was read that way, the target gate was opened, and ten botfights
+           * later the number had not moved — because most of those samples are
+           * not peeking either. Count each condition on its own, and count the
+           * one that actually matters: how many samples are blocked by ONLY the
+           * target gate, which is the size of the prize for touching it.
+           */
+          if (!ag.hasTarget) hold.noTarget++;
+          if (ag.cover && ag.position.distanceTo(ag.coverPos) >= 0.85) hold.moving++;
+          if (!ag.peeking) hold.notPeeking++;
+          if (!ag.targetVisible) hold.noSight++;
+          if ((ag.lastKnownAge ?? 99) >= 2.2) hold.stale++;
+          // Blocked by the target gate ALONE: peeking, fresh belief, at cover.
+          if (!ag.hasTarget && ag.peeking && (ag.lastKnownAge ?? 99) < 2.2) {
+            hold.onlyTarget++;
+          }
+          if (false) {
             /**
              * A bot in COMBAT holding no target should not exist.
              *
@@ -356,10 +379,6 @@ const out = await page.evaluate(
             noTargetAge.push(+(ag.lastKnownAge ?? -1).toFixed(1));
             noTargetAware.push(+(ag.awareness ?? -1).toFixed(2));
           }
-          else if (ag.cover && ag.position.distanceTo(ag.coverPos) >= 0.85) hold.moving++;
-          else if (!ag.peeking) hold.notPeeking++;
-          else if (!ag.targetVisible) hold.noSight++;
-          else hold.other++;
         }
         for (const ag of ai.agents) {
           if (ag.alive && ag.hasTarget && ag.team) acquired[ag.team]++;
@@ -897,8 +916,9 @@ if (out.hold && out.combatSamples) {
     `\n  why a bot in COMBAT is not firing: ` +
     `no target ${pct(out.hold.noTarget)} · repositioning ${pct(out.hold.moving)} · ` +
     `not peeking ${pct(out.hold.notPeeking)} · no sight ${pct(out.hold.noSight)} · ` +
-    `other ${pct(out.hold.other)}`
+    `stale belief ${pct(out.hold.stale)}  (independent, so they overlap)`
   );
+  console.log(`    blocked by the TARGET GATE ALONE (peeking, fresh, at cover): ${pct(out.hold.onlyTarget)}`);
   if (out.noTargetAge) {
     console.log(
       `    of the no-target time: lastKnownAge p10/50/90 ` +

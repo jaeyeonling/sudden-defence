@@ -42,10 +42,19 @@
  * it needs no room, and it is the same thing `ballistics.mjs` asks of the
  * player's guns.
  *
- * WHAT IS THEREFORE NOT MEASURED HERE, stated so nobody reads more into it: hit
- * RATE. Spread, the reaction curve and the burst cooldowns decide how often a
- * bot connects with a player who is moving, and none of them appear below. This
- * is lethality per hit, not danger per second.
+ * WHAT IS AND IS NOT MEASURED, stated so nobody reads more into it than it
+ * carries. The cone IS measured, by firing 2000 real rounds through
+ * `_fireRound` — it is a Gaussian on the direction vector, not the uniform disc
+ * the player's weapons use, and computing off the wrong distribution would have
+ * flattered the bots. From it comes a hit rate against a stationary torso.
+ *
+ * What is NOT here is how often a bot is in a position to shoot at all.
+ * `botfight.mjs` measures that — 6-10 % of its time in COMBAT — and the danger
+ * figures below assume 100 %. They are an upper bound of roughly ten times, and
+ * they are still worth printing because every weapon knob scales them and none
+ * of them touches that 10 %.
+ *
+ * Nor is anything here about a target that MOVES.
  *
  *   node tools/threat.mjs
  */
@@ -285,7 +294,22 @@ console.log(
   `  cadence: bursts of ${out.burstMin}-${out.burstMax} at ${out.fireRate}/s with ` +
   `${out.burstPauseMin}-${out.burstPauseMax}s between -> ${dutyRate.toFixed(2)} rounds/s sustained`
 );
-console.log('  danger against a stationary torso, one bot:');
+/**
+ * THE FIGURES BELOW ARE AN UPPER BOUND, and by a wide margin.
+ *
+ * `dutyRate` counts one thing: the pauses between bursts. It assumes a bot that
+ * is always in the peek-and-shoot branch of `_combat`, and a bot mostly is not.
+ * `tools/botfight.mjs` samples `wantFire` across a real fight and finds a bot in
+ * COMBAT is willing to fire 6-10 % of the time, split roughly evenly between
+ * three causes: no target held (35 %), running to a cover point with the weapon
+ * down (27 %), and the squad peek rotation holding it back (32 %).
+ *
+ * So multiply what follows by about a tenth to get the fight. The reason it is
+ * still printed this way is that this file exists to compare CHANGES to the
+ * weapon knobs, and every one of them scales this number and none of them
+ * touches the 10 %. Quoting it as an absolute would be the mistake.
+ */
+console.log('  danger against a stationary torso, one bot (UPPER BOUND — see note):');
 const danger = RANGES.map((d) => {
   const p = within(TORSO_HALF_W, sigH * d) * within(TORSO_HALF_H, sigV * d);
   const dps = p * dutyRate * damageAt(botRound, d);

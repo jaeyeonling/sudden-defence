@@ -1274,6 +1274,13 @@ export class Agent {
       this.desiredSpeed = 4.3;
       this.crouch = false;
       this.wantFire = false;
+      // `peeking` is only recomputed in the other branch, so leaving it alone
+      // here leaves a stale `true` on a bot that is sprinting with its weapon
+      // down. Nothing acted on it, but it reads as a contradiction to anything
+      // that looks — `tools/botfight.mjs` dumped `peeking=true visible=true
+      // wantFire=false` and it took reading both branches to see that the flag
+      // was simply out of date rather than the fire condition being broken.
+      this.peeking = false;
       this.aimWeight = 0.35;
     } else {
       this.desiredSpeed = 0;

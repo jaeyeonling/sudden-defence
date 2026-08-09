@@ -302,8 +302,47 @@ const out = await page.evaluate(
        */
       const acquired = { alpha: 0, bravo: 0 };
 
+      /**
+       * TRIGGER DUTY: of the time a bot spends in COMBAT, what share is it
+       * actually willing to fire?
+       *
+       * `tools/threat.mjs` models danger per second as hit rate times a burst
+       * duty cycle, and that duty cycle counts only the pauses BETWEEN bursts.
+       * It does not count the other reason a bot holds fire, which `_combat`
+       * states plainly: a bot that has claimed a cover point and has not
+       * reached it runs with its weapon down and `wantFire` false. Time spent
+       * repositioning is invisible to that model, so its figures are an upper
+       * bound — and an upper bound nobody measured is just an optimistic guess.
+       *
+       * Sampled here because this is the only harness that runs a real fight.
+       */
+      let combatSamples = 0;
+      let combatArmed = 0;
+      const hold = { noTarget: 0, moving: 0, notPeeking: 0, noSight: 0, other: 0 };
+
       const tick = () => {
         peakAgents = Math.max(peakAgents, ai.stats.alive ?? 0);
+        for (const ag of ai.agents) {
+          if (!ag.alive || ag.state !== 'combat') continue;
+          combatSamples++;
+          if (ag.wantFire) { combatArmed++; continue; }
+          /**
+           * WHERE the other 90 % goes, in the order `_combat` decides it.
+           *
+           * A single "10 % armed" number says bots barely shoot and nothing
+           * about which gate is holding them, and the four candidates want
+           * completely different answers: repositioning is a movement-speed
+           * question, the squad peek permission is a formation question, the
+           * peek timer is a pacing question and visibility is a map question.
+           * Tuning before knowing which one dominates is how the damage number
+           * got raised 40 % for almost no effect.
+           */
+          if (!ag.hasTarget) hold.noTarget++;
+          else if (ag.cover && ag.position.distanceTo(ag.coverPos) >= 0.85) hold.moving++;
+          else if (!ag.peeking) hold.notPeeking++;
+          else if (!ag.targetVisible) hold.noSight++;
+          else hold.other++;
+        }
         for (const ag of ai.agents) {
           if (ag.alive && ag.hasTarget && ag.team) acquired[ag.team]++;
         }
@@ -503,6 +542,9 @@ const out = await page.evaluate(
               },
               deep: r.deep ?? null,
             })).sort((p, q) => q.worst - p.worst),
+            triggerDuty: combatSamples ? +(combatArmed / combatSamples).toFixed(3) : null,
+            hold,
+            combatSamples,
             elapsed: +elapsed.toFixed(1),
             ranOut: !over,
             aliveAlpha: a,
@@ -828,6 +870,17 @@ if (stalled.length) {
  * same phenomenon at lower amplitude. Run with `--stallceil=2` to make the
  * gate itself catch them.
  */
+if (out.hold && out.combatSamples) {
+  const n = out.combatSamples;
+  const pct = (v) => `${Math.round((v / n) * 100)}%`;
+  console.log(
+    `\n  why a bot in COMBAT is not firing: ` +
+    `no target ${pct(out.hold.noTarget)} · repositioning ${pct(out.hold.moving)} · ` +
+    `not peeking ${pct(out.hold.notPeeking)} · no sight ${pct(out.hold.noSight)} · ` +
+    `other ${pct(out.hold.other)}`
+  );
+}
+
 if (out.stalls?.length) {
   console.log('\n─── worst blocked-moves, with the recovery probe ' + '─'.repeat(22));
   for (const s of out.stalls.slice(0, 4)) {
@@ -878,6 +931,9 @@ console.log(
       // Reported every run, like pressShare: a stall figure that only appears
       // when it trips the gate is a number nobody can see drifting toward it.
       `worst blocked-move ${(out.stalls?.[0]?.worst ?? 0)}s` +
+      (out.triggerDuty !== null
+        ? ` · trigger duty ${Math.round(out.triggerDuty * 100)}% of ${out.combatSamples} combat samples`
+        : '') +
       // Reported, not gated. It is an observation about the map that the weapon
       // table has to answer to, and there is no value of it that is a bug.
       (out.range

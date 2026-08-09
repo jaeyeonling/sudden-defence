@@ -319,6 +319,8 @@ const out = await page.evaluate(
       let combatSamples = 0;
       let combatArmed = 0;
       const hold = { noTarget: 0, moving: 0, notPeeking: 0, noSight: 0, other: 0 };
+      const noTargetAge = [];
+      const noTargetAware = [];
 
       const tick = () => {
         peakAgents = Math.max(peakAgents, ai.stats.alive ?? 0);
@@ -337,7 +339,23 @@ const out = await page.evaluate(
            * Tuning before knowing which one dominates is how the damage number
            * got raised 40 % for almost no effect.
            */
-          if (!ag.hasTarget) hold.noTarget++;
+          if (!ag.hasTarget) {
+            hold.noTarget++;
+            /**
+             * A bot in COMBAT holding no target should not exist.
+             *
+             * `_sense` only clears `hasTarget` once `lastKnownAge` passes 6.5,
+             * and `_combat` bails to ALERT the moment that age passes 5 — so the
+             * window is empty by construction and this counter should read zero.
+             * It reads a third of all combat time. One of those two readings of
+             * the source is wrong and tracing has not said which, so record the
+             * two numbers that separate them: a bot that HEARD something has a
+             * fresh `lastKnownAge` and low `awareness`, a state-machine lag has
+             * a stale age.
+             */
+            noTargetAge.push(+(ag.lastKnownAge ?? -1).toFixed(1));
+            noTargetAware.push(+(ag.awareness ?? -1).toFixed(2));
+          }
           else if (ag.cover && ag.position.distanceTo(ag.coverPos) >= 0.85) hold.moving++;
           else if (!ag.peeking) hold.notPeeking++;
           else if (!ag.targetVisible) hold.noSight++;
@@ -544,6 +562,8 @@ const out = await page.evaluate(
             })).sort((p, q) => q.worst - p.worst),
             triggerDuty: combatSamples ? +(combatArmed / combatSamples).toFixed(3) : null,
             hold,
+            noTargetAge: (() => { const v = noTargetAge.slice().sort((a,b)=>a-b); return v.length ? { n: v.length, p10: v[(v.length*0.1)|0], p50: v[(v.length*0.5)|0], p90: v[(v.length*0.9)|0] } : null; })(),
+            noTargetAware: (() => { const v = noTargetAware.slice().sort((a,b)=>a-b); return v.length ? { p10: v[(v.length*0.1)|0], p50: v[(v.length*0.5)|0], p90: v[(v.length*0.9)|0] } : null; })(),
             combatSamples,
             elapsed: +elapsed.toFixed(1),
             ranOut: !over,
@@ -879,6 +899,13 @@ if (out.hold && out.combatSamples) {
     `not peeking ${pct(out.hold.notPeeking)} · no sight ${pct(out.hold.noSight)} · ` +
     `other ${pct(out.hold.other)}`
   );
+  if (out.noTargetAge) {
+    console.log(
+      `    of the no-target time: lastKnownAge p10/50/90 ` +
+      `${out.noTargetAge.p10}/${out.noTargetAge.p50}/${out.noTargetAge.p90}s · ` +
+      `awareness ${out.noTargetAware.p10}/${out.noTargetAware.p50}/${out.noTargetAware.p90}`
+    );
+  }
 }
 
 if (out.stalls?.length) {

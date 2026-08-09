@@ -1298,7 +1298,25 @@ export class Agent {
       this.crouch = this.cover ? !this.cover.high || !this.peeking : false;
       this.aimWeight = this.peeking ? 1 : 0.55;
       this.wantFire = this.peeking && this.targetVisible && this.hasTarget && dist < this.weaponRange;
-      // suppressing fire at the last known spot even without a clean shot
+      /**
+       * Suppressing fire at a spot the bot has ACQUIRED and momentarily cannot
+       * see. Not at a noise.
+       *
+       * The `hasTarget` gate is the whole scope of it, and the comment here used
+       * to read "even without a clean shot", which describes something broader
+       * than what runs. A bot that only HEARD an enemy has a fresh `lastKnown`
+       * and `awareness` still climbing, so `hasTarget` is false and neither this
+       * nor `wantFire` above ever fires — measured in `tools/botfight.mjs`, that
+       * state is 29-35 % of all COMBAT time, with `lastKnownAge` a median 1.3 s
+       * and `awareness` a median 0.11.
+       *
+       * Which is to say: for a third of a firefight a bot is holding a position
+       * it believes an enemy is at, with the weapon silent. Whether that should
+       * change is a question about how aggressive this game wants its bots to
+       * be, and bot difficulty is one of the three things the plan reserves for
+       * the person whose game it is. The comment is corrected; the behaviour is
+       * left where it was found.
+       */
       if (!this.wantFire && this.hasTarget && this.lastKnownAge < 2.2 && this.peeking) {
         this.wantFire = this.rng.float() < 0.35;
       }

@@ -51,7 +51,12 @@ import { clamp, clamp01, lerp, damp, DEG } from './mathx.js';
  *   wp.stats              { tris, drawCalls, live, fired }
  *
  * EVENTS EMITTED  (all canonical, see ARCHITECTURE.md)
- *   weapon:fire    { weapon, origin, dir, seed }
+ *   weapon:fire    { weapon, origin, dir, simOrigin, simDir, seed }
+ *                  `origin`/`dir` are the VIEWMODEL muzzle — the flash and the
+ *                  tracer belong to the gun on screen. `simOrigin`/`simDir` are
+ *                  the tick's aim, which is what the round actually flew along;
+ *                  anything that steers the simulation (the AI hearing the shot)
+ *                  must read those. See `tryFire`.
  *   weapon:shell   { position, velocity }
  *   weapon:reload  { weapon, phase: 'start'|'magout'|'magin'|'end' }
  *   bullet:tracer  { from, to, speed }
@@ -167,7 +172,14 @@ export class WeaponSystem {
      * worked only because the camera WAS the aim.
      */
     this._aimOverride = null;
-    this._firePayload = { weapon: null, origin: new THREE.Vector3(), dir: new THREE.Vector3(), seed: 0 };
+    this._firePayload = {
+      weapon: null,
+      origin: new THREE.Vector3(),
+      dir: new THREE.Vector3(),
+      simOrigin: new THREE.Vector3(),
+      simDir: new THREE.Vector3(),
+      seed: 0,
+    };
     this._reloadPayload = { weapon: null, phase: 'start' };
     // `weapon:shell` carries the canonical { position, velocity } plus the real
     // case dimensions and a spin, so fx can size and tumble the brass instead of
@@ -564,6 +576,22 @@ export class WeaponSystem {
     this._pendingShots++;
     this._pendingFirst = this._pendingFirst || first;
     this._fireSeed = seed;
+    // Record WHERE THE SIMULATION FIRED FROM, here, on the tick that fired.
+    //
+    // `_flushShots` fills `origin`/`dir` from the viewmodel muzzle, because the
+    // flash and the tracer have to leave the gun you can see. But `ai` turns the
+    // same payload into `agent.hear(origin, 90)` and a suppression ray — the
+    // loudest cue in the game — and §3.5 of the handoff is the rule this breaks:
+    // anything that ends in an event `ai` subscribes to is simulation, however
+    // cosmetic it looks locally. Read from the viewmodel it is a function of
+    // `alpha`, so a bot's memory of where it heard you was a function of the
+    // frame rate. `6bf296f` moved a BOT's round off the drawn skeleton; this is
+    // the player-side twin of it.
+    //
+    // These are the same two vectors the bullet itself uses, so the noise and
+    // the round now agree by construction.
+    this._firePayload.simOrigin.copy(this._eye);
+    this._firePayload.simDir.copy(this._dir);
 
     // Shell leaves the port shortly after the shot, once the bolt is back.
     this._queueShell(Math.min(0.05, this._fireTimer * 0.45));

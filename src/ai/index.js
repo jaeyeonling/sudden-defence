@@ -517,14 +517,20 @@ export class AiSystem {
     const on = (t, fn) => this._off.push(ctx.events.on(t, fn));
 
     on('weapon:fire', (e) => {
-      if (!e || !e.origin || e.weapon === 'ai_rifle') return; // ignore our own
+      // `simOrigin`, not `origin`. The latter is the viewmodel muzzle, posed
+      // from the interpolated draw pose — reading it made WHERE A BOT REMEMBERS
+      // HEARING YOU a function of the frame rate, and in the replay gate it sat
+      // 110 ticks upstream of every diverging perception field. Same defect
+      // class as `6bf296f`, on the player's side of the gun. See the payload
+      // contract in `weapons/index.js`.
+      if (!e || !e.simOrigin || e.weapon === 'ai_rifle') return; // ignore our own
       // A gunshot is the loudest thing in the level: everybody hears it, and
       // anyone near the line of fire also feels suppressed by it.
       for (const a of this.agents) {
         if (!a.alive) continue;
-        a.hear(e.origin, 90);
-        if (e.dir) {
-          const d = this._distanceToRay(a.position, e.origin, e.dir, a.eyeHeight);
+        a.hear(e.simOrigin, 90);
+        if (e.simDir) {
+          const d = this._distanceToRay(a.position, e.simOrigin, e.simDir, a.eyeHeight);
           if (d < 2.6) a.suppress(0.45 * (1 - d / 2.6) + 0.12);
         }
       }

@@ -77,6 +77,47 @@ const FROZEN = new Set([PHASE.IDLE, PHASE.WARMUP, PHASE.FREEZE, PHASE.ROUND_END,
 
 export class RoundMachine {
   /**
+   * Snapshot classification (netcode step 5). The whole machine is simulation
+   * apart from its tuning and its reusable event payloads: the phase, the clock
+   * inside it, the round number, the scores and the recorded outcomes all decide
+   * what happens next.
+   *
+   * `tempo` is the TEMPO table the user signed off in `72b0699` — configuration,
+   * not state.
+   */
+  static snapshotState = [
+    'phase', 'remaining', 'round', 'scores',
+    'lastWinner', 'lastReason', 'matchWinner', 'running',
+  ];
+  static excludedState = [
+    'match', 'tempo',
+    '_startPayload', '_endPayload', '_matchPayload', '_phasePayload',
+  ];
+
+  captureState(out = {}) {
+    out.phase = this.phase;
+    out.remaining = this.remaining;
+    out.round = this.round;
+    out.scores = { ...this.scores };
+    out.lastWinner = this.lastWinner;
+    out.lastReason = this.lastReason;
+    out.matchWinner = this.matchWinner;
+    out.running = this.running;
+    return out;
+  }
+
+  restoreState(s) {
+    this.phase = s.phase;
+    this.remaining = s.remaining;
+    this.round = s.round;
+    Object.assign(this.scores, s.scores);
+    this.lastWinner = s.lastWinner;
+    this.lastReason = s.lastReason;
+    this.matchWinner = s.matchWinner;
+    this.running = s.running;
+  }
+
+  /**
    * @param {object} match  the MatchSystem — used for aliveCount, resetRound,
    *                        and the event bus. Nothing else.
    * @param {object} [tempo] overrides for TEMPO, merged over the defaults.

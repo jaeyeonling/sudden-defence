@@ -77,6 +77,47 @@ import { RoundMachine, PHASE, TEMPO } from './round.js';
 import { SpawnAssigner } from './spawn.js';
 
 export class MatchSystem {
+  /**
+   * Snapshot classification (netcode step 5).
+   *
+   * `combatants` is the roster and it rewinds — but membership does not. Every
+   * fighter registers during boot and nothing unregisters, so the restore walks
+   * the existing array in place rather than rebuilding it. That is also why
+   * `_byHost` is excluded: it is an index over the same array, and an index over
+   * a fixed set cannot go stale.
+   *
+   * `_enemies` and `_allies` are the reusable out-arrays that `enemiesOf` and
+   * `alliesOf` return, cleared on entry. Scratch, not memory.
+   */
+  static snapshotState = ['combatants', 'round', 'spawner', '_started'];
+  static excludedState = [
+    'TEAMS', 'TEAM_IDS', 'autoStart', 'ctx', 'physics', 'world',
+    '_byHost', '_enemies', '_allies', '_deathPayload', '_spawnPayload', '_offEvents',
+  ];
+
+  captureState(out = {}) {
+    const list = (out.combatants ??= []);
+    list.length = 0;
+    for (const c of this.combatants) list.push({ id: c.id, s: c.captureState() });
+    out.round = this.round.captureState(out.round);
+    out.spawner = this.spawner.captureState(out.spawner);
+    out._started = this._started;
+    return out;
+  }
+
+  restoreState(s) {
+    // Built once and handed to every combatant, because `_lastAttacker` is an id
+    // that has to resolve back to an instance. Rebuilding it per fighter would
+    // be O(n^2) over a set that does not change.
+    const byId = this._restoreIndex ??= new Map();
+    byId.clear();
+    for (const c of this.combatants) byId.set(c.id, c);
+    for (const rec of s.combatants) byId.get(rec.id)?.restoreState(rec.s, byId);
+    this.round.restoreState(s.round);
+    this.spawner.restoreState(s.spawner);
+    this._started = s._started;
+  }
+
   static id = 'match';
   static deps = ['world', 'physics'];
 

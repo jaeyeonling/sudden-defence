@@ -63,6 +63,67 @@ export class WeaponSystem {
   static id = 'weapons';
   static deps = ['materials', 'physics'];
 
+  /**
+   * Snapshot classification (netcode step 5).
+   *
+   * `_pendingShots` and `_pendingFirst` are simulation despite living on the
+   * bridge between a tick and a frame. `tryFire` increments the counter and
+   * `_flushShots` drains it into `weapon:fire`, which `ai/index.js` turns into
+   * `agent.hear(origin, 90)` — the loudest cue in the game. A counter that was
+   * not restored would be a volley of shots the replay's bots never heard.
+   *
+   * `_shellQueue` and `_droppedMags` ARE excluded, and only became safe to
+   * exclude in this commit: their velocity and spin used to be jittered off the
+   * simulation stream, so the number of casings in flight moved the next
+   * bullet. `fxRng` owns that now, which is what makes them ordinary brass.
+   *
+   * `_state` is rewritten from `player` at the top of every fixed step, so it is
+   * derived — but it is captured anyway. Being wrong in the excluding direction
+   * is the one mistake this gate cannot catch (layer 1 skips what layer 2 says
+   * to skip), and restoring a derived field costs nothing.
+   */
+  static snapshotState = [
+    'states', 'activeId', 'rng',
+    '_fireTimer', '_burstLeft', '_burstCooldown', '_semiLatch',
+    '_spread', '_shotIndex', '_sinceShot', '_fireSeed',
+    '_switchTimer', '_switchTo', '_reloadPhase', '_pendingReloadEmpty',
+    '_pendingShots', '_pendingFirst', '_state',
+  ];
+  static excludedState = [
+    'ctx', 'fxRng', 'mats', 'player', 'fx', 'physics', 'viewmodel', 'stats', '_off',
+    'debugMode', '_debugFrame', '_scriptFrames', '_aimOverride',
+    '_shellQueue', '_droppedMags', '_magPools', '_disc', '_hudState',
+    '_muzzle', '_eye', '_dir', '_tracerTo', '_right', '_up', '_tmp',
+    '_aimDir', '_aimQuat', '_aimEuler',
+    '_tracerPayload', '_firePayload', '_reloadPayload', '_shellPayload',
+  ];
+
+  captureState(out = {}) {
+    const st = (out.states ??= {});
+    for (const k of Object.keys(st)) delete st[k];
+    for (const [id, s] of this.states) st[id] = { ...s };
+    out.rng = this.rng.captureState(out.rng);
+    out._state = { ...this._state };
+    for (const k of WeaponSystem.snapshotState) {
+      if (k === 'states' || k === 'rng' || k === '_state') continue;
+      out[k] = this[k];
+    }
+    return out;
+  }
+
+  restoreState(s) {
+    for (const [id, v] of Object.entries(s.states)) {
+      const cur = this.states.get(id);
+      if (cur) Object.assign(cur, v);
+    }
+    this.rng.restoreState(s.rng);
+    Object.assign(this._state, s._state);
+    for (const k of WeaponSystem.snapshotState) {
+      if (k === 'states' || k === 'rng' || k === '_state') continue;
+      this[k] = s[k];
+    }
+  }
+
   constructor() {
     this.viewmodel = null;
     this.states = new Map();
@@ -122,6 +183,21 @@ export class WeaponSystem {
     this._pendingShots = 0;
     this._pendingFirst = false;
 
+    // Declared here rather than appearing on first use. All six used to spring
+    // into existence partway through a match — `_disc` on the first shot,
+    // `_magPools` on the first reload, the debug pair only under a harness — and
+    // the snapshot audit reported each as declared-but-absent. Two of them
+    // (`_fireSeed`, `_pendingReloadEmpty`) are snapshot state, so a capture taken
+    // before the first shot could not have restored them. The rest are here for
+    // the same reason `Health.lastPart` is: a field that exists from construction
+    // is a field a snapshot can reason about at any tick.
+    this._fireSeed = 0;
+    this._pendingReloadEmpty = false;
+    this._disc = { x: 0, y: 0 };
+    this._magPools = new Map();
+    this._debugFrame = 0;
+    this._scriptFrames = 0;
+
     // Deferred shell ejections (a case leaves the port a few ms after the shot).
     this._shellQueue = [];
     for (let i = 0; i < 8; i++) {
@@ -148,9 +224,19 @@ export class WeaponSystem {
 
   async init(ctx) {
     this.ctx = ctx;
-    // Simulation: the spread cone draws from this every shot (`_disc`), and the
-    // pattern seed for recoil comes off it too.
+    // Two streams, for the same reason `ai` has two.
+    //
+    // `rng` is simulation and nothing else may touch it: the spread cone draws
+    // from it on every shot (`_disc`) and the recoil pattern seed comes off it.
+    //
+    // `fxRng` is brass and dropped magazines. Four of this file's six draws used
+    // to come out of the simulation stream to jitter a casing's velocity and
+    // spin — so how many shells happened to be mid-flight decided where the NEXT
+    // BULLET WENT. Nothing measured it because both looked like "weapon
+    // randomness". It is the same defect `variant()` had against `ai.rng`
+    // (`84a05c4`), one subsystem over.
     this.rng = ctx.rng.fork({ snapshot: true });
+    this.fxRng = ctx.rng.fork({ snapshot: false });
     this.mats = new WeaponMaterials(ctx);
     this.viewmodel = new Viewmodel(ctx, this.mats);
     // three only honours `material.envMapIntensity` when the material carries its
@@ -702,8 +788,8 @@ export class WeaponSystem {
     const vel = this._tmp.set(0, -0.7, 0);
     const pv = this.player?.velocity;
     if (pv) vel.add(pv);
-    vel.x += this.rng.signed() * 0.25;
-    vel.z += this.rng.signed() * 0.25;
+    vel.x += this.fxRng.signed() * 0.25;
+    vel.z += this.fxRng.signed() * 0.25;
 
     if (phys?.spawnDebris) {
       proxy.body = phys.spawnDebris(proxy.group.position, vel, {
@@ -1029,7 +1115,7 @@ export class WeaponSystem {
       if (q.t > 0) continue;
       q.t = -1;
       vm.ejectWorld(this._shellPayload.position);
-      vm.ejectVelocity(this._shellPayload.velocity, 2.3 + this.rng.float() * 1.2);
+      vm.ejectVelocity(this._shellPayload.velocity, 2.3 + this.fxRng.float() * 1.2);
       const pv = this.player?.velocity;
       if (pv) this._shellPayload.velocity.add(pv);
       this._shellPayload.velocity.y += 1.1;
@@ -1037,7 +1123,7 @@ export class WeaponSystem {
       const shell = vm.active?.shell;
       this._shellPayload.caseLen = shell?.caseLen ?? 0.0446;
       this._shellPayload.caseRadius = shell?.rimR ?? 0.00495;
-      this._shellPayload.spin = 28 + this.rng.float() * 34;
+      this._shellPayload.spin = 28 + this.fxRng.float() * 34;
       ctx.events.emit('weapon:shell', this._shellPayload);
     }
 

@@ -539,13 +539,18 @@ const out = await page.evaluate(
       // hand-written table made about `player.rig`, where it was wrong. An
       // undeclared child is reported, not failed: a plain `{x, y}` bag really is
       // a leaf its parent can copy, and layer 1 covers it either way.
-      for (const k of d.snap) {
-        const v = obj[k];
-        if (v === null || typeof v !== 'object' || seen.has(v)) continue;
-        if (ArrayBuffer.isView(v) || v.isVector3 || v.isQuaternion) continue;
+      const descend = (v, p) => {
+        if (v === null || typeof v !== 'object' || seen.has(v)) return;
+        if (ArrayBuffer.isView(v) || v.isVector3 || v.isQuaternion) return;
         seen.add(v);
-        auditNode(v, `${path}.${k}`, seen, outNodes);
-      }
+        // A container is not a node — its ELEMENTS are. Auditing `combatants`
+        // itself reported "8 keys, undeclared", which is a true statement about
+        // an array's indices and says nothing about the eight fighters in it.
+        if (Array.isArray(v)) { v.forEach((el, i) => descend(el, `${p}[${i}]`)); return; }
+        if (v instanceof Map) { for (const [k2, el] of v) descend(el, `${p}{${String(k2)}}`); return; }
+        auditNode(v, p, seen, outNodes);
+      };
+      for (const k of d.snap) descend(obj[k], `${path}.${k}`);
     };
 
     const nodes = [];

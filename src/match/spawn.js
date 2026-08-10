@@ -47,6 +47,22 @@ const PROBE_UP = 1.5;
 const STEP_TOLERANCE = 0.45;
 
 export class SpawnAssigner {
+  /**
+   * Snapshot classification (netcode step 5). Nothing rewinds.
+   *
+   * Both fields are output scratch, not memory: `_pool` is reusable slot objects
+   * that `assign()` overwrites from scratch on every call, and `_byTeam` is the
+   * returned Map, cleared at the top of the same call. Who gets which seat is
+   * decided by registration order, which the comment on `assign` already
+   * establishes is stable across a match — so the assignment is a pure function
+   * of the roster and needs no state to reproduce.
+   */
+  static snapshotState = [];
+  static excludedState = ['world', 'physics', '_pool', '_byTeam'];
+
+  captureState(out = {}) { return out; }
+  restoreState() {}
+
   constructor(world, physics) {
     this.world = world;
     this.physics = physics;

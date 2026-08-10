@@ -25,6 +25,15 @@
  * `sim` would have forced a lie about that one either way.
  */
 export class Rng {
+  /**
+   * Snapshot classification. Five fields of state, and the two that are not:
+   * `_snapshotForks` is the root's registry of descendants and `_root` is the
+   * back-link to it, both of which describe the fork TREE rather than any
+   * stream's position in its sequence. Restoring them would rebuild the tree.
+   */
+  static snapshotState = ['s0', 's1', 's2', 's3', '_spare'];
+  static excludedState = ['_snapshotForks', '_root'];
+
   constructor(seed = 0x9e3779b9) {
     this.seed(seed);
 
@@ -184,7 +193,10 @@ export class Rng {
     out.s1 = this.s1;
     out.s2 = this.s2;
     out.s3 = this.s3;
-    out.spare = this._spare ?? null;
+    // Keyed `_spare`, matching the field. The audit in `tools/replay.mjs` checks
+    // that every declared snapshot field is actually emitted, and it compares by
+    // name — renaming state on its way into the capture would defeat that.
+    out._spare = this._spare ?? null;
     return out;
   }
 
@@ -194,7 +206,7 @@ export class Rng {
     this.s1 = s.s1 >>> 0;
     this.s2 = s.s2 >>> 0;
     this.s3 = s.s3 >>> 0;
-    this._spare = s.spare === null ? undefined : s.spare;
+    this._spare = s._spare === null ? undefined : s._spare;
     return this;
   }
 }

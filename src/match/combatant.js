@@ -145,6 +145,51 @@ let _nextId = 1;
  * `part` and a `damageScale`, because that is all the bullet trace reads.
  */
 export class Combatant {
+  /**
+   * Snapshot classification (netcode step 5).
+   *
+   * Health is absent on purpose and is not an omission: `alive` is a getter that
+   * asks the host (`health.dead` for the player, `alive` for a bot), so the
+   * number itself rewinds under `player` or under the agent that owns it.
+   * Capturing it here as well would restore it twice.
+   *
+   * `_lastAttacker` IS A POINTER TO ANOTHER COMBATANT, and this is the hazard
+   * §2.1 of the handoff names. Stored raw, a restore would not restore it — it
+   * would alias whatever object the pointer still happened to reach, which after
+   * a pool reuse is a different fighter with the same address. It goes out as
+   * `id` and comes back through a lookup, and `restoreState` takes that lookup
+   * as an argument rather than reaching for the roster itself.
+   */
+  static snapshotState = [
+    'kills', 'deaths', 'damageDealt',
+    '_dead', '_lastAttacker', '_lastPart', '_lastHeadshot',
+  ];
+  static excludedState = [
+    'id', 'host', 'team', 'name', 'isPlayer', 'rig', 'colliders', '_physics', '_head',
+  ];
+
+  captureState(out = {}) {
+    out.kills = this.kills;
+    out.deaths = this.deaths;
+    out.damageDealt = this.damageDealt;
+    out._dead = this._dead;
+    out._lastAttacker = this._lastAttacker ? this._lastAttacker.id : null;
+    out._lastPart = this._lastPart;
+    out._lastHeadshot = this._lastHeadshot;
+    return out;
+  }
+
+  /** `byId` maps a combatant id back to its instance — see `_lastAttacker`. */
+  restoreState(s, byId) {
+    this.kills = s.kills;
+    this.deaths = s.deaths;
+    this.damageDealt = s.damageDealt;
+    this._dead = s._dead;
+    this._lastAttacker = s._lastAttacker === null ? null : (byId?.get(s._lastAttacker) ?? null);
+    this._lastPart = s._lastPart;
+    this._lastHeadshot = s._lastHeadshot;
+  }
+
   constructor(host, opts = {}) {
     this.id = _nextId++;
     this.host = host;

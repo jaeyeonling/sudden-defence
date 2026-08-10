@@ -58,6 +58,92 @@ export class AiSystem {
   static id = 'ai';
   static deps = ['physics', 'world', 'match'];
 
+  /**
+   * Snapshot classification (netcode step 5).
+   *
+   * `_grenades` rewinds. A grenade in flight ends in an `explosion` event, which
+   * `ai` itself turns into `agent.hear(position, 120)` — the loudest cue there
+   * is — so a replay that dropped the ones already thrown would be a replay
+   * where nobody flinched.
+   *
+   * `grid` is excluded and `cover` is not, though both are baked from the same
+   * level: the nav grid is read-only after the bake, while the cover map carries
+   * the claim table that says who is standing where.
+   *
+   * `_variants` is the mesh memo whose cache misses used to draw from the
+   * simulation stream (`84a05c4`). It is excluded now for the plain reason —
+   * it holds geometry — rather than because the coupling was survivable.
+   */
+  static snapshotState = ['rng', 'agents', 'squads', 'cover', '_grenades', '_aiAccum', '_pathBudget'];
+  static excludedState = [
+    'ctx', 'match', 'fxRng', 'root', 'materials', 'ground', '_variants', 'grid',
+    'inspect', 'debugLog', 'forcePopulate', 'stats', '_navPending', 'pathsPerFrame',
+    '_grenadeGeo', '_grenadeMat', '_warmGrenade', '_prewarmed', '_off', '_phys', '_sky',
+    '_v', '_v2', '_v3', '_probe', '_tracerFrom', '_tracerTo',
+    '_fireEvent', '_shellEvent', '_tracerEvent',
+    '_frustum', '_mvp', '_sphere', '_sweep', '_sun', '_lodStats',
+  ];
+
+  captureState(out = {}) {
+    out.rng = this.rng.captureState(out.rng);
+    out.cover = this.cover ? this.cover.captureState(out.cover) : null;
+
+    const ags = (out.agents ??= []);
+    ags.length = 0;
+    for (const a of this.agents) ags.push({ id: a.id, s: a.captureState() });
+
+    const sqs = (out.squads ??= []);
+    sqs.length = 0;
+    for (const s of this.squads) sqs.push({ id: s.id, s: s.captureState() });
+
+    // Grenades are pooled objects with a live/dead flag; the pool itself is
+    // structure, the flags and trajectories are not.
+    const gs = (out._grenades ??= []);
+    gs.length = 0;
+    for (const g of this._grenades) {
+      gs.push({
+        live: g.live, t: g.t, fuse: g.fuse, team: g.team,
+        p: [g.position.x, g.position.y, g.position.z],
+        v: [g.velocity.x, g.velocity.y, g.velocity.z],
+      });
+    }
+
+    out._aiAccum = this._aiAccum;
+    out._pathBudget = this._pathBudget;
+    return out;
+  }
+
+  restoreState(s) {
+    // One index per kind, built once and passed down: agents resolve squad
+    // membership by agent id, and an agent's `target` is a COMBATANT id, which
+    // is a different namespace. Handing an agent the wrong map would resolve to
+    // a plausible object rather than fail, which is the worst kind of bug this
+    // work can produce.
+    const agentById = new Map();
+    for (const a of this.agents) agentById.set(a.id, a);
+    const combatantById = new Map();
+    for (const c of this.match.combatants) combatantById.set(c.id, c);
+
+    this.rng.restoreState(s.rng);
+    if (s.cover && this.cover) this.cover.restoreState(s.cover);
+    for (const rec of s.agents) agentById.get(rec.id)?.restoreState(rec.s, combatantById);
+
+    const squadById = new Map();
+    for (const q of this.squads) squadById.set(q.id, q);
+    for (const rec of s.squads) squadById.get(rec.id)?.restoreState(rec.s, agentById);
+
+    for (let i = 0; i < this._grenades.length && i < s._grenades.length; i++) {
+      const g = this._grenades[i];
+      const r = s._grenades[i];
+      g.live = r.live; g.t = r.t; g.fuse = r.fuse; g.team = r.team;
+      g.position.set(r.p[0], r.p[1], r.p[2]);
+      g.velocity.set(r.v[0], r.v[1], r.v[2]);
+    }
+
+    this._aiAccum = s._aiAccum;
+    this._pathBudget = s._pathBudget;
+  }
+
   async init(ctx) {
     this.ctx = ctx;
     this.match = ctx.get('match');
@@ -127,6 +213,12 @@ export class AiSystem {
     this._grenades = [];
     this._grenadeGeo = null;
     this._grenadeMat = null;
+    // Only ever built by `prewarmTransients`, so under `?prewarm=0` it never
+    // existed at all and the snapshot audit reported it declared-but-absent.
+    // Eighth of its kind in this work; the rule that came out of the others
+    // holds here too — a field that exists from construction is a field a
+    // snapshot can reason about at any tick, whatever the harness turned off.
+    this._warmGrenade = null;
 
     /* ---- frame budgets and LOD state (see _updateRelevance / requestPath) ---- */
     this._pathBudget = 0;

@@ -13,6 +13,62 @@ import * as THREE from 'three';
 let _nextSquad = 1;
 
 export class Squad {
+  /**
+   * Snapshot classification (netcode step 5).
+   *
+   * The squad is the arbiter of who may lean out and who may throw, so all of it
+   * rewinds except the roster. `peekHolders` and `flanker` are agent references
+   * and go out as ids: a Set of pointers restored raw would hand the peek token
+   * to whichever agent the address still reached.
+   *
+   * `members` is excluded because membership is fixed after the fill —
+   * `addMember` runs at spawn and nothing removes (death is `m.alive`, not
+   * removal), so the roster is structure rather than state. `peekTokens` is
+   * derived from its length and is captured anyway, since it is cheap and being
+   * wrong in the excluding direction is the mistake the gate cannot catch.
+   */
+  static snapshotState = [
+    'rng', 'peekTokens', 'peekHolders', 'peekTimer', 'grenadeCooldown',
+    'flanker', 'contact', 'hasContact', 'contactAge', '_pending',
+  ];
+  static excludedState = ['id', 'members'];
+
+  captureState(out = {}) {
+    out.rng = this.rng.captureState(out.rng);
+    out.peekTokens = this.peekTokens;
+    out.peekHolders = [...this.peekHolders].map((a) => a.id);
+    out.peekTimer = this.peekTimer;
+    out.grenadeCooldown = this.grenadeCooldown;
+    out.flanker = this.flanker ? this.flanker.id : null;
+    out.contact = [this.contact.x, this.contact.y, this.contact.z];
+    out.hasContact = this.hasContact;
+    out.contactAge = this.contactAge;
+    out._pending = this._pending.map((a) => (a && a.id !== undefined ? a.id : a));
+    return out;
+  }
+
+  /** `byId` maps an agent id to its instance — see `peekHolders`/`flanker`. */
+  restoreState(s, byId) {
+    this.rng.restoreState(s.rng);
+    this.peekTokens = s.peekTokens;
+    this.peekHolders.clear();
+    for (const id of s.peekHolders) {
+      const a = byId?.get(id);
+      if (a) this.peekHolders.add(a);
+    }
+    this.peekTimer = s.peekTimer;
+    this.grenadeCooldown = s.grenadeCooldown;
+    this.flanker = s.flanker === null ? null : (byId?.get(s.flanker) ?? null);
+    this.contact.set(s.contact[0], s.contact[1], s.contact[2]);
+    this.hasContact = s.hasContact;
+    this.contactAge = s.contactAge;
+    this._pending.length = 0;
+    for (const id of s._pending) {
+      const a = byId?.get(id);
+      if (a) this._pending.push(a);
+    }
+  }
+
   constructor(rng) {
     this.id = _nextSquad++;
     this.members = [];

@@ -677,6 +677,14 @@ if (out.missing.length) {
   fail.push(`no captureState/restoreState on: ${out.missing.join(', ')} — layers 1 and 2 cannot run`);
 }
 
+console.log(`\n  layer 1 — capture K, run to N, restore K, replay the same commands`);
+console.log(`    NOT IMPLEMENTED — needs the replay loop over commands.get(seq)`);
+fail.push(
+  'layer 1 has never run: the invariant this gate is named for — restore K, replay, arrive ' +
+  'bit-identical at N — is still unproven. Layers 0, 2 and 3 passing means the dump works, ' +
+  'every field is classified and every stream is registered; it does not mean a rewind is correct.'
+);
+
 if (fail.length) {
   console.log(`\nREPLAY FAILED (${fail.length}):\n  - ${fail.join('\n  - ')}`);
   process.exit(1);

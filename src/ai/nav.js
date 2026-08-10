@@ -106,6 +106,29 @@ class Heap {
 /* ------------------------------------------------------------------ */
 
 export class NavGrid {
+  /**
+   * Snapshot classification (netcode step 5). Nothing rewinds.
+   *
+   * The grid is baked from the level and the level is frozen before the first
+   * tick. Everything that moves is A* scratch reused between searches:
+   * `gScore`, `came`, the two stamp arrays and `open`. The stamp counter only
+   * has to keep increasing to invalidate the previous search, so restoring it
+   * would be restoring a number whose value never mattered — only its
+   * monotonicity does.
+   */
+  static snapshotState = [];
+  static excludedState = [
+    'physics', 'cell', 'radius', 'height', 'crouchHeight', 'maxStep', 'maxSlope',
+    'minX', 'minZ', 'nx', 'nz', 'topY', 'flags', 'floor', 'enclosure',
+    'gScore', 'came', 'visitStamp', 'closedStamp', 'stamp', 'open',
+    'buildMs', 'walkableCount', 'edgeX', 'edgeZ', 'orphanedCells',
+    'component', 'componentCount', 'mainComponent', 'mainComponentCells', 'pocketCells',
+    '_v', '_v2', '_p0', '_p1', '_raw',
+  ];
+
+  captureState(out = {}) { return out; }
+  restoreState() {}
+
   constructor(physics, opts = {}) {
     this.physics = physics;
     this.cell = opts.cell ?? 0.8;
@@ -774,6 +797,33 @@ const DZ = [0, 0, 1, -1, 1, -1, 1, -1];
  * `peek` is a lateral offset that clears the edge for shooting.
  */
 export class CoverMap {
+  /**
+   * Snapshot classification (netcode step 5).
+   *
+   * The points themselves are baked with the level. What moves is `claimed` —
+   * the agent id holding each spot, which `release()` clears — and that is the
+   * occupancy table the handoff flags: two bots restored onto one piece of cover
+   * is not a graphical mistake, it is a firefight that never happens.
+   *
+   * `score` is rewritten on every query before it is read, so it is scratch.
+   * Only the claim array is captured; the geometry stays where it was baked.
+   */
+  static snapshotState = ['points'];
+  static excludedState = ['grid', 'physics', '_v', '_v2', '_v3', 'buildMs'];
+
+  captureState(out = {}) {
+    // One Int32Array reused across captures, not an object per point: the map
+    // holds hundreds of points and all but a handful read -1.
+    let a = out.points;
+    if (!a || a.length !== this.points.length) a = out.points = new Int32Array(this.points.length);
+    for (let i = 0; i < this.points.length; i++) a[i] = this.points[i].claimed;
+    return out;
+  }
+
+  restoreState(s) {
+    for (let i = 0; i < this.points.length; i++) this.points[i].claimed = s.points[i];
+  }
+
   constructor(grid, physics) {
     this.grid = grid;
     this.physics = physics;

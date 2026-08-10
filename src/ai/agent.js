@@ -197,6 +197,115 @@ const DEG = Math.PI / 180;
 let _nextId = 1;
 
 export class Agent {
+  /**
+   * Snapshot classification (netcode step 5). The largest object in the game,
+   * and the one where "does this rewind" has the most interesting answers.
+   *
+   * TWO POINTERS AND A THIRD THAT LOOKS LIKE ONE.
+   *   `target` is a Combatant and captures as its id.
+   *   `cover` is a point owned by `CoverMap` and captures as its INDEX, because
+   *   the points are baked with the level and their order is what makes an index
+   *   a name. `CoverMap` restores the claim flags; this restores who is standing
+   *   where, and the two have to agree or a bot holds cover nobody claimed.
+   *   `squad`, `combatant`, `controller`, `colliders` and `ragdoll` all look
+   *   like state and are excluded because something else owns them — the squad
+   *   list, the match roster, `physics.characters`, `physics.colliders` and
+   *   `physics.ragdolls` respectively. Capturing from both ends restores twice,
+   *   and the second write wins for reasons nobody picked.
+   *
+   * `group` is the rendered transform. `position` is the simulated one, and the
+   * group is copied from it — excluding the group and keeping the position is
+   * the whole distinction this work is about.
+   *
+   * The perception block (`awareness`, `lastKnown`, `lastKnownAge`,
+   * `suppression`, `reactionTimer`, `alertness`) is the most snapshot-critical
+   * state here: `botfight` measured a bot in combat having any intent to fire
+   * only 6-13% of the time, and every one of those numbers gates it.
+   */
+  static snapshotState = [
+    'rng',
+    // body / motion
+    'position', 'yaw', 'targetYaw', 'velocity', 'grounded', 'speed', 'crouch',
+    // life
+    'health', 'alive', 'frozen', 'aliveTime', 'deadTime',
+    // FSM
+    'state', 'stateTime',
+    // perception
+    'awareness', 'hasTarget', 'targetVisible', 'target',
+    'lastKnown', 'lastKnownAge', 'lastSeenAge', 'searchPoint',
+    'suppression', 'reactionTimer', 'alertness',
+    // gunplay
+    'burstLeft', 'fireCooldown', 'burstCooldown', 'ammo', 'spread',
+    'aimTarget', 'aimActual', 'aimWeight', 'wantFire', 'huntAt',
+    'peekSide', 'peeking', 'peekTimer', 'grenadeCooldown', 'hasGrenade',
+    // navigation
+    'path', 'pathLen', 'pathIndex', 'repathTimer', 'pathPending', '_pendingDest',
+    'moveTarget', 'hasMoveTarget', 'desiredSpeed',
+    'cover', 'coverPos', 'patrolIndex', 'patrolFails',
+    'noGoalTime', 'noMoveTime', '_progressFrom',
+    'huntTimer', 'hunting', 'holdTime', 'holdD0', 'holdSuppress',
+    'stuckTimer', 'stuckCount', 'vaultCooldown',
+    'clip', 'vaultFrom', 'vaultTo', 'vaultT',
+  ];
+  static excludedState = [
+    // wiring and identity
+    'ai', 'ctx', 'id', 'isAgent', 'team', 'variantName', 'def', 'scale',
+    // owned elsewhere
+    'squad', 'combatant', 'controller', 'colliders', 'ragdoll', 'phys',
+    // presentation
+    'bones', 'skeleton', 'mesh', 'group', 'skinnedMesh', 'animator',
+    'lodIrrelevant', '_animSkip', '_animAccum',
+    // tuning, constant for the life of the agent
+    'mass', 'height', 'radius', 'maxHealth', 'eyeHeight', 'viewRange', 'viewCos',
+    'weaponRange', 'fireRate', 'magSize', 'weaponDamage', 'patrolPoints',
+    // scratch
+    '_cand', '_v', '_v2', '_v3', '_eye', '_dir', '_steer',
+    '_boneA', '_boneB', '_muzzleDir',
+  ];
+
+  captureState(out = {}) {
+    const v3 = (v) => [v.x, v.y, v.z];
+    out.rng = this.rng.captureState(out.rng);
+    out.target = this.target ? this.target.id : null;
+    // Index, not pointer. `-1` also covers "the point is not in the map any
+    // more", which cannot happen today and would be silent if it did.
+    out.cover = this.cover ? this.ai.cover.points.indexOf(this.cover) : -1;
+
+    for (const k of Agent.snapshotState) {
+      if (k === 'rng' || k === 'target' || k === 'cover') continue;
+      const v = this[k];
+      if (v && v.isVector3) out[k] = v3(v);
+      else if (Array.isArray(v)) out[k] = v.map((e) => (e && e.isVector3 ? v3(e) : e));
+      else out[k] = v;
+    }
+    return out;
+  }
+
+  /** `byCombatantId` resolves `target` — see the pointer note above. */
+  restoreState(s, byCombatantId) {
+    this.rng.restoreState(s.rng);
+    this.target = s.target === null ? null : (byCombatantId?.get(s.target) ?? null);
+    this.cover = s.cover < 0 ? null : (this.ai.cover.points[s.cover] ?? null);
+
+    for (const k of Agent.snapshotState) {
+      if (k === 'rng' || k === 'target' || k === 'cover') continue;
+      const cur = this[k];
+      const v = s[k];
+      // `vaultFrom`/`vaultTo` are null when no vault is in flight, so neither
+      // side of this can assume the other is a vector: writing into a null
+      // throws, and assigning the raw triple would leave a plain array where a
+      // Vector3 belongs and break the lerp on the next tick instead of here.
+      if (v === null || v === undefined) this[k] = v;
+      else if (cur && cur.isVector3) cur.set(v[0], v[1], v[2]);
+      else if (cur === null && Array.isArray(v) && v.length === 3 && typeof v[0] === 'number') {
+        this[k] = new THREE.Vector3(v[0], v[1], v[2]);
+      } else if (Array.isArray(cur)) {
+        cur.length = 0;
+        for (const e of v) cur.push(Array.isArray(e) ? new THREE.Vector3(e[0], e[1], e[2]) : e);
+      } else this[k] = v;
+    }
+  }
+
   constructor(ai, opts = {}) {
     this.ai = ai;
     this.ctx = ai.ctx;
@@ -488,6 +597,39 @@ export class Agent {
     this._muzzleDir = new THREE.Vector3();
 
     this.clip = 'idle';
+
+    // Death and vault state, declared here rather than on the first death and
+    // the first vault. The snapshot audit reported all five absent, and these
+    // are the sharp version of that problem rather than the mild one: a capture
+    // taken before a bot had ever vaulted could not restore a vault in progress,
+    // so a replay would drop the bot mid-ledge. `respawn` already writes
+    // `deadTime = undefined`, which keeps the key — it was only ever missing on
+    // an agent that had not yet died once.
+    // EVERY ONE OF THESE IS FALSY ON PURPOSE. `_driveVault` reads
+    //
+    //   if (this.vaultT !== undefined && animator.vaulting && vaultFrom && vaultTo)
+    //
+    // so the ABSENCE of these three is how "not mid-vault" is encoded, and
+    // `reset()` disarms a vault in flight by writing `vaultTo = null` rather
+    // than by clearing a flag. Declaring the keys is right — the snapshot audit
+    // needs them to exist at any tick — but declaring them has to mean giving
+    // them the value the code already treats as "no", not a zero and two fresh
+    // vectors.
+    //
+    // Measured, because the first version of this comment claimed the filled
+    // values were reaching the lerp and that was wrong: instrumenting
+    // `_driveVault` over 3600 ticks showed the branch firing 49-98 times and
+    // NEVER with both vectors still at the origin, because `_tryVault` sets
+    // them before it starts the clip. The guard is over-determined today. It is
+    // written this way anyway — an encoding that survives only because one of
+    // its three conditions is currently redundant is not one to hand the next
+    // person.
+    this.deadTime = undefined;
+    this.vaultT = undefined;
+    this.vaultFrom = null;
+    this.vaultTo = null;
+    /** Owned by `physics.ragdolls`; this is the back-reference. */
+    this.ragdoll = null;
   }
 
   /* ================================================================== */

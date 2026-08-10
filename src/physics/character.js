@@ -38,28 +38,35 @@ export class CharacterController {
    * like a report on the step that just happened, and they are also the input to
    * the one that follows.
    *
-   * `groundObject` is a pointer to a collider, so it captures as that collider's
-   * id and comes back through a lookup — the same treatment `Combatant.
-   * _lastAttacker` gets, and for the same reason (§2.1 of the handoff).
+   * `groundObject` is EXCLUDED and it is not presentation — it is a readout of
+   * the last sweep that NOTHING READS. Three writes (`-1` at construction, the
+   * hit object at two contact sites) and no reader anywhere in `src/`. It also
+   * does not hold what its name suggests: `-1` before the first contact and a
+   * three object after, never a collider, so the first version of this captured
+   * `groundObject.id` off the sentinel and restored `null` — a defect the replay
+   * gate reported on its first run as the very first diverging leaf.
+   *
+   * Left in place rather than deleted because a contact readout is plausibly
+   * intended API, unlike the dead RNG streams in `84a05c4`. It is a deletion
+   * candidate and this comment is the record of that.
    */
   static snapshotState = [
     'position', 'velocity', 'enabled',
     'grounded', 'wasGrounded', 'groundNormal', 'groundSurface', 'groundDistance',
-    'groundObject', 'onSteepSlope', 'touchingCeiling', 'touchingWall', 'wallNormal',
+    'onSteepSlope', 'touchingCeiling', 'touchingWall', 'wallNormal',
     'lastMoveBlocked', 'steppedUp', 'landingSpeed',
   ];
   static excludedState = [
     'world', 'id', 'owner', 'radius', 'height', 'stepHeight', 'slopeLimit',
-    'snapDistance', 'mask', 'maxIterations',
+    'snapDistance', 'mask', 'maxIterations', 'groundObject',
     '_hit', '_hit2', '_planes', '_planeCount', '_startPos',
   ];
 
   captureState(out = {}) {
-    out.position = [this.position.x, this.position.y, this.position.z];
-    out.velocity = [this.velocity.x, this.velocity.y, this.velocity.z];
-    out.groundNormal = [this.groundNormal.x, this.groundNormal.y, this.groundNormal.z];
-    out.wallNormal = [this.wallNormal.x, this.wallNormal.y, this.wallNormal.z];
-    out.groundObject = this.groundObject ? this.groundObject.id : null;
+    // Plain {x,y,z} bags, not THREE.Vector3 — `physics` keeps its own vector
+    // representation and there is no `.set` to call.
+    const put = (k) => { const v = this[k]; out[k] = [v.x, v.y, v.z]; };
+    put('position'); put('velocity'); put('groundNormal'); put('wallNormal');
     out.enabled = this.enabled;
     out.grounded = this.grounded;
     out.wasGrounded = this.wasGrounded;
@@ -74,13 +81,9 @@ export class CharacterController {
     return out;
   }
 
-  /** `byId` maps a collider id to its instance — see `groundObject`. */
-  restoreState(s, byId) {
-    this.position.set(s.position[0], s.position[1], s.position[2]);
-    this.velocity.set(s.velocity[0], s.velocity[1], s.velocity[2]);
-    this.groundNormal.set(s.groundNormal[0], s.groundNormal[1], s.groundNormal[2]);
-    this.wallNormal.set(s.wallNormal[0], s.wallNormal[1], s.wallNormal[2]);
-    this.groundObject = s.groundObject === null ? null : (byId?.get(s.groundObject) ?? null);
+  restoreState(s) {
+    const take = (k) => { const v = this[k], a = s[k]; v.x = a[0]; v.y = a[1]; v.z = a[2]; };
+    take('position'); take('velocity'); take('groundNormal'); take('wallNormal');
     this.enabled = s.enabled;
     this.grounded = s.grounded;
     this.wasGrounded = s.wasGrounded;

@@ -112,6 +112,41 @@ export class CommandStream {
     this._viewPitch = 0;
     this._open = false;
     this._move = { x: 0, y: 0 };
+    /**
+     * Replay: while this is set, `build` hands back the command already in the
+     * ring instead of sealing a new one. -1 when playing live.
+     *
+     * This is the consumer `get(seq)` was written for and did not have. The ring
+     * has been keyed by `seq` since `2201a0e` for exactly one reason — so a tick
+     * can be addressed after the fact — and until now nothing addressed one.
+     */
+    this._replayUntil = -1;
+  }
+
+  /** True while the stream is feeding recorded commands rather than the device. */
+  get replaying() {
+    return this._replayUntil >= 0;
+  }
+
+  /**
+   * Feed recorded commands up to and including `untilSeq`.
+   *
+   * The pending device state is cleared rather than left alone: a held key or a
+   * buffered edge surviving into a replay would be live input leaking into
+   * history, and it would show up as a divergence in whatever the replay is
+   * being compared against — blamed, almost certainly, on the last thing anyone
+   * changed rather than on this.
+   */
+  beginReplay(untilSeq) {
+    this._replayUntil = untilSeq;
+    this._axisX = 0;
+    this._axisY = 0;
+    this._held = 0;
+    this._edge = 0;
+  }
+
+  endReplay() {
+    this._replayUntil = -1;
   }
 
   /**
@@ -158,6 +193,24 @@ export class CommandStream {
    */
   build(seq, dt) {
     const c = this._ring[seq & (CMD_HISTORY - 1)];
+
+    // Replay: return what was recorded, write nothing. If the ring has rolled
+    // past this seq the honest answer is to fail loudly — a replay that quietly
+    // simulated a stale command would produce a divergence at the far end and
+    // no clue that the input, not the world, was what differed.
+    if (this._replayUntil >= 0) {
+      if (c.seq !== seq) {
+        throw new Error(
+          `replay wanted command ${seq} and the ring holds ${c.seq} — ` +
+            `history is ${CMD_HISTORY} ticks and the rewind reached further back than that`
+        );
+      }
+      this.seq = seq;
+      this.current = c;
+      this._open = true;
+      return c;
+    }
+
     const o = this.override;
 
     c.seq = seq;
@@ -203,6 +256,13 @@ export class CommandStream {
   setView(yaw, pitch) {
     this._viewYaw = yaw;
     this._viewPitch = pitch;
+    // Never during a replay. `player.fixedUpdate` pushes here every tick, and a
+    // correct replay would push the same angles back — but "would" is the whole
+    // problem: if the replay has diverged, this quietly rewrites the recorded
+    // input to match the divergence, and the comparison at the far end then has
+    // nothing left to notice. History has to be read-only for the replay to be
+    // evidence of anything.
+    if (this._replayUntil >= 0) return;
     const c = this.current;
     if (c && this._open) {
       c.yaw = yaw;

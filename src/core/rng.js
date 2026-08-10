@@ -200,12 +200,24 @@ export class Rng {
     return out;
   }
 
-  /** Inverse of `captureState`. */
+  /**
+   * Inverse of `captureState`. Verbatim, with no `>>> 0` on the way in.
+   *
+   * The four words hold a MIX of signed and unsigned representations of the same
+   * bits: `s2 ^= s0` leaves an int32, `rot` ends in `>>> 0` and leaves a uint32.
+   * The algorithm cannot tell the difference — every operation on them is
+   * bitwise — but a snapshot can, and coercing here made `restoreState` fail to
+   * be the inverse of `captureState` for any word that happened to be negative.
+   *
+   * Found by the replay gate on its first full run, as `restore did NOT
+   * reproduce K` on `ai.rng.s1` and six other stream words. It was defensive
+   * coding, and what it defended against was nothing.
+   */
   restoreState(s) {
-    this.s0 = s.s0 >>> 0;
-    this.s1 = s.s1 >>> 0;
-    this.s2 = s.s2 >>> 0;
-    this.s3 = s.s3 >>> 0;
+    this.s0 = s.s0;
+    this.s1 = s.s1;
+    this.s2 = s.s2;
+    this.s3 = s.s3;
     this._spare = s._spare === null ? undefined : s._spare;
     return this;
   }

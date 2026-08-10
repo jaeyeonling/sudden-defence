@@ -334,8 +334,9 @@ export class PhysicsSystem {
   }
 
   restoreState(s) {
-    const byId = (this._restoreColliders ??= new Map());
-    byId.clear();
+    // Local — see the note in `match.restoreState`. A restore must not leave
+    // behind state the tick it restored to did not have.
+    const byId = new Map();
     for (const c of this.colliders) byId.set(c.id, c);
     for (const rec of s.colliders) {
       const c = byId.get(rec.id);
@@ -347,7 +348,7 @@ export class PhysicsSystem {
 
     const charById = new Map();
     for (const c of this.characters) charById.set(c.id, c);
-    for (const rec of s.characters) charById.get(rec.id)?.restoreState(rec.s, byId);
+    for (const rec of s.characters) charById.get(rec.id)?.restoreState(rec.s);
 
     const rdById = new Map();
     for (const r of this.ragdolls) rdById.set(r.id, r);

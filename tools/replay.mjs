@@ -74,8 +74,17 @@
  * Local replay only. Nothing here says two MACHINES agree; see §5 of the
  * handoff. Same build, same page, same floating-point unit.
  *
- *   node tools/replay.mjs [--port=5173] [--k=60] [--n=180]
- *                         [--maxdepth=12] [--nodump] [--keep]
+ * Layer 1 has two of its own:
+ *
+ *   --drop=weapons._spread   write the field's value at N over the captured one,
+ *                            so it does not rewind. This is what a snapshot that
+ *                            forgot the field would do.
+ *   --tamper                 change one recorded command mid-span, so the replay
+ *                            feeds input the original pass never saw.
+ *
+ *   node tools/replay.mjs [--port=5173] [--k=60] [--span=110]
+ *                         [--maxdepth=12] [--nodump]
+ *                         [--drop=sys.field] [--tamper] [--keep]
  */
 import { chromium } from 'playwright';
 import net from 'node:net';
@@ -91,14 +100,18 @@ const PORT = Number(args.port ?? 5173);
 /** Tick to snapshot at. Far enough in that the world is not in its boot pose. */
 const K = Number(args.k ?? 60);
 /**
- * Tick to compare at. N-K must stay under CMD_HISTORY (128) — past that the
- * ring has rolled over the commands the replay needs and the failure would be
- * the harness running out of history, not the game diverging.
+ * How many ticks to replay. A SPAN, not an absolute N: the snapshot is taken
+ * once the round reaches its live phase, and where that lands depends on the
+ * tempo rather than on anything this file should hardcode.
+ *
+ * Must stay under CMD_HISTORY (128) — past that the ring has rolled over the
+ * commands the replay needs, and the failure would be the harness running out
+ * of history rather than the game diverging.
  */
-const N = Number(args.n ?? 180);
+const SPAN = Number(args.span ?? 110);
 
-if (N - K >= 128) {
-  console.log(`REPLAY FAILED — harness: N-K is ${N - K}, the command ring holds 128`);
+if (SPAN >= 128) {
+  console.log(`REPLAY FAILED — harness: span is ${SPAN}, the command ring holds 128`);
   process.exit(1);
 }
 
@@ -132,7 +145,7 @@ await page.goto(`http://127.0.0.1:${PORT}/?prewarm=0`, { waitUntil: 'load' });
 await page.waitForFunction('window.__READY__ === true', null, { timeout: 120000 });
 
 const out = await page.evaluate(
-  async ({ K, N, MAXDEPTH, NODUMP }) => {
+  async ({ K, SPAN, MAXDEPTH, NODUMP, DROP, TAMPER }) => {
     const e = window.__ENGINE__;
     const ctx = e.ctx;
 
@@ -161,6 +174,26 @@ const out = await page.evaluate(
      * WHICH bits moved, which is the difference between "position drifted" and
      * "position is a different value entirely".
      */
+    /**
+     * A declaring object's two lists, or null. Defined up here because BOTH
+     * layers need it: layer 2 audits against it and layer 1's walk skips the
+     * excluded half.
+     *
+     * Cached per constructor — `declOf` runs once per object per dump, and a
+     * dump visits half a million leaves.
+     */
+    const declCache = new Map();
+    const declOf = (o) => {
+      const C = o?.constructor;
+      if (!C) return null;
+      if (declCache.has(C)) return declCache.get(C);
+      const s = Array.isArray(C.snapshotState) ? C.snapshotState : null;
+      const x = Array.isArray(C.excludedState) ? C.excludedState : null;
+      const d = s && x ? { snap: new Set(s), exc: new Set(x) } : null;
+      declCache.set(C, d);
+      return d;
+    };
+
     const f64 = new Float64Array(1);
     const u32 = new Uint32Array(f64.buffer);
     const scalar = (v) => {
@@ -294,7 +327,19 @@ const out = await page.evaluate(
           out.set(path, `set:${[...v].map((x) => String(scalar(x) ?? '?')).sort().join('|')}`);
           return;
         }
+        // Honour the classification. Layer 2 has already forced every own key of
+        // a declaring object into exactly one list; layer 1 compares the
+        // snapshot half and skips the other. Without this the dump compares
+        // viewmodel poses, HUD bags and animator scratch, all of which are
+        // ALLOWED to differ across a rewind — and a gate that fails on 2000
+        // legitimate differences cannot show you the one that matters.
+        //
+        // This is the hole named in the header: a field wrongly placed in
+        // `excludedState` escapes here as well as in layer 2. That is a recorded
+        // human claim rather than an oversight, and it is greppable.
+        const d = declOf(v);
         for (const k of Object.keys(v)) {
+          if (d && d.exc.has(k)) continue;
           rec(v[k], `${path}.${k}`, depth + 1);
         }
       };
@@ -440,6 +485,29 @@ const out = await page.evaluate(
       return { fatal: `drove to tick ${ctx.time.tick}, wanted ${K} — step() is not one tick per call` };
     }
 
+    /**
+     * GET TO A TICK WHERE SOMETHING HAPPENS.
+     *
+     * The first version snapshotted at 61 and compared at 180 — half a second to
+     * a second and a half at 120 Hz, which is entirely inside the 4 s warmup. The
+     * player is frozen, the round has not started, and the span moved 70 leaves
+     * out of 4589. Both induced failures PASSED against that: dropping
+     * `weapons._spread` from the snapshot changed nothing because nothing was
+     * shooting, and tampering with a command's `moveX` changed nothing because
+     * nobody was moving. A green from that scenario is worth exactly as much as
+     * `converge` would be with the bots asleep.
+     *
+     * So: fast-forward to the live phase, and then drive the player. `override`
+     * is the seam `observe.mjs` already uses; `build` ignores it entirely once
+     * the replay starts, so what the original pass sees is what the ring holds.
+     */
+    const round = ctx.peek('match')?.round;
+    let warmed = 0;
+    while (round && round.phase !== 'live' && warmed < 4000) { tick(1); warmed++; }
+    if (round && round.phase !== 'live') {
+      return { fatal: `never reached the live phase (stuck in "${round.phase}" after ${warmed} ticks)` };
+    }
+
     /* ================================================================== *
      *  LAYER 0 — is this probe alive?                                    *
      * ================================================================== */
@@ -477,13 +545,6 @@ const out = await page.evaluate(
      * `captureState` is then checked to actually emit every `snapshotState` key,
      * which is what keeps the declaration from being a wish.
      */
-    const declOf = (o) => {
-      const C = o?.constructor;
-      const s = Array.isArray(C?.snapshotState) ? C.snapshotState : null;
-      const x = Array.isArray(C?.excludedState) ? C.excludedState : null;
-      return s && x ? { snap: new Set(s), exc: new Set(x) } : null;
-    };
-
     /**
      * The audit recurses, because the unit of classification is not the
      * subsystem.
@@ -572,6 +633,190 @@ const out = await page.evaluate(
 
     const missing = hooks.filter((h) => h.present && !(h.capture && h.restore)).map((h) => h.id);
 
+    /* ================================================================== *
+     *  LAYER 1 — the invariant                                           *
+     * ================================================================== */
+
+    let layer1 = null;
+    if (!missing.length) {
+      const capture = () => {
+        const blob = {};
+        for (const id of SIM_IDS) {
+          const sys = ctx.peek(id);
+          if (sys) blob[id] = sys.captureState(blob[id]);
+        }
+        return blob;
+      };
+      const restore = (blob) => {
+        for (const id of SIM_IDS) ctx.peek(id)?.restoreState(blob[id]);
+      };
+
+      // We are standing at K+1 after layer 0 stepped one tick; go back to K's
+      // neighbourhood by simply treating here as the snapshot point.
+      const kTick = ctx.time.tick;
+      const snap = capture();
+      const atK = dumpAll();
+
+      // THE CLOCK IS PART OF THE REWIND, and leaving it out is a harness defect
+      // that looks exactly like a snapshot defect.
+      //
+      // `engine.step` derives dt as `(now - _last) / 1000`, so the same nominal
+      // 1/120 s produces a slightly different double depending on how large the
+      // two timestamps are. The replay runs later than the original pass, so its
+      // dt sequence rounds differently — 50 ULP on `round.remaining` after 119
+      // ticks, which moved a round transition, which changed when a respawn drew
+      // from `ai.rng`, which diverged every stream downstream of it. Twenty-three
+      // leaves, one cause, none of them the snapshot's fault.
+      const clockK = clock;
+      const engineK = { last: e._last, accum: e._accum };
+      const timeK = {
+        elapsed: ctx.time.elapsed, raw: ctx.time.raw,
+        alpha: ctx.time.alpha, dt: ctx.time.dt, frame: ctx.time.frame,
+      };
+
+      // Count draws per stream, both passes.
+      //
+      // An rng leaf that differs says the stream advanced a different number of
+      // times and nothing else. The count says WHICH stream and BY HOW MANY,
+      // which is the difference between "the snapshot is wrong somewhere" and
+      // "agent#4 drew three times too few". Wrapping `u32` is enough: `float`,
+      // `range`, `int`, `signed`, `pick` and `disc` all go through it.
+      const streams = [ctx.rng, ...ctx.rng.snapshotForks()];
+      const counts = new Map();
+      for (const r of streams) {
+        const orig = r.u32.bind(r);
+        r.u32 = function () { counts.set(this, (counts.get(this) ?? 0) + 1); return orig(); };
+      }
+      const readCounts = () => {
+        const m = new Map();
+        for (const r of streams) m.set(r, counts.get(r) ?? 0);
+        return m;
+      };
+      const zero = () => { for (const r of streams) counts.set(r, 0); };
+      // Name them the way the dump does, so a count lines up with a failing leaf.
+      const streamName = new Map();
+      streamName.set(ctx.rng, 'root');
+      for (const id of SIM_IDS) {
+        const sys = ctx.peek(id);
+        if (sys?.rng) streamName.set(sys.rng, `${id}.rng`);
+      }
+      for (const a of ctx.peek('ai')?.agents ?? []) if (a.rng) streamName.set(a.rng, `agent#${a.id}.rng`);
+      (ctx.peek('ai')?.squads ?? []).forEach((s, i) => { if (s.rng) streamName.set(s.rng, `squad#${i}.rng`); });
+
+      // A fixed span, not a fixed N: `live` starts wherever the tempo puts it.
+      const span = SPAN;
+      zero();
+      // Drive the player for the whole span. A stationary player with a cold
+      // trigger is a scenario in which most of the snapshot cannot be wrong.
+      const BTN = e.commands.BTN ?? { fire: 1 };
+      e.commands.override = { moveX: 0, moveY: 0, held: 0, edge: 0 };
+      const driveAt = (i) => {
+        const o = e.commands.override;
+        o.moveX = Math.sin(i * 0.11);
+        o.moveY = Math.cos(i * 0.07);
+        // Hold the trigger in bursts so the spread cone winds up and decays, and
+        // so `weapons.rng` is actually consumed.
+        o.held = (i % 40) < 22 ? BTN.fire : 0;
+        o.edge = (i % 40) === 0 ? BTN.fire : 0;
+      };
+      for (let i = 0; i < span; i++) { driveAt(i); tick(1); }
+      e.commands.override = null;
+      const drawsA = readCounts();
+      const expected = dumpAll();
+      const nTick = ctx.time.tick;
+      const N_ = nTick;
+
+      // Two separate questions, and conflating them cost a diagnosis.
+      //
+      //   moved   — did the span change anything? If K and N are the same world
+      //             the replay is a no-op and would pass while proving nothing.
+      //   exact   — does restoring K reproduce K? This is where an incomplete
+      //             capture shows up FIRST, in the field that failed to come
+      //             back, instead of 119 ticks later as whatever that field
+      //             happened to steer.
+      //
+      // The first version only counted `moved` and called it "restore moved N
+      // leaves back", which is not what that number means.
+      const moved = diff(atK.map, expected.map);
+
+      // `--drop=weapons._spread` — make one field NOT rewind, by writing its
+      // value at N over the captured one. That is exactly what a snapshot which
+      // forgot the field would do, and it is the induced failure §4.3 of the
+      // handoff asks for before any of this is believed.
+      let dropped = null;
+      if (DROP) {
+        const dot = DROP.indexOf('.');
+        const sysId = DROP.slice(0, dot), key = DROP.slice(dot + 1);
+        const sys = ctx.peek(sysId);
+        if (!sys) dropped = `no subsystem "${sysId}"`;
+        else if (!(key in sys)) dropped = `"${sysId}" has no field "${key}"`;
+        else {
+          const live = sys.captureState({});
+          if (!(key in live)) dropped = `"${sysId}.captureState" does not emit "${key}"`;
+          else { snap[sysId][key] = live[key]; dropped = `ok: ${DROP} restored to its value at N`; }
+        }
+      }
+
+      restore(snap);
+      const afterRestore = dumpAll();
+      const restoreExact = diff(atK.map, afterRestore.map, 12);
+
+      ctx.time.tick = kTick;
+      clock = clockK;
+      e._last = engineK.last;
+      e._accum = engineK.accum;
+      ctx.time.elapsed = timeK.elapsed;
+      ctx.time.raw = timeK.raw;
+      ctx.time.alpha = timeK.alpha;
+      ctx.time.dt = timeK.dt;
+      ctx.time.frame = timeK.frame;
+      // `--tamper` — change one recorded command. The replay then feeds input
+      // the original pass never saw, and a comparison that still passes is a
+      // comparison that is not looking at the simulation.
+      let tampered = null;
+      if (TAMPER) {
+        const mid = kTick + Math.floor(span / 2);
+        const c = e.commands.get(mid);
+        if (!c) tampered = `command ${mid} is no longer in the ring`;
+        else { c.moveX = c.moveX + 1; tampered = `ok: command ${mid} moveX +1`; }
+      }
+
+      let replayError = null;
+      zero();
+      try {
+        e.commands.beginReplay(nTick);
+        for (let i = 0; i < span; i++) {
+          clock += H;
+          e.step(clock);
+        }
+      } catch (err) {
+        replayError = String(err?.message ?? err);
+      } finally {
+        e.commands.endReplay();
+      }
+
+      const drawsB = readCounts();
+      const actual = dumpAll();
+      const drift = diff(expected.map, actual.map, 16);
+
+      const drawGap = [];
+      for (const r of streams) {
+        const a = drawsA.get(r) ?? 0, b = drawsB.get(r) ?? 0;
+        if (a !== b) drawGap.push({ name: streamName.get(r) ?? '<unnamed>', a, b });
+      }
+
+      layer1 = {
+        drawGap, dropped, tampered,
+        kTick, nTick, span,
+        replayError,
+        landedAt: ctx.time.tick,
+        moved: { count: moved.count, numeric: moved.numeric },
+        restoreExact: { count: restoreExact.count, numeric: restoreExact.numeric, rows: restoreExact.rows },
+        drift: { count: drift.count, numeric: drift.numeric, rows: drift.rows },
+        leaves: expected.map.size,
+      };
+    }
+
     return {
       tickAt: ctx.time.tick,
       leaves: d0a.map.size,
@@ -580,12 +825,19 @@ const out = await page.evaluate(
       stable,
       sensitive,
       nodes,
+      layer1,
       snapForks: snapForks === null ? null : snapForks.length,
       hooks,
       missing,
     };
   },
-  { K, N, MAXDEPTH: Number(args.maxdepth ?? 12), NODUMP: !!args.nodump }
+  {
+    K, SPAN,
+    MAXDEPTH: Number(args.maxdepth ?? 12),
+    NODUMP: !!args.nodump,
+    DROP: typeof args.drop === 'string' ? args.drop : null,
+    TAMPER: !!args.tamper,
+  }
 );
 
 await browser.close();
@@ -606,7 +858,7 @@ if (errors.length) {
 
 const fail = [];
 
-console.log(`\nREPLAY — snapshot K=${K}, compare N=${N} (${N - K} ticks of history, ring holds 128)`);
+console.log(`\nREPLAY — ${SPAN} ticks replayed from the live phase (ring holds 128)`);
 console.log(`\n  layer 0 — is the dump worth trusting?`);
 console.log(`    ${out.leaves} scalar leaves across ${out.hooks.filter((h) => h.present).length} subsystem roots + ${out.entities} entity roots`);
 console.log(`    ${out.stats.pruned} presentation objects pruned, ${out.stats.depthCut} branches hit the depth cap`);
@@ -678,12 +930,52 @@ if (out.missing.length) {
 }
 
 console.log(`\n  layer 1 — capture K, run to N, restore K, replay the same commands`);
-console.log(`    NOT IMPLEMENTED — needs the replay loop over commands.get(seq)`);
-fail.push(
-  'layer 1 has never run: the invariant this gate is named for — restore K, replay, arrive ' +
-  'bit-identical at N — is still unproven. Layers 0, 2 and 3 passing means the dump works, ' +
-  'every field is classified and every stream is registered; it does not mean a rewind is correct.'
-);
+const L1 = out.layer1;
+if (!L1) {
+  fail.push('layer 1 did not run because the snapshot hooks are incomplete — see layer 2');
+} else {
+  console.log(`    K=${L1.kTick} -> N=${L1.nTick} (${L1.span} ticks), ${L1.leaves} leaves compared`);
+  if (L1.dropped) console.log(`    --drop: ${L1.dropped}`);
+  if (L1.tampered) console.log(`    --tamper: ${L1.tampered}`);
+  if (L1.replayError) {
+    fail.push(`layer 1: the replay threw — ${L1.replayError}`);
+  }
+  if (L1.landedAt !== L1.nTick) {
+    fail.push(`layer 1: replay landed on tick ${L1.landedAt}, not ${L1.nTick} — it did not simulate the same span`);
+  }
+  // Did the span do anything? A replay between two identical worlds is green
+  // and worthless — the shape this repo keeps finding, one gate at a time.
+  if (L1.moved.count === 0) {
+    fail.push('layer 1: K and N are the same world, so the replay proves nothing');
+  } else {
+    console.log(`    the span moved ${L1.moved.count} leaves (${L1.moved.numeric} numeric)`);
+  }
+  // Does restoring K reproduce K? This localises an incomplete capture to the
+  // field that failed to come back, rather than to whatever it steered 119
+  // ticks later.
+  if (L1.restoreExact.count === 0) {
+    console.log(`    restore reproduced K exactly`);
+  } else {
+    console.log(`    restore did NOT reproduce K — ${L1.restoreExact.count} leaves wrong (${L1.restoreExact.numeric} numeric)`);
+    for (const r of L1.restoreExact.rows) console.log(`      ${r.path}\n        at K  ${r.a}\n        after ${r.b}`);
+    fail.push(`layer 1: restoring the snapshot did not reproduce tick K in ${L1.restoreExact.count} places — the capture is incomplete`);
+  }
+  if (L1.drawGap?.length) {
+    console.log(`    rng draws that differ between the two passes:`);
+    for (const g of L1.drawGap.slice(0, 10)) {
+      console.log(`      ${g.name.padEnd(18)} original ${g.a}  replay ${g.b}  (${g.b - g.a >= 0 ? '+' : ''}${g.b - g.a})`);
+    }
+  } else if (L1.drift.count) {
+    console.log(`    every rng stream drew the same number of times — the divergence is not a draw count`);
+  }
+  if (L1.drift.count === 0) {
+    console.log(`    replayed to N: BIT-IDENTICAL`);
+  } else {
+    console.log(`    replayed to N: ${L1.drift.count} leaves differ (${L1.drift.numeric} numeric)`);
+    for (const r of L1.drift.rows) console.log(`      ${r.path}\n        expected ${r.a}\n        got      ${r.b}`);
+    fail.push(`layer 1: ${L1.drift.count} leaves diverged after the replay — the snapshot is incomplete or a restore is wrong`);
+  }
+}
 
 if (fail.length) {
   console.log(`\nREPLAY FAILED (${fail.length}):\n  - ${fail.join('\n  - ')}`);

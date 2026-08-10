@@ -106,11 +106,12 @@ export class MatchSystem {
   }
 
   restoreState(s) {
-    // Built once and handed to every combatant, because `_lastAttacker` is an id
-    // that has to resolve back to an instance. Rebuilding it per fighter would
-    // be O(n^2) over a set that does not change.
-    const byId = this._restoreIndex ??= new Map();
-    byId.clear();
+    // Local, not a field. The first version cached this Map on the instance and
+    // the replay gate caught it immediately: `restore did NOT reproduce K` on
+    // eight `match._restoreIndex{n}` leaves, because the restore itself had
+    // created state the snapshot at K never had. Building it once per restore
+    // rather than once per fighter is the part that mattered; keeping it was not.
+    const byId = new Map();
     for (const c of this.combatants) byId.set(c.id, c);
     for (const rec of s.combatants) byId.get(rec.id)?.restoreState(rec.s, byId);
     this.round.restoreState(s.round);

@@ -194,6 +194,27 @@ const DOLL = [
 
 const DEG = Math.PI / 180;
 
+/**
+ * Where a bot's round leaves it, in the agent's own yaw frame, metres.
+ *
+ * MEASURED, and measured twice — the first pass rotated into the wrong frame and
+ * reported the muzzle wandering half a metre, which was an artefact of the
+ * rotation and not anything the animator does. Fitting both candidate frames in
+ * one run and taking the tighter (residual p50 0.335 m against 0.502 m) gives
+ * `dx = right*cos + forward*sin`, `dz = -right*sin + forward*cos`, and in that
+ * frame the weapon is very nearly a fixed mount:
+ *
+ *   right    p10 -0.1254  p50 -0.0867  p90 -0.0155   (spread 0.11 m)
+ *   forward  p10  0.6164  p50  0.6321  p90  0.6475   (spread 0.03 m)
+ *   up       crouch  p10 0.9790  p50 0.9965  p90 1.0196   (10.3% of samples)
+ *            stand   p10 0.9887  p50 1.1655  p90 1.2330
+ *
+ * n = 5862-6300 over 900 live ticks. Medians, not means: the distributions are
+ * skewed and a mean chases the tails. `crouch` is simulation state, so splitting
+ * the one axis that actually moves costs nothing.
+ */
+const MUZZLE = { right: -0.0867, forward: 0.6321, upStand: 1.1655, upCrouch: 0.9965 };
+
 let _nextId = 1;
 
 export class Agent {
@@ -236,7 +257,7 @@ export class Agent {
     'suppression', 'reactionTimer', 'alertness',
     // gunplay
     'burstLeft', 'fireCooldown', 'burstCooldown', 'ammo', 'spread',
-    'aimTarget', 'aimActual', 'aimWeight', 'wantFire', 'huntAt',
+    'aimTarget', 'aimWeight', 'wantFire', 'huntAt',
     'peekSide', 'peeking', 'peekTimer', 'grenadeCooldown', 'hasGrenade',
     // navigation
     'path', 'pathLen', 'pathIndex', 'repathTimer', 'pathPending', '_pendingDest',
@@ -260,7 +281,7 @@ export class Agent {
     'weaponRange', 'fireRate', 'magSize', 'weaponDamage', 'patrolPoints',
     // scratch
     '_cand', '_v', '_v2', '_v3', '_eye', '_dir', '_steer',
-    '_boneA', '_boneB', '_muzzleDir',
+    '_boneA', '_boneB', '_muzzleDir', '_muzzleOrigin',
   ];
 
   captureState(out = {}) {
@@ -522,7 +543,9 @@ export class Agent {
     /** Where the quiet-round hunt believes the nearest enemy is. Drives facing
      *  while the hunt is holding still — see the facing block in `_move`. */
     this.huntAt = new THREE.Vector3();
-    this.aimActual = new THREE.Vector3();
+    // `aimActual` used to live here. Assigned once at construction and read
+    // nowhere in `src/` — the fifth dead field this work has turned up, found
+    // the same way as the others: by having to say whether it rewinds.
     this.aimWeight = 0;
     this.wantFire = false;
     this.peekSide = 0;
@@ -596,6 +619,7 @@ export class Agent {
     this._boneA = new THREE.Vector3();
     this._boneB = new THREE.Vector3();
     this._muzzleDir = new THREE.Vector3();
+    this._muzzleOrigin = new THREE.Vector3();
 
     this.clip = 'idle';
 
@@ -2008,8 +2032,32 @@ export class Agent {
 
   _fireRound() {
     const an = this.animator;
-    const origin = an.muzzleWorld;
-    const dir = this._muzzleDir.copy(an.muzzleDir);
+    // MUZZLE FROM THE SIMULATION, NOT FROM THE DRAWN POSE.
+    //
+    // This read `an.muzzleWorld` / `an.muzzleDir`, so every bot round left the
+    // animated weapon bone. The animator is not in the snapshot and
+    // `AiSystem._updateRelevance` throttles it to one evaluation in three
+    // whenever the camera cannot see the actor — so where a bullet started
+    // depended on whether anyone was looking. Same defect `710c630` fixed on the
+    // player side, where the camera WAS the aim.
+    //
+    // Aiming at `aimTarget` is close to a no-op: the animator's aim IK was
+    // already pointing the bore at the same place, 0.07 degrees off the line at
+    // the median over 822 aimed samples. What changes is that the ray starts
+    // somewhere the simulation knows.
+    const o = this._muzzleOrigin;
+    const cy = Math.cos(this.yaw), sy = Math.sin(this.yaw);
+    o.set(
+      this.position.x + MUZZLE.right * cy + MUZZLE.forward * sy,
+      this.position.y + (this.crouch ? MUZZLE.upCrouch : MUZZLE.upStand),
+      this.position.z - MUZZLE.right * sy + MUZZLE.forward * cy
+    );
+    const origin = o;
+    const dir = this._muzzleDir.copy(this.aimTarget).sub(o);
+    // No aim point yet (a scatter harness, or a bot that has not acquired):
+    // fall back to the facing the simulation already has.
+    if (dir.lengthSq() < 1e-8) dir.set(sy, 0, cy);
+    dir.normalize();
     // cone of fire: worse when suppressed, better the longer we have been aiming
     const spread = this.spread * (1 + this.suppression * 1.5);
     dir.x += this.rng.gauss() * spread;

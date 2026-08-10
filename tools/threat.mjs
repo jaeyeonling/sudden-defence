@@ -309,6 +309,39 @@ console.log(
  * weapon knobs, and every one of them scales this number and none of them
  * touches the 10 %. Quoting it as an absolute would be the mistake.
  */
+/**
+ * THE MEASURED CONE MUST BE THE DECLARED CONE.
+ *
+ * This gate used to print the two and compare neither, and that is not a small
+ * omission: moving bot aim off the animated muzzle blew the horizontal sigma
+ * from 0.026 to 0.5108 rad — twenty times the declared cone, 9 m hit rate from
+ * 51% to 1%, time to kill from 2.2 s to 182.6 s — and THREAT STILL PRINTED OK.
+ * Every assertion below it is about the damage model, which was untouched, so
+ * nothing noticed that the bots had stopped being able to shoot.
+ *
+ * A gate that cannot see the difficulty collapse is not a difficulty gate.
+ *
+ * The 20% band is not a tuning choice: `spread` is a signed-off number
+ * (`8c004aa`) and the scatter here is 2000 rounds off the real fire path, so the
+ * two agreeing is a mechanism check rather than a taste one. Three baseline runs
+ * measured 0.0261 / 0.0262 / 0.0267 against a declared 0.026 — under 3% — so
+ * 20% is loose enough to never fire on sampling noise and tight enough that a
+ * factor of twenty cannot hide in it.
+ */
+const CONE_TOL = 0.20;
+for (const [axis, measured, declared] of [
+  ['horizontal', sigH, out.spread],
+  ['vertical', sigV, out.spread * 0.8],
+]) {
+  const rel = Math.abs(measured - declared) / declared;
+  if (rel > CONE_TOL) {
+    fail.push(
+      `${axis} cone measured ${measured.toFixed(4)} rad against a declared ${declared.toFixed(4)} ` +
+      `(${(rel * 100).toFixed(0)}% off) — the fire path is not delivering the spread the model was tuned on`
+    );
+  }
+}
+
 console.log('  danger against a stationary torso, one bot (UPPER BOUND — see note):');
 const danger = RANGES.map((d) => {
   const p = within(TORSO_HALF_W, sigH * d) * within(TORSO_HALF_H, sigV * d);
@@ -375,6 +408,31 @@ if (fourEdge === null && worst > BURST_CEIL) {
 if (shotsAt(20) > shotsAt(9) + 2) {
   fail.push(`bot damage falls ${shotsAt(9)} -> ${shotsAt(20)} shots between 9 and 20 m — that is a sniper's curve on a 36 m map`);
 }
+/**
+ * The operating point, in the units the difficulty was actually signed off in.
+ *
+ * Redundant with the cone check by construction — `p` is a pure function of the
+ * two sigmas — and kept anyway, because the cone check speaks about a mechanism
+ * and this one speaks about the game. `0f088e5` and `8c004aa` chose a bot that
+ * kills a stationary target in about 2 s at 9 m; a change that halves that is a
+ * difficulty change and has to be declared rather than discovered.
+ *
+ * Bands are ±25% of three baseline runs (9 m: 51/50/49, 14 m: 28/26/26,
+ * 20 m: 15/14/14) — wider than the 4% those runs actually spanned.
+ */
+const HIT_BAND = { 9: [0.37, 0.64], 14: [0.20, 0.35], 20: [0.11, 0.19] };
+for (const r of danger) {
+  const band = HIT_BAND[r.d];
+  if (!band) continue;
+  if (r.p < band[0] || r.p > band[1]) {
+    fail.push(
+      `hit rate at ${r.d} m is ${(r.p * 100).toFixed(0)}%, outside the ${(band[0] * 100).toFixed(0)}-` +
+      `${(band[1] * 100).toFixed(0)}% band this difficulty was signed off at — if that is intended, ` +
+      `move the band and say why`
+    );
+  }
+}
+
 if (errors.length) fail.push(`page errors: ${errors.slice(0, 2).join(' | ')}`);
 
 if (fail.length) {

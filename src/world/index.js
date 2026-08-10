@@ -30,6 +30,28 @@ export class WorldSystem {
   static id = 'world';
   static deps = ['materials', 'physics'];
 
+  /**
+   * Snapshot classification (netcode step 5). Every own field must appear in
+   * exactly one of these; `tools/replay.mjs` fails on one that appears in
+   * neither, in both, or that no longer exists on the instance.
+   *
+   * The level is the one subsystem with nothing to rewind. It is assembled once
+   * in `init` and never mutated after — the collision BVH, the spawn points and
+   * the room volumes are all read-only from the first tick onward. That is a
+   * claim the gate now holds this file to rather than a sentence in a document:
+   * add a mutable field and the audit will refuse to classify it for you.
+   */
+  static snapshotState = [];
+  static excludedState = ['ctx', 'group', 'assembler', 'spawnPoints', 'bounds', 'roomVolumes'];
+
+  /** Nothing to capture — see `snapshotState`. The hook exists so the gate can
+   *  tell "frozen by design" apart from "not done yet". */
+  captureState(out = {}) {
+    return out;
+  }
+
+  restoreState() {}
+
   async init(ctx) {
     this.ctx = ctx;
     const materials = ctx.get('materials');

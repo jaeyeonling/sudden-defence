@@ -22,6 +22,60 @@ import { clamp, clamp01 } from './springs.js';
 export const STATES = ['stand', 'crouch', 'jump', 'fall'];
 
 export class Movement {
+  /**
+   * Snapshot classification (netcode step 5).
+   *
+   * THE FOOTSTEP ACCUMULATORS ARE SIMULATION. `_stepDistance`, `_bobDistance`,
+   * `_bobPhase`, `_footLeft`, `_footHold` and `stepEvent` look like they exist
+   * to play a sound, and the sound is the least of what they do: every step
+   * emits `player:footstep`, and `ai/index.js` turns that into
+   * `agent.hear(position, running ? 24 : 11)`. The distance counter decides WHEN
+   * a bot notices the player. Filing it under presentation because its other
+   * consumer is the mixer would drop the player's audibility out of the
+   * snapshot, and the bot that heard nothing would be a bot the replay invented.
+   *
+   * `character` and `cmd` are excluded because they are owned elsewhere — the
+   * capsule by `physics`, the command by the ring in `core/command.js`. Both
+   * rewind; neither rewinds from here.
+   *
+   * `renderPosition` is the interpolated draw pose, and interpolation is a
+   * function of `alpha`, which a replay does not have.
+   */
+  static snapshotState = [
+    'state', 'prevState', 'stateTime', 'stance', 'stanceWant',
+    'grounded', 'wasGrounded', 'airTime', 'groundTime',
+    'speed', 'horizontalSpeed', 'blocked', 'jumped',
+    'yaw', 'pitch', 'yawRate', 'controlEnabled',
+    '_coyote', '_jumpBuffer', '_jumpCooldown', '_prevVy',
+    '_stepDistance', '_bobDistance', '_bobPhase', '_footLeft', '_footHold',
+    'position', 'prevPosition', 'velocity',
+    'landEvent', 'stepEvent',
+  ];
+  static excludedState = [
+    'ctx', 'player', 'physics', 'character', 'cmd',
+    'renderPosition', '_fwd', '_right', '_wish',
+  ];
+
+  captureState(out = {}) {
+    for (const k of Movement.snapshotState) {
+      const v = this[k];
+      if (v && v.isVector3) out[k] = [v.x, v.y, v.z];
+      else if (v && typeof v === 'object') out[k] = { ...v };
+      else out[k] = v;
+    }
+    return out;
+  }
+
+  restoreState(s) {
+    for (const k of Movement.snapshotState) {
+      const cur = this[k];
+      const v = s[k];
+      if (cur && cur.isVector3) cur.set(v[0], v[1], v[2]);
+      else if (cur && typeof cur === 'object' && v && typeof v === 'object') Object.assign(cur, v);
+      else this[k] = v;
+    }
+  }
+
   constructor(ctx, player) {
     this.ctx = ctx;
     this.player = player;

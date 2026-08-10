@@ -462,16 +462,100 @@ const out = await page.evaluate(
      *  LAYERS 1 and 2 — need the snapshot API                            *
      * ================================================================== */
 
+    /**
+     * The classification a subsystem must publish:
+     *
+     *   static snapshotState     — keys that rewind with the world
+     *   static excludedState — keys that do not
+     *
+     * Every own key must appear in exactly one. Not "should": the audit fails on
+     * an unclassified key, on a key in both, and on a declared key that no
+     * longer exists. The last one matters most over time — a list that keeps
+     * naming a field somebody renamed is a list that has stopped describing the
+     * object, and it goes stale silently.
+     *
+     * `captureState` is then checked to actually emit every `snapshotState` key,
+     * which is what keeps the declaration from being a wish.
+     */
+    const declOf = (o) => {
+      const C = o?.constructor;
+      const s = Array.isArray(C?.snapshotState) ? C.snapshotState : null;
+      const x = Array.isArray(C?.excludedState) ? C.excludedState : null;
+      return s && x ? { snap: new Set(s), exc: new Set(x) } : null;
+    };
+
+    /**
+     * The audit recurses, because the unit of classification is not the
+     * subsystem.
+     *
+     * `player.rig` is one key and only HALF of it rewinds: the aim origin and
+     * the recoil springs do, while bob, breath, shake, dip, step, punch and roll
+     * are composed per rendered frame and must not. Classifying `rig` whole
+     * would force a choice between capturing seven presentation springs and
+     * dropping the recoil integrator — the handoff calls this out in §2 and a
+     * flat list cannot say it.
+     *
+     * So any object that publishes its own pair of lists is audited as a node in
+     * its own right, under a dotted path. Anything that does not is a leaf and
+     * is captured or excluded whole.
+     */
+    const auditNode = (obj, path, seen, outNodes) => {
+      const d = declOf(obj);
+      const own = Object.keys(obj);
+      const node = {
+        path,
+        declares: !!d,
+        capture: typeof obj.captureState === 'function',
+        restore: typeof obj.restoreState === 'function',
+        ownKeys: own.length,
+        unclassified: [],
+        doubleClassified: [],
+        stale: [],
+        uncaptured: [],
+      };
+      outNodes.push(node);
+      if (!d) return;
+
+      for (const k of own) {
+        const inS = d.snap.has(k), inX = d.exc.has(k);
+        if (inS && inX) node.doubleClassified.push(k);
+        else if (!inS && !inX) node.unclassified.push(k);
+      }
+      const ownSet = new Set(own);
+      for (const k of [...d.snap, ...d.exc]) if (!ownSet.has(k)) node.stale.push(k);
+
+      if (node.capture) {
+        try {
+          const emitted = new Set(Object.keys(obj.captureState({}) ?? {}));
+          for (const k of d.snap) if (!emitted.has(k)) node.uncaptured.push(k);
+        } catch (err) {
+          node.captureThrew = String(err?.message ?? err);
+        }
+      }
+
+      // Recurse into EVERY object-valued snapshot key, declared or not. Skipping
+      // the undeclared ones would let an object with state hide behind a parent
+      // that named it once — the same "captured wholesale" assumption that the
+      // hand-written table made about `player.rig`, where it was wrong. An
+      // undeclared child is reported, not failed: a plain `{x, y}` bag really is
+      // a leaf its parent can copy, and layer 1 covers it either way.
+      for (const k of d.snap) {
+        const v = obj[k];
+        if (v === null || typeof v !== 'object' || seen.has(v)) continue;
+        if (ArrayBuffer.isView(v) || v.isVector3 || v.isQuaternion) continue;
+        seen.add(v);
+        auditNode(v, `${path}.${k}`, seen, outNodes);
+      }
+    };
+
+    const nodes = [];
     const hooks = SIM_IDS.map((id) => {
       const sys = ctx.peek(id);
-      return {
-        id,
-        present: !!sys,
-        capture: typeof sys?.captureState === 'function',
-        restore: typeof sys?.restoreState === 'function',
-        declares: Array.isArray(sys?.constructor?.presentationState),
-        ownKeys: sys ? Object.keys(sys).length : 0,
-      };
+      if (!sys) return { id, present: false };
+      const before = nodes.length;
+      auditNode(sys, id, new WeakSet([sys]), nodes);
+      const root = nodes[before];
+      return { id, present: true, ...root };
     });
 
     const missing = hooks.filter((h) => h.present && !(h.capture && h.restore)).map((h) => h.id);
@@ -483,6 +567,7 @@ const out = await page.evaluate(
       stats: d0a.stats,
       stable,
       sensitive,
+      nodes,
       snapForks: snapForks === null ? null : snapForks.length,
       hooks,
       missing,
@@ -552,14 +637,29 @@ if (out.snapForks === null) {
   if (out.snapForks === 0) fail.push('no stream registered as a snapshot target, which cannot be right');
 }
 
-console.log(`\n  layers 1 and 2 — the snapshot API`);
-for (const h of out.hooks) {
-  const marks = [
-    h.capture ? 'capture' : 'NO capture',
-    h.restore ? 'restore' : 'NO restore',
-    h.declares ? 'declares presentation' : 'NO presentationState',
-  ];
-  console.log(`    ${h.id.padEnd(9)} ${h.ownKeys.toString().padStart(3)} own keys · ${marks.join(' · ')}`);
+console.log(`\n  layer 2 — is every own key classified? (${out.nodes.length} nodes)`);
+for (const n of out.nodes) {
+  if (!n.declares) {
+    console.log(`    ${n.path.padEnd(22)} ${String(n.ownKeys).padStart(3)} keys · NO snapshotState/excludedState`);
+    continue;
+  }
+  const bad = n.unclassified.length + n.doubleClassified.length + n.stale.length + n.uncaptured.length;
+  console.log(`    ${n.path.padEnd(22)} ${String(n.ownKeys).padStart(3)} keys · ${bad === 0 ? 'all classified' : `${bad} problem(s)`}`);
+  const show = (label, arr) => {
+    if (!arr.length) return;
+    console.log(`      ${label}: ${arr.slice(0, 14).join(', ')}${arr.length > 14 ? ` (+${arr.length - 14})` : ''}`);
+  };
+  show('unclassified', n.unclassified);
+  show('in BOTH lists', n.doubleClassified);
+  show('declared but absent', n.stale);
+  show('declared snapshot, not emitted', n.uncaptured);
+  if (n.captureThrew) console.log(`      captureState threw: ${n.captureThrew}`);
+
+  if (n.unclassified.length) fail.push(`${n.path}: ${n.unclassified.length} key(s) classified as neither`);
+  if (n.doubleClassified.length) fail.push(`${n.path}: ${n.doubleClassified.length} key(s) in both lists`);
+  if (n.stale.length) fail.push(`${n.path}: ${n.stale.length} declared key(s) no longer exist — the list has stopped describing the object`);
+  if (n.uncaptured.length) fail.push(`${n.path}: ${n.uncaptured.length} key(s) declared snapshot but captureState does not emit them`);
+  if (n.captureThrew) fail.push(`${n.path}: captureState threw`);
 }
 if (out.missing.length) {
   fail.push(`no captureState/restoreState on: ${out.missing.join(', ')} — layers 1 and 2 cannot run`);

@@ -16,6 +16,28 @@ import { HEALTH } from './tuning.js';
 import { clamp01, approach, DEG } from './springs.js';
 
 export class Health {
+  /**
+   * Snapshot classification (netcode step 5). Health never regenerates, so the
+   * simulation half is small: the number, whether it reached zero, and the two
+   * fields that throttle `player:health` emission (a replay that re-emitted on
+   * a different tick than the original pass would be a divergence the HUD, not
+   * the world, went looking for).
+   *
+   * `hitFlash`, `indicators` and `effect` are the damage vignette and the
+   * directional arrows — screen furniture that happens to be driven by damage.
+   */
+  static snapshotState = ['value', 'dead', 'lastDamageTime', 'lastPart', '_emitTimer', '_lastEmitHealth'];
+  static excludedState = ['ctx', 'rig', 'max', 'hitFlash', 'indicators', 'effect', '_payload', '_statePayload'];
+
+  captureState(out = {}) {
+    for (const k of Health.snapshotState) out[k] = this[k];
+    return out;
+  }
+
+  restoreState(s) {
+    for (const k of Health.snapshotState) this[k] = s[k];
+  }
+
   constructor(ctx, rig) {
     this.ctx = ctx;
     this.rig = rig;
@@ -23,6 +45,11 @@ export class Health {
     this.value = HEALTH.max;
     this.dead = false;
     this.lastDamageTime = -100;
+    // Declared here rather than springing into existence on the first hit. The
+    // snapshot audit found it missing, which is the mild face of the problem: a
+    // field that appears partway through a match cannot be restored by a capture
+    // taken before it appeared, and `player:death` reads it.
+    this.lastPart = 'torso';
     this.hitFlash = 0;
 
     /** Direction indicators, oldest first. angle is radians, 0 = straight ahead. */

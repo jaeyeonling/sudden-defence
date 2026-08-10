@@ -62,6 +62,61 @@ import {
 } from './springs.js';
 
 export class CameraRig {
+  /**
+   * Snapshot classification (netcode step 5).
+   *
+   * This is the object the split in `710c630` was for, and it is the reason the
+   * classification has to nest rather than run per subsystem: `player.rig` is
+   * ONE field and only a third of it rewinds. The eight below are exactly what
+   * `stepAim` writes on the fixed tick — the smoothed eye height (it sets the
+   * ray's origin), the two recoil axes (they bend the ray), and the four aim
+   * outputs `weapons` reads.
+   *
+   * Everything else is composed per rendered frame and must NOT be restored.
+   * Bob, breath and trauma were measured putting 0.042 / 0.087 / 0.47 m of
+   * error on a 20 m shot before the split — shake alone being 3.4x the rifle's
+   * own cone. Capturing them would not merely be wasteful, it would restore a
+   * presentation channel into the aim and quietly re-couple the two.
+   *
+   * `recoilRoll` is excluded with the other roll channels for the reason the
+   * split recorded: rotation about the view axis does not move `forward`.
+   */
+  static snapshotState = [
+    'eye', 'crouchBlend', 'recoilPitch', 'recoilYaw',
+    'aimPitch', 'aimYaw', 'aimOrigin', 'aimForward',
+  ];
+  static excludedState = [
+    'ctx', 'baseFov', 'fov', 'fovMove',
+    'bobPhase', 'bobWeight', 'bobRoll', 'bobPitch', 'bobOffset',
+    'dip', 'step', 'punch', 'kickPitch', 'kickYaw', 'kickRoll',
+    'recoilRoll', 'strafeRoll', 'turnRoll', 'airRoll',
+    'trauma', 'shakeTime', 'breathPhase',
+    'viewKick', 'offset', 'eyePosition', 'rotation', 'forward', '_fwd', '_right',
+  ];
+
+  captureState(out = {}) {
+    out.eye = this.eye;
+    out.crouchBlend = this.crouchBlend;
+    out.recoilPitch = this.recoilPitch.captureState(out.recoilPitch);
+    out.recoilYaw = this.recoilYaw.captureState(out.recoilYaw);
+    out.aimPitch = this.aimPitch;
+    out.aimYaw = this.aimYaw;
+    out.aimOrigin = [this.aimOrigin.x, this.aimOrigin.y, this.aimOrigin.z];
+    out.aimForward = [this.aimForward.x, this.aimForward.y, this.aimForward.z];
+    return out;
+  }
+
+  restoreState(s) {
+    this.eye = s.eye;
+    this.crouchBlend = s.crouchBlend;
+    this.recoilPitch.restoreState(s.recoilPitch);
+    this.recoilYaw.restoreState(s.recoilYaw);
+    this.aimPitch = s.aimPitch;
+    this.aimYaw = s.aimYaw;
+    this.aimOrigin.set(s.aimOrigin[0], s.aimOrigin[1], s.aimOrigin[2]);
+    this.aimForward.set(s.aimForward[0], s.aimForward[1], s.aimForward[2]);
+  }
+
   constructor(ctx) {
     this.ctx = ctx;
     const C = CAMERA;

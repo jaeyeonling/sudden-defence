@@ -93,6 +93,27 @@ const MAX_SUB_DT = 1 / 360;
  * displaces it instantly.
  */
 export class Spring {
+  /**
+   * Snapshot classification. `freq` and `damping` are tuning and never move;
+   * `value`, `velocity` and `target` are the integrator and do. A spring that
+   * rewound its constants would restore a different spring.
+   */
+  static snapshotState = ['value', 'velocity', 'target'];
+  static excludedState = ['freq', 'damping'];
+
+  captureState(out = {}) {
+    out.value = this.value;
+    out.velocity = this.velocity;
+    out.target = this.target;
+    return out;
+  }
+
+  restoreState(s) {
+    this.value = s.value;
+    this.velocity = s.velocity;
+    this.target = s.target;
+  }
+
   constructor(freq = 8, damping = 0.7, value = 0) {
     this.freq = freq;
     this.damping = damping;
@@ -147,6 +168,23 @@ export class Spring {
  * back, then settles — a single spring can only do two of those three.
  */
 export class RecoilAxis {
+  /** Snapshot classification. `residualTau`/`residualShare` are tuning. */
+  static snapshotState = ['spring', 'residual', 'value'];
+  static excludedState = ['residualTau', 'residualShare'];
+
+  captureState(out = {}) {
+    out.spring = this.spring.captureState(out.spring);
+    out.residual = this.residual;
+    out.value = this.value;
+    return out;
+  }
+
+  restoreState(s) {
+    this.spring.restoreState(s.spring);
+    this.residual = s.residual;
+    this.value = s.value;
+  }
+
   constructor(freq = 9.5, damping = 0.52, residualTau = 0.3, residualShare = 0.34) {
     this.spring = new Spring(freq, damping, 0);
     this.residual = 0;

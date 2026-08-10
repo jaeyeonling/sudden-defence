@@ -102,6 +102,45 @@ export class PlayerSystem {
   static id = 'player';
   static deps = ['physics', 'world', 'render', 'match'];
 
+  /**
+   * Snapshot classification (netcode step 5). Every own field appears in
+   * exactly one list; `tools/replay.mjs` fails on one in neither, one in both,
+   * and one that no longer exists on the instance.
+   *
+   * Two entries are worth their explanation:
+   *
+   * `combatant` is excluded and is NOT presentation — it is health, score and
+   * hitboxes, and it rewinds. It is excluded HERE because `match` owns the
+   * roster and captures it there. Capturing it from both sides would restore it
+   * twice, and the second restore would win for reasons nobody chose.
+   *
+   * `_lookFrame` is excluded because it is keyed to `time.frame`, not to a tick.
+   * It stops `_consumeLook` running twice inside one rendered frame; a replay
+   * drives ticks with no frames at all, so restoring a frame index would be
+   * restoring an answer to a question the replay never asks.
+   */
+  static snapshotState = ['movement', 'rig', 'health', 'controlEnabled'];
+  static excludedState = [
+    'isPlayer', 'combatant', 'ctx', 'physics', 'match', 'spectator',
+    '_lookFrame', '_prev', '_offEvents', '_tmp',
+    '_statePayload', '_landPayload', '_stepPayload', '_jumpPayload', '_hudState',
+  ];
+
+  captureState(out = {}) {
+    out.movement = this.movement.captureState(out.movement);
+    out.rig = this.rig.captureState(out.rig);
+    out.health = this.health.captureState(out.health);
+    out.controlEnabled = this.controlEnabled;
+    return out;
+  }
+
+  restoreState(s) {
+    this.movement.restoreState(s.movement);
+    this.rig.restoreState(s.rig);
+    this.health.restoreState(s.health);
+    this.controlEnabled = s.controlEnabled;
+  }
+
   constructor() {
     /** Lets `ai` / `physics` recognise the local player from an owner pointer. */
     this.isPlayer = true;
@@ -114,7 +153,11 @@ export class PlayerSystem {
     this.controlEnabled = true;
 
     this._lookFrame = -1;
-    this._prevYaw = 0;
+    // `_prevYaw` used to live here. It was assigned in three places and read in
+    // none — `viewmodel.js` has a field of the same name, which is what made it
+    // look alive. Found by the snapshot classification above, same as the two
+    // dead RNG streams in `84a05c4`: being made to answer "does this rewind"
+    // is what surfaces a field that does nothing at all.
 
     // preallocated event payloads
     this._statePayload = {
@@ -163,7 +206,6 @@ export class PlayerSystem {
     this.movement.init(this.physics, spawn.feet);
     this.movement.yaw = spawn.yaw;
     this.movement.pitch = 0;
-    this._prevYaw = spawn.yaw;
     this.rig.reset(STANCE.stand.eye);
     // Aim first. `update` composes the camera ON TOP of the aim now, so a rig
     // that has never had a tick would compose from a zeroed aim and point the
@@ -269,7 +311,6 @@ export class PlayerSystem {
     else if (m.yaw < -Math.PI) m.yaw += Math.PI * 2;
 
     m.yawRate = dt > 1e-5 ? dYaw / dt : 0;
-    this._prevYaw = m.yaw;
 
     // Stamp the aim onto the command being simulated. Nothing local reads it —
     // movement uses `m.yaw` directly — but a command without the angles it was

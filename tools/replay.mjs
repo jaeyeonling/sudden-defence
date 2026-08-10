@@ -147,7 +147,7 @@ await page.goto(`http://127.0.0.1:${PORT}/?prewarm=0`, { waitUntil: 'load' });
 await page.waitForFunction('window.__READY__ === true', null, { timeout: 120000 });
 
 const out = await page.evaluate(
-  async ({ K, SPAN, MAXDEPTH, NODUMP, DROP, TAMPER, ROWS, NOLOD }) => {
+  async ({ K, SPAN, MAXDEPTH, NODUMP, DROP, TAMPER, ROWS, NOLOD, TRACE }) => {
     const e = window.__ENGINE__;
     const ctx = e.ctx;
 
@@ -515,7 +515,13 @@ const out = await page.evaluate(
     if (NOLOD) {
       const ai = ctx.peek('ai');
       if (ai) {
-        ai._updateRelevance = () => { for (const a of ai.agents) a.lodIrrelevant = false; };
+        // Patch the PROTOTYPE, not the instance. Assigning to `ai._updateRelevance`
+        // creates an own key, and layer 2 — correctly — fails an own key that no
+        // subsystem classified. A diagnostic flag that reds its own gate makes the
+        // next red ambiguous, which is the one thing a control must never do.
+        Object.getPrototypeOf(ai)._updateRelevance = function () {
+          for (const a of this.agents) a.lodIrrelevant = false;
+        };
         for (const a of ai.agents) { a.lodIrrelevant = false; a._animSkip = 0; }
       }
     }
@@ -738,7 +744,20 @@ const out = await page.evaluate(
         o.held = (i % 40) < 22 ? BTN.fire : 0;
         o.edge = (i % 40) === 0 ? BTN.fire : 0;
       };
-      for (let i = 0; i < span; i++) { driveAt(i); tick(1); }
+      // `--trace` — keep the per-tick dump of the original pass, so the replay
+      // can be compared AT EVERY TICK instead of only at N.
+      //
+      // Without it the gate reports the divergence 110 ticks after it started,
+      // by which time a single wrong leaf has steered positions, which steered
+      // perception, which steered squad contact — 70-odd leaves of which at most
+      // a handful are causes. The first differing tick, and the leaves that
+      // differ ON that tick, is the whole diagnosis.
+      const trace = TRACE ? [] : null;
+      for (let i = 0; i < span; i++) {
+        driveAt(i);
+        tick(1);
+        if (trace) trace.push(dumpAll().map);
+      }
       e.commands.override = null;
       const drawsA = readCounts();
       const expected = dumpAll();
@@ -801,12 +820,22 @@ const out = await page.evaluate(
       }
 
       let replayError = null;
+      let firstDiverge = null;
       zero();
       try {
         e.commands.beginReplay(nTick);
         for (let i = 0; i < span; i++) {
           clock += H;
           e.step(clock);
+          if (trace && !firstDiverge) {
+            const d = diff(trace[i], dumpAll().map, ROWS);
+            if (d.count) {
+              firstDiverge = {
+                i, tick: ctx.time.tick,
+                count: d.count, numeric: d.numeric, rows: d.rows,
+              };
+            }
+          }
         }
       } catch (err) {
         replayError = String(err?.message ?? err);
@@ -825,7 +854,7 @@ const out = await page.evaluate(
       }
 
       layer1 = {
-        drawGap, dropped, tampered,
+        drawGap, dropped, tampered, firstDiverge,
         kTick, nTick, span,
         replayError,
         landedAt: ctx.time.tick,
@@ -858,6 +887,7 @@ const out = await page.evaluate(
     NODUMP: !!args.nodump,
     DROP: typeof args.drop === 'string' ? args.drop : null,
     TAMPER: !!args.tamper,
+    TRACE: !!args.trace,
   }
 );
 
@@ -988,6 +1018,11 @@ if (!L1) {
     }
   } else if (L1.drift.count) {
     console.log(`    every rng stream drew the same number of times — the divergence is not a draw count`);
+  }
+  if (L1.firstDiverge) {
+    const f = L1.firstDiverge;
+    console.log(`    first divergence: replay tick ${f.i + 1}/${L1.span} (tick ${f.tick}) — ${f.count} leaves (${f.numeric} numeric)`);
+    for (const r of f.rows) console.log(`      ${r.path}\n        expected ${r.a}\n        got      ${r.b}`);
   }
   if (L1.drift.count === 0) {
     console.log(`    replayed to N: BIT-IDENTICAL`);

@@ -109,6 +109,32 @@ let _colliderId = 1;
 
 /** A moving convex proxy — AI hitboxes, doors, dropped weapons, elevators. */
 class Collider {
+  /**
+   * Snapshot classification (netcode step 5). One field moves.
+   *
+   * A collider is placed once — the box, the transform, the layer and the
+   * surface are all baked. `enabled` is the exception: a part hitbox switches
+   * off when its owner dies, and whether a round passes through a shoulder is
+   * not something a replay may guess at. `physics.captureState` therefore stores
+   * the flag alone rather than the collider, which is what keeps a snapshot from
+   * carrying the warehouse.
+   */
+  static snapshotState = ['enabled'];
+  static excludedState = [
+    'id', 'shape', 'ax', 'ay', 'az', 'bx', 'by', 'bz', 'radius',
+    'hx', 'hy', 'hz', 'matrix', 'inverse',
+    'layer', 'surfaceIndex', 'owner', 'part', 'damageScale', 'onHit', 'userData',
+  ];
+
+  captureState(out = {}) {
+    out.enabled = this.enabled;
+    return out;
+  }
+
+  restoreState(s) {
+    this.enabled = s.enabled;
+  }
+
   constructor(opts) {
     this.id = _colliderId++;
     this.shape = opts.shape ?? 'capsule';
@@ -251,6 +277,85 @@ export class PhysicsSystem {
       raycasts: 0, stepMs: 0,
     };
     this._rayCount = 0;
+  }
+
+  /**
+   * Snapshot classification (netcode step 5).
+   *
+   * `staticWorld` is the level BVH and is excluded for the same reason
+   * `world`'s whole subsystem is: baked before the first tick, read-only after.
+   * The one exception inside it is `_stackNode`, a traversal scratch buffer that
+   * changes on every query and is not state — the replay gate reported it moving
+   * between ticks, which is true and means nothing.
+   *
+   * `ballistics` holds `rng`, and it is the SAME object as `this.rng`. Capturing
+   * it here as well would write the stream twice and restore it twice.
+   *
+   * The hit and impact pools are ring buffers of reusable result objects handed
+   * out to callers; their cursors are excluded with them.
+   */
+  static snapshotState = [
+    'rng', 'bodies', 'characters', 'ragdolls', 'colliders',
+    '_autoScanTimer', '_fallbackId', '_lastMeshCount',
+  ];
+  static excludedState = [
+    'ctx', 'ballistics', 'staticWorld', 'debug', 'stats',
+    'LAYER', 'MASK', 'SURFACE', 'SURFACE_NAMES', 'SURFACE_PROPS',
+    'gravity', 'ignoreDeathEvents', 'maxRagdolls',
+    '_hitPool', '_hitCursor', '_impactPool', '_impactCursor', '_impactResult',
+    '_bulletSource', '_ignoreOwner', '_damageFilter', '_damagePayload',
+    '_raw', '_raw2', '_cl', '_explicitStatics', '_autoIds', '_pendingDemo',
+    '_loggedTris', '_rayCount', '_onExplosion', '_onDeath',
+  ];
+
+  captureState(out = {}) {
+    out.rng = this.rng.captureState(out.rng);
+    out.bodies = this.bodies.captureState(out.bodies);
+
+    const chars = (out.characters ??= []);
+    chars.length = 0;
+    for (const c of this.characters) chars.push({ id: c.id, s: c.captureState() });
+
+    const rds = (out.ragdolls ??= []);
+    rds.length = 0;
+    for (const r of this.ragdolls) rds.push({ id: r.id, s: r.captureState() });
+
+    // Colliders are mostly baked level geometry; only `enabled` moves (a part
+    // hitbox switches off on death). Capturing the flag alone keeps the snapshot
+    // from carrying the warehouse.
+    const cols = (out.colliders ??= []);
+    cols.length = 0;
+    for (const c of this.colliders) cols.push({ id: c.id, enabled: c.enabled });
+
+    out._autoScanTimer = this._autoScanTimer;
+    out._fallbackId = this._fallbackId;
+    out._lastMeshCount = this._lastMeshCount;
+    return out;
+  }
+
+  restoreState(s) {
+    const byId = (this._restoreColliders ??= new Map());
+    byId.clear();
+    for (const c of this.colliders) byId.set(c.id, c);
+    for (const rec of s.colliders) {
+      const c = byId.get(rec.id);
+      if (c) c.enabled = rec.enabled;
+    }
+
+    this.rng.restoreState(s.rng);
+    this.bodies.restoreState(s.bodies);
+
+    const charById = new Map();
+    for (const c of this.characters) charById.set(c.id, c);
+    for (const rec of s.characters) charById.get(rec.id)?.restoreState(rec.s, byId);
+
+    const rdById = new Map();
+    for (const r of this.ragdolls) rdById.set(r.id, r);
+    for (const rec of s.ragdolls) rdById.get(rec.id)?.restoreState(rec.s);
+
+    this._autoScanTimer = s._autoScanTimer;
+    this._fallbackId = s._fallbackId;
+    this._lastMeshCount = s._lastMeshCount;
   }
 
   async init(ctx) {

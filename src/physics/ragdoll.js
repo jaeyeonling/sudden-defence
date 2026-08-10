@@ -78,6 +78,70 @@ let _nextRagdollId = 1;
 
 export class Ragdoll {
   /**
+   * Snapshot classification (netcode step 5).
+   *
+   * A CORPSE IS SIMULATION, and this was measured rather than assumed:
+   * `MASK.BULLET` in `surfaces.js` includes `LAYER.RAGDOLL`, so a body on the
+   * floor stops a round. It is in neither `MASK.SIGHT` nor `MASK.CHARACTER` —
+   * corpses block bullets and nothing else — which is exactly the sort of
+   * detail that makes "ragdolls are just visual" the wrong guess.
+   *
+   * So the particle arrays rewind. `px/py/pz` and `qx/qy/qz` are the Verlet
+   * pair: current position and previous, which together ARE the velocity. Save
+   * one without the other and the corpse restores with the momentum of whatever
+   * happened after the snapshot.
+   *
+   * `boneUp` is transported step to step rather than recomputed, so it is state.
+   * `aabb` is rebuilt at the end of every step from `px/py/pz` and looks
+   * derived, but broadphase reads it BEFORE the next step rebuilds it — a
+   * restore that skipped it would trace one tick of bullets against the bounds
+   * of a pose that no longer exists.
+   *
+   * `invMass` is per-particle and never changes after `spec`, which is why it
+   * sits with the skeleton constants rather than with the particles it indexes.
+   */
+  static snapshotState = [
+    'px', 'py', 'pz', 'qx', 'qy', 'qz',
+    'boneUp', 'aabb', 'age', 'alive', 'sleeping', 'sleepTimer',
+  ];
+  static excludedState = [
+    'id', 'world', 'gravity', 'iterations', 'mask', 'linearDamping', 'friction',
+    'userData', 'actor', 'spec', 'particleCount', 'invMass',
+    'boneCount', 'boneHead', 'boneTail', 'boneLen', 'boneRadius', 'boneMass',
+    'boneParent', 'boneCone', 'boneTwist', 'boneBind',
+    'bones3D', 'rootObject', 'skeleton', '_sleepWritten',
+    '_m4', '_m4b', '_q', '_v3', '_v3b', '_scale', '_ss', 'selfPairs',
+  ];
+
+  captureState(out = {}) {
+    // Typed arrays are copied into typed arrays of the same kind, allocated once
+    // and reused across captures. A snapshot taken every tick that allocated six
+    // Float32Arrays per corpse would be its own performance story.
+    const copy = (name) => {
+      const src = this[name];
+      let dst = out[name];
+      if (!dst || dst.length !== src.length) dst = out[name] = new src.constructor(src.length);
+      dst.set(src);
+    };
+    for (const k of ['px', 'py', 'pz', 'qx', 'qy', 'qz', 'boneUp']) copy(k);
+    out.aabb = { ...this.aabb };
+    out.age = this.age;
+    out.alive = this.alive;
+    out.sleeping = this.sleeping;
+    out.sleepTimer = this.sleepTimer;
+    return out;
+  }
+
+  restoreState(s) {
+    for (const k of ['px', 'py', 'pz', 'qx', 'qy', 'qz', 'boneUp']) this[k].set(s[k]);
+    Object.assign(this.aabb, s.aabb);
+    this.age = s.age;
+    this.alive = s.alive;
+    this.sleeping = s.sleeping;
+    this.sleepTimer = s.sleepTimer;
+  }
+
+  /**
    * @param {StaticWorld} world
    * @param {object} opts
    *   bones      bone spec array (see humanoidSpec)

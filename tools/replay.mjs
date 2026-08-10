@@ -548,6 +548,13 @@ const out = await page.evaluate(
         // an array's indices and says nothing about the eight fighters in it.
         if (Array.isArray(v)) { v.forEach((el, i) => descend(el, `${p}[${i}]`)); return; }
         if (v instanceof Map) { for (const [k2, el] of v) descend(el, `${p}{${String(k2)}}`); return; }
+        // A bag whose every value is a scalar is a leaf, not a node. `{x, y, z}`,
+        // `round.scores`, `movement.stepEvent` — the parent declared the whole
+        // field as snapshot and `captureState` has to emit it, so there is
+        // nothing left for a classification of its own to decide. Auditing them
+        // put 97 rows of `characters[n].position  3 keys · undeclared` in a
+        // report whose job is to make the real gaps visible.
+        if (!declOf(v) && Object.values(v).every((x) => x === null || typeof x !== 'object')) return;
         auditNode(v, p, seen, outNodes);
       };
       for (const k of d.snap) descend(obj[k], `${path}.${k}`);

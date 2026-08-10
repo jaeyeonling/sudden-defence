@@ -29,6 +29,71 @@ const MAX_PLANES = 5;
 const SKIN = 0.008;
 
 export class CharacterController {
+  /**
+   * Snapshot classification (netcode step 5).
+   *
+   * Everything the sweep writes rewinds — including the contact readouts
+   * (`groundNormal`, `touchingWall`, `landingSpeed` and friends), because
+   * `player/movement.js` branches on them at the top of the next step. They read
+   * like a report on the step that just happened, and they are also the input to
+   * the one that follows.
+   *
+   * `groundObject` is a pointer to a collider, so it captures as that collider's
+   * id and comes back through a lookup — the same treatment `Combatant.
+   * _lastAttacker` gets, and for the same reason (§2.1 of the handoff).
+   */
+  static snapshotState = [
+    'position', 'velocity', 'enabled',
+    'grounded', 'wasGrounded', 'groundNormal', 'groundSurface', 'groundDistance',
+    'groundObject', 'onSteepSlope', 'touchingCeiling', 'touchingWall', 'wallNormal',
+    'lastMoveBlocked', 'steppedUp', 'landingSpeed',
+  ];
+  static excludedState = [
+    'world', 'id', 'owner', 'radius', 'height', 'stepHeight', 'slopeLimit',
+    'snapDistance', 'mask', 'maxIterations',
+    '_hit', '_hit2', '_planes', '_planeCount', '_startPos',
+  ];
+
+  captureState(out = {}) {
+    out.position = [this.position.x, this.position.y, this.position.z];
+    out.velocity = [this.velocity.x, this.velocity.y, this.velocity.z];
+    out.groundNormal = [this.groundNormal.x, this.groundNormal.y, this.groundNormal.z];
+    out.wallNormal = [this.wallNormal.x, this.wallNormal.y, this.wallNormal.z];
+    out.groundObject = this.groundObject ? this.groundObject.id : null;
+    out.enabled = this.enabled;
+    out.grounded = this.grounded;
+    out.wasGrounded = this.wasGrounded;
+    out.groundSurface = this.groundSurface;
+    out.groundDistance = this.groundDistance;
+    out.onSteepSlope = this.onSteepSlope;
+    out.touchingCeiling = this.touchingCeiling;
+    out.touchingWall = this.touchingWall;
+    out.lastMoveBlocked = this.lastMoveBlocked;
+    out.steppedUp = this.steppedUp;
+    out.landingSpeed = this.landingSpeed;
+    return out;
+  }
+
+  /** `byId` maps a collider id to its instance — see `groundObject`. */
+  restoreState(s, byId) {
+    this.position.set(s.position[0], s.position[1], s.position[2]);
+    this.velocity.set(s.velocity[0], s.velocity[1], s.velocity[2]);
+    this.groundNormal.set(s.groundNormal[0], s.groundNormal[1], s.groundNormal[2]);
+    this.wallNormal.set(s.wallNormal[0], s.wallNormal[1], s.wallNormal[2]);
+    this.groundObject = s.groundObject === null ? null : (byId?.get(s.groundObject) ?? null);
+    this.enabled = s.enabled;
+    this.grounded = s.grounded;
+    this.wasGrounded = s.wasGrounded;
+    this.groundSurface = s.groundSurface;
+    this.groundDistance = s.groundDistance;
+    this.onSteepSlope = s.onSteepSlope;
+    this.touchingCeiling = s.touchingCeiling;
+    this.touchingWall = s.touchingWall;
+    this.lastMoveBlocked = s.lastMoveBlocked;
+    this.steppedUp = s.steppedUp;
+    this.landingSpeed = s.landingSpeed;
+  }
+
   constructor(world, opts = {}) {
     this.world = world;
     this.id = opts.id ?? 'character';

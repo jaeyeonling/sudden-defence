@@ -24,6 +24,68 @@ const _m3b = new THREE.Matrix3();
 let _nextId = 1;
 
 export class RigidBody {
+  /**
+   * Snapshot classification (netcode step 5). The integrator rewinds, the shape
+   * and the material do not — a body that restored its mass would be a different
+   * body wearing the same id.
+   *
+   * `invInertiaWorld` is derived from the orientation every step and is captured
+   * anyway: it is read before it is next written, so a restore that skipped it
+   * would spin one step on the inertia tensor of a pose that no longer exists.
+   * The handoff's rule applies — being wrong in the excluding direction is the
+   * one mistake the replay gate cannot catch.
+   */
+  static snapshotState = [
+    'active', 'position', 'quaternion', 'linearVelocity', 'angularVelocity',
+    'prevPosition', 'prevQuaternion', 'invInertiaWorld',
+    'sleeping', 'sleepTimer', 'lifetime', 'age', '_impactCooldown',
+  ];
+  static excludedState = [
+    'id', 'shape', 'hx', 'hy', 'hz', 'radius', 'halfHeight', 'mass', 'invMass',
+    'restitution', 'friction', 'linearDamping', 'angularDamping', 'gravityScale',
+    'surface', 'mask', 'layer', 'ccd', 'object3D', 'userData', 'onSleep', 'onImpact',
+    'invInertiaLocal', 'probes', 'probeCount', 'probeRadius', 'boundRadius', 'minExtent',
+  ];
+
+  captureState(out = {}) {
+    const v3 = (v) => [v.x, v.y, v.z];
+    out.position = v3(this.position);
+    out.quaternion = [this.quaternion.x, this.quaternion.y, this.quaternion.z, this.quaternion.w];
+    out.linearVelocity = v3(this.linearVelocity);
+    out.angularVelocity = v3(this.angularVelocity);
+    out.prevPosition = v3(this.prevPosition);
+    out.prevQuaternion = [
+      this.prevQuaternion.x, this.prevQuaternion.y, this.prevQuaternion.z, this.prevQuaternion.w,
+    ];
+    out.invInertiaWorld = Array.from(this.invInertiaWorld.elements ?? this.invInertiaWorld);
+    out.active = this.active;
+    out.sleeping = this.sleeping;
+    out.sleepTimer = this.sleepTimer;
+    out.lifetime = this.lifetime;
+    out.age = this.age;
+    out._impactCooldown = this._impactCooldown;
+    return out;
+  }
+
+  restoreState(s) {
+    this.position.set(s.position[0], s.position[1], s.position[2]);
+    this.quaternion.set(s.quaternion[0], s.quaternion[1], s.quaternion[2], s.quaternion[3]);
+    this.linearVelocity.set(s.linearVelocity[0], s.linearVelocity[1], s.linearVelocity[2]);
+    this.angularVelocity.set(s.angularVelocity[0], s.angularVelocity[1], s.angularVelocity[2]);
+    this.prevPosition.set(s.prevPosition[0], s.prevPosition[1], s.prevPosition[2]);
+    this.prevQuaternion.set(
+      s.prevQuaternion[0], s.prevQuaternion[1], s.prevQuaternion[2], s.prevQuaternion[3]
+    );
+    const el = this.invInertiaWorld.elements ?? this.invInertiaWorld;
+    for (let i = 0; i < s.invInertiaWorld.length; i++) el[i] = s.invInertiaWorld[i];
+    this.active = s.active;
+    this.sleeping = s.sleeping;
+    this.sleepTimer = s.sleepTimer;
+    this.lifetime = s.lifetime;
+    this.age = s.age;
+    this._impactCooldown = s._impactCooldown;
+  }
+
   constructor(opts = {}) {
     this.id = _nextId++;
     this.shape = opts.shape ?? 'box';
@@ -212,6 +274,38 @@ const SLEEP_ANGULAR = 0.22;
 const SLEEP_TIME = 0.45;
 
 export class RigidBodyWorld {
+  /**
+   * Snapshot classification (netcode step 5). The body list and the two solver
+   * carry-overs rewind; the contact scratch (`_cn`.._cs`, `_hit`) is refilled
+   * from scratch inside every step.
+   */
+  static snapshotState = ['bodies', '_awake', '_contactsLastStep'];
+  static excludedState = [
+    'world', 'gravity', 'maxBodies', 'solverIterations',
+    '_cn', '_cp', '_cd', '_cf', '_ce', '_cs', '_hit',
+  ];
+
+  captureState(out = {}) {
+    const list = (out.bodies ??= []);
+    list.length = 0;
+    for (const b of this.bodies) list.push({ id: b.id, s: b.captureState() });
+    out._awake = this._awake;
+    out._contactsLastStep = this._contactsLastStep;
+    return out;
+  }
+
+  restoreState(s) {
+    // Bodies are debris: the set is NOT fixed the way the combatant roster is,
+    // so this matches on id and leaves anything the snapshot did not know about
+    // alone. Spawning and despawning across a replay boundary is a real gap and
+    // it is called out in the handoff rather than papered over here.
+    const byId = new Map();
+    for (const b of this.bodies) byId.set(b.id, b);
+    for (const rec of s.bodies) byId.get(rec.id)?.restoreState(rec.s);
+    this._awake = s._awake;
+    this._contactsLastStep = s._contactsLastStep;
+  }
+
   constructor(staticWorld, gravity = -20.6) {
     this.world = staticWorld;
     this.gravity = gravity;

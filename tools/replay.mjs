@@ -109,6 +109,8 @@ const K = Number(args.k ?? 60);
  * of history rather than the game diverging.
  */
 const SPAN = Number(args.span ?? 110);
+/** How many differing leaves to print. Above 40 the values are omitted. */
+const ROWS = Number(args.rows ?? 16);
 
 if (SPAN >= 128) {
   console.log(`REPLAY FAILED — harness: span is ${SPAN}, the command ring holds 128`);
@@ -145,7 +147,7 @@ await page.goto(`http://127.0.0.1:${PORT}/?prewarm=0`, { waitUntil: 'load' });
 await page.waitForFunction('window.__READY__ === true', null, { timeout: 120000 });
 
 const out = await page.evaluate(
-  async ({ K, SPAN, MAXDEPTH, NODUMP, DROP, TAMPER }) => {
+  async ({ K, SPAN, MAXDEPTH, NODUMP, DROP, TAMPER, ROWS, NOLOD }) => {
     const e = window.__ENGINE__;
     const ctx = e.ctx;
 
@@ -501,6 +503,23 @@ const out = await page.evaluate(
      * is the seam `observe.mjs` already uses; `build` ignores it entirely once
      * the replay starts, so what the original pass sees is what the ring holds.
      */
+    // `--nolod` — hold every agent at full animation rate.
+    //
+    // `AiSystem._updateRelevance` marks an actor irrelevant when the CAMERA
+    // cannot see it, and `Agent._drive` then evaluates its pose one frame in
+    // three. The pose drives `syncHitboxes`, the hitboxes are what line-of-sight
+    // tests hit, and line of sight is what perception is. If that chain is real,
+    // a camera-keyed optimisation is deciding which bot notices whom — and the
+    // replay, whose camera is not restored, diverges in exactly the perception
+    // fields. This flag is the control that says whether that story is true.
+    if (NOLOD) {
+      const ai = ctx.peek('ai');
+      if (ai) {
+        ai._updateRelevance = () => { for (const a of ai.agents) a.lodIrrelevant = false; };
+        for (const a of ai.agents) { a.lodIrrelevant = false; a._animSkip = 0; }
+      }
+    }
+
     const round = ctx.peek('match')?.round;
     let warmed = 0;
     while (round && round.phase !== 'live' && warmed < 4000) { tick(1); warmed++; }
@@ -797,7 +816,7 @@ const out = await page.evaluate(
 
       const drawsB = readCounts();
       const actual = dumpAll();
-      const drift = diff(expected.map, actual.map, 16);
+      const drift = diff(expected.map, actual.map, ROWS);
 
       const drawGap = [];
       for (const r of streams) {
@@ -833,6 +852,8 @@ const out = await page.evaluate(
   },
   {
     K, SPAN,
+    ROWS: Number(args.rows ?? 16),
+    NOLOD: !!args.nolod,
     MAXDEPTH: Number(args.maxdepth ?? 12),
     NODUMP: !!args.nodump,
     DROP: typeof args.drop === 'string' ? args.drop : null,
@@ -972,7 +993,7 @@ if (!L1) {
     console.log(`    replayed to N: BIT-IDENTICAL`);
   } else {
     console.log(`    replayed to N: ${L1.drift.count} leaves differ (${L1.drift.numeric} numeric)`);
-    for (const r of L1.drift.rows) console.log(`      ${r.path}\n        expected ${r.a}\n        got      ${r.b}`);
+    for (const r of L1.drift.rows) console.log(ROWS > 40 ? `      ${r.path}` : `      ${r.path}\n        expected ${r.a}\n        got      ${r.b}`);
     fail.push(`layer 1: ${L1.drift.count} leaves diverged after the replay — the snapshot is incomplete or a restore is wrong`);
   }
 }

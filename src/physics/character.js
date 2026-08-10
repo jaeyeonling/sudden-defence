@@ -28,6 +28,8 @@ import { MASK, SURFACE_PROPS, surfaceName } from './surfaces.js';
 const MAX_PLANES = 5;
 const SKIN = 0.008;
 
+let _nextCharacterId = 0;
+
 export class CharacterController {
   /**
    * Snapshot classification (netcode step 5).
@@ -99,7 +101,15 @@ export class CharacterController {
 
   constructor(world, opts = {}) {
     this.world = world;
-    this.id = opts.id ?? 'character';
+    // Unique by default, not the shared literal `'character'` it used to be.
+    // Every bot took that default while the player passed `id: 'player'`, so a
+    // snapshot keyed by id collapsed seven controllers into one entry and
+    // restored exactly one of them — which the replay gate reported as
+    // `physics.characters[n].position` failing to come back. An id that does not
+    // identify is worse than no id: it makes a lookup succeed with the wrong
+    // object. §2.1 of the handoff names this exact hazard for entity pointers;
+    // it applies just as much to the keys that replace them.
+    this.id = opts.id ?? `character#${++_nextCharacterId}`;
     this.owner = opts.owner ?? null;
 
     this.radius = opts.radius ?? 0.32;

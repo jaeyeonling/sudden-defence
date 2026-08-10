@@ -366,6 +366,7 @@ export class Agent {
     this.radius = 0.34 * this.scale;
     this.controller = phys
       ? phys.createCharacter({
+        id: `agent#${this.id}`,
         radius: this.radius,
         height: this.height,
         position: this.position,

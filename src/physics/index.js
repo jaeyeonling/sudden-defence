@@ -293,13 +293,35 @@ export class PhysicsSystem {
    *
    * The hit and impact pools are ring buffers of reusable result objects handed
    * out to callers; their cursors are excluded with them.
+   *
+   * `bodies` IS EXCLUDED, and the first version of this had it wrong in a way
+   * worth recording. The reasoning was: brass is on `LAYER.DEBRIS`, `MASK.BULLET`
+   * includes that bit, therefore a casing on the floor stops a round, therefore
+   * debris is simulation. Every step of that is true except the conclusion,
+   * because `addRigidBody` DOES NOT CREATE A COLLIDER — the bullet trace queries
+   * the collider set and the static BVH, and a rigid body appears in neither. The
+   * DEBRIS bit in `MASK.BULLET` currently has nothing to match. (Worth its own
+   * look: a mask promising something the collider set cannot deliver is a
+   * mismatch, whichever side is meant to change.)
+   *
+   * Measured rather than reasoned, in the end: nothing outside `rigidbody.js`
+   * iterates `bodies`; a body emits no events; `onImpact` has exactly one
+   * consumer and it is `fx/shells.js`; and the only caller of `spawnDebris`
+   * outside this file is the dropped magazine in `weapons`, which is already
+   * classified presentation and already draws from `fxRng`.
+   *
+   * The replay gate is what forced the question. With `bodies` in the snapshot,
+   * restoring K left behind every casing spawned during the span — the array is
+   * `push`/`splice`, not a pool — and ~350 leaves failed to reproduce K. The fix
+   * that looked obvious was to rebuild `RigidBodyWorld` around a fixed pool. The
+   * fix that was correct was to stop capturing it.
    */
   static snapshotState = [
-    'rng', 'bodies', 'characters', 'ragdolls', 'colliders',
+    'rng', 'characters', 'ragdolls', 'colliders',
     '_autoScanTimer', '_fallbackId', '_lastMeshCount',
   ];
   static excludedState = [
-    'ctx', 'ballistics', 'staticWorld', 'debug', 'stats',
+    'ctx', 'ballistics', 'staticWorld', 'debug', 'stats', 'bodies',
     'LAYER', 'MASK', 'SURFACE', 'SURFACE_NAMES', 'SURFACE_PROPS',
     'gravity', 'ignoreDeathEvents', 'maxRagdolls',
     '_hitPool', '_hitCursor', '_impactPool', '_impactCursor', '_impactResult',
@@ -310,11 +332,21 @@ export class PhysicsSystem {
 
   captureState(out = {}) {
     out.rng = this.rng.captureState(out.rng);
-    out.bodies = this.bodies.captureState(out.bodies);
 
     const chars = (out.characters ??= []);
     chars.length = 0;
-    for (const c of this.characters) chars.push({ id: c.id, s: c.captureState() });
+    const seenChar = new Set();
+    for (const c of this.characters) {
+      // A duplicate id does not fail a snapshot, it CORRUPTS one: the restore
+      // looks the key up, finds a plausible controller, and writes one
+      // character's position onto another. Loud here beats a divergence 110
+      // ticks later that looks like a physics bug.
+      if (seenChar.has(c.id)) {
+        throw new Error(`two character controllers share the id "${c.id}" — a snapshot keyed by it would restore the wrong one`);
+      }
+      seenChar.add(c.id);
+      chars.push({ id: c.id, s: c.captureState() });
+    }
 
     const rds = (out.ragdolls ??= []);
     rds.length = 0;
@@ -344,7 +376,6 @@ export class PhysicsSystem {
     }
 
     this.rng.restoreState(s.rng);
-    this.bodies.restoreState(s.bodies);
 
     const charById = new Map();
     for (const c of this.characters) charById.set(c.id, c);

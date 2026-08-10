@@ -606,25 +606,10 @@ export class Agent {
     // so a replay would drop the bot mid-ledge. `respawn` already writes
     // `deadTime = undefined`, which keeps the key — it was only ever missing on
     // an agent that had not yet died once.
-    // EVERY ONE OF THESE IS FALSY ON PURPOSE. `_driveVault` reads
-    //
-    //   if (this.vaultT !== undefined && animator.vaulting && vaultFrom && vaultTo)
-    //
-    // so the ABSENCE of these three is how "not mid-vault" is encoded, and
-    // `reset()` disarms a vault in flight by writing `vaultTo = null` rather
-    // than by clearing a flag. Declaring the keys is right — the snapshot audit
-    // needs them to exist at any tick — but declaring them has to mean giving
-    // them the value the code already treats as "no", not a zero and two fresh
-    // vectors.
-    //
-    // Measured, because the first version of this comment claimed the filled
-    // values were reaching the lerp and that was wrong: instrumenting
-    // `_driveVault` over 3600 ticks showed the branch firing 49-98 times and
-    // NEVER with both vectors still at the origin, because `_tryVault` sets
-    // them before it starts the clip. The guard is over-determined today. It is
-    // written this way anyway — an encoding that survives only because one of
-    // its three conditions is currently redundant is not one to hand the next
-    // person.
+    // `vaultTo` null means no vault is in flight, and that is now the ONLY
+    // thing `_driveVault` asks — see the note there. `reset()` already disarmed
+    // a vault mid-flight by writing null here, so this is the encoding the file
+    // was already using, made load-bearing on purpose rather than by accident.
     this.deadTime = undefined;
     this.vaultT = undefined;
     this.vaultFrom = null;
@@ -1997,7 +1982,12 @@ export class Agent {
       this.aimTarget.lerp(this._v2, Math.min(1, dt * 3));
     }
 
-    if (!this.wantFire || this.animator.reloading || this.animator.vaulting) return;
+    // `this.vaulting`, not the animator's: a bot's trigger discipline must not
+    // depend on the frame rate its pose happens to be evaluated at. The
+    // `animator.reloading` half of this is the same shape of coupling and is
+    // deliberately left alone — reload timing is animator-driven for bots, and
+    // moving it is a separate change with its own measurements.
+    if (!this.wantFire || this.animator.reloading || this.vaulting) return;
     if (this.ammo <= 0) {
       this.animator.reload(this.variantName === 'irregular' ? 2.9 : 2.35);
       this.ai.emitReload(this);
@@ -2198,15 +2188,35 @@ export class Agent {
   /* ================================================================== */
 
   /** Root motion for a vault. Simulation — see the call site in `simulate`. */
+  /**
+   * Root motion for a vault. Simulation, and now OWNED by the simulation.
+   *
+   * This used to gate on `animator.vaulting`, which made the drawn pose decide
+   * where a bot ended up. The animator is presentation: it is not in the
+   * snapshot, and `AiSystem._updateRelevance` throttles it to one evaluation in
+   * three whenever the CAMERA cannot see the actor. So a vault's arc depended on
+   * whether anyone was looking, and a rewind that restored every simulation
+   * field still landed the bot somewhere else — the replay gate measured 127
+   * diverging leaves, and holding every agent at full animation rate (`--nolod`)
+   * halved it.
+   *
+   * `vaultTo` is the state and its own disarm: non-null means a vault is in
+   * flight, and `reset()` already used it that way. The animator still plays the
+   * clip, and it no longer decides anything.
+   */
   _driveVault(dt) {
-    // Guard on the values this actually reads, both of them.
-    if (this.vaultT !== undefined && this.animator.vaulting && this.vaultFrom && this.vaultTo) {
-      this.vaultT += dt / 0.8;
-      const t = Math.min(1, this.vaultT);
-      this.position.lerpVectors(this.vaultFrom, this.vaultTo, t);
-      this.position.y += Math.sin(t * Math.PI) * 0.42;
-      this.controller?.teleport(this.position.x, this.position.y, this.position.z);
-    }
+    if (!this.vaultTo) return;
+    this.vaultT += dt / 0.8;
+    const t = Math.min(1, this.vaultT);
+    this.position.lerpVectors(this.vaultFrom, this.vaultTo, t);
+    this.position.y += Math.sin(t * Math.PI) * 0.42;
+    this.controller?.teleport(this.position.x, this.position.y, this.position.z);
+    if (t >= 1) this.vaultTo = null;
+  }
+
+  /** Mid-vault, per the simulation. Not `animator.vaulting` — see `_driveVault`. */
+  get vaulting() {
+    return this.vaultTo !== null && this.vaultTo !== undefined;
   }
 
   _drive(dt) {

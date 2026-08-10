@@ -153,14 +153,34 @@ const out = await page.evaluate(() => {
     const origOnFire = ai.onAgentFire.bind(ai);
     const dirs = [];
     ai.onAgentFire = (_ag, _origin, dir) => { dirs.push({ x: dir.x, y: dir.y, z: dir.z }); };
-    const aim = a.animator?.muzzleDir;
-    const base = aim ? { x: aim.x, y: aim.y, z: aim.z } : null;
     try {
       for (let i = 0; i < 2000; i++) a._fireRound();
     } finally {
       ai.onAgentFire = origOnFire;
     }
-    if (!base || dirs.length < 100) return null;
+    if (dirs.length < 100) return null;
+    /**
+     * THE AXIS COMES FROM THE ROUNDS, NOT FROM WHERE THE HARNESS THINKS THE GUN
+     * IS POINTING.
+     *
+     * This used to take `animator.muzzleDir` as the reference and measure every
+     * round's deviation from it, which quietly asserted that `_fireRound` aims
+     * along the animated bore. The moment an experiment moved bot aim onto
+     * simulation state, the two axes were merely DIFFERENT and the angle between
+     * them was counted as spread: sigma 0.5108 rad, 9 m hit rate 1%, "the bots
+     * cannot shoot". The bots were fine. The harness was measuring the wrong
+     * angle, and that reading survived long enough to be reported as a game
+     * defect before the aim change was reverted.
+     *
+     * The mean of the returned directions IS the axis — that is what a cone's
+     * axis means — and it costs one pass. A measurement that depends on where a
+     * second, unrelated piece of code points is a measurement with an opinion.
+     */
+    const base = { x: 0, y: 0, z: 0 };
+    for (const d of dirs) { base.x += d.x; base.y += d.y; base.z += d.z; }
+    const bl = Math.hypot(base.x, base.y, base.z);
+    if (!(bl > 1e-6)) return null;
+    base.x /= bl; base.y /= bl; base.z /= bl;
     // Angle of each round off the aim axis, split into the vertical part and
     // the part in the horizontal plane — the two the model claims differ.
     let sh = 0;

@@ -10,7 +10,7 @@
     "build": "vite build",
     "preview": "vite preview --port 4173",
     "shot": "node tools/capture.mjs",
-    "test": "node tools/cmdstream.mjs && node tools/reach.mjs && node tools/navsanity.mjs && node tools/symmetry.mjs && node tools/converge.mjs && node tools/playtest.mjs && node tools/hitbox.mjs && node tools/vault.mjs && node tools/botfight.mjs && node tools/matchsim.mjs && node tools/hud.mjs && node tools/phasecue.mjs && node tools/ballistics.mjs && node tools/threat.mjs && node tools/firerate.mjs && node tools/aim.mjs && npm run test:legibility && npm run test:legibility:clutter && npm run test:markings && npm run test:friendfoe && npm run test:profile && npm run test:determinism",
+    "test": "node tools/cmdstream.mjs && node tools/replay.mjs && node tools/reach.mjs && node tools/navsanity.mjs && node tools/symmetry.mjs && node tools/converge.mjs && node tools/playtest.mjs && node tools/hitbox.mjs && node tools/vault.mjs && node tools/botfight.mjs && node tools/matchsim.mjs && node tools/hud.mjs && node tools/phasecue.mjs && node tools/ballistics.mjs && node tools/threat.mjs && node tools/firerate.mjs && node tools/aim.mjs && npm run test:legibility && npm run test:legibility:clutter && npm run test:markings && npm run test:friendfoe && npm run test:profile && npm run test:determinism",
     "test:aim": "node tools/aim.mjs",
     "test:phasecue": "node tools/phasecue.mjs",
     "test:threat": "node tools/threat.mjs",

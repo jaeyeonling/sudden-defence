@@ -65,46 +65,72 @@
  *   3. at least one bot SAW the player during the span (perception that never
  *      fired proves nothing about perception)
  *
- * WHAT IT FOUND ON ITS FIRST RUNS, in falling order of effect size
+ * WHAT IT FOUND — and what it turned out NOT to have found
  *
- *   28 fields, worst 12 m   perception on the INTERPOLATED head. Routing
- *                           `_sense` to a fixed-step head took 60, 100 and 144
- *                           fps to an exact match with the 120 fps control on
- *                           every common tick, and the end-state spread from
- *                           12 m to nine ten-thousandths of one.
- *   (harness defect)        debris is NOT in the snapshot and IS in `MASK.SIGHT`
- *                           — see the note at the `bodies.clear()` call. Left
- *                           uncleared, this gate was a function of the ORDER of
- *                           `RATES`, which is the kind of result that looks like
- *                           a finding until someone reorders the array.
- *   ~1 mm, still red        something else. 100 and 144 fps match the control;
- *                           30 and 60 do not. NOT LOD (`--nolod` changes
- *                           nothing) and NOT the A* ration (already per tick).
- *                           Remaining suspect: bot rigs are posed in
- *                           `ai.lateUpdate`, on the FRAME, and `MASK.BULLET`
- *                           contains ACTOR — so where a bot's round lands, and
- *                           therefore the `bullet:impact` a third bot hears, is
- *                           posed from an animation. NOT CONFIRMED. The induced
- *                           test for it has not been run.
+ * THE DEFECT: `player._drainMovementEvents` ran on the FRAME. `stepEvent`,
+ * `landEvent` and `jumped` are one-shot flags set on the tick, so a frame
+ * holding four fixed steps read one and the other three were overwritten
+ * unread. At 30 fps three of every four footsteps never happened, and `ai`
+ * turns each one into `agent.hear(position, 24|11)` — so a player on a slow
+ * display was quieter. `--isolate=player:footstep` collapsed the entire spread
+ * to zero, which is what identified it. Draining on the tick took all five
+ * rates to an exact match. (`land` carries fall damage and `jump` carries
+ * recoil, so two more simulation channels were riding on the frame.)
  *
- * TWO HYPOTHESES DIED HERE, recorded because a dead hypothesis is only cheap if
- * nobody has to kill it twice:
+ * A CORRECTION, because the first reading of this gate was wrong. The spread
+ * was first attributed to perception reading the INTERPOLATED head, and the
+ * numbers seemed to agree (28 fields, worst 12 m -> 9e-4 m). They were measured
+ * with the debris contamination below still present and the footstep defect
+ * still live. With both settled, `--induce=drawnhead` — perception put back on
+ * the drawn pose, same snapshot, same page — does NOT go red. This gate cannot
+ * see that defect in this scenario, most likely because footsteps now refresh
+ * `lastKnown` faster than sight does and `awareness` saturates while a bot
+ * holds a target.
  *
- *   LOD             `_updateRelevance` does run on the frame, and `--nolod`
- *                   changes nothing.
- *   footstep loss   `player:footstep` is emitted in `update`, so at 30 fps
- *                   three of every four steps are overwritten before they fire.
- *                   Draining it on the tick made the spread WORSE — 1 field to
- *                   54 — because more noise amplifies whatever the real cause
- *                   is. A fix that moves the control group is not a fix.
+ * So: routing perception to a fixed-step head is still right by §3.5, and its
+ * difficulty cost was measured at zero (`threat`, `botfight` x9) — but THIS GATE
+ * DOES NOT JUSTIFY IT, and the commit that said it did was reading a
+ * contaminated measurement. Anyone tightening the scenario should re-run
+ * `--induce=drawnhead` first; if it still passes, the gate has a blind spot
+ * worth closing before it is trusted with that class.
  *
- * THIS GATE IS RED ON PURPOSE AND IS NOT IN THE SUITE.
+ * TWO OTHER HYPOTHESES DIED, recorded so nobody kills them twice:
  *
- * `replay.mjs` was stood up red the same way (`0356129`) and joined the chain
- * only once it passed. A red gate inside the chain makes every run after it
- * ambiguous; a red gate outside it is a measurement waiting for a decision.
+ *   LOD             `_updateRelevance` does run on the frame; `--nolod` changes
+ *                   nothing.
+ *   bullet:impact   bot rounds land on hitboxes posed in `ai.lateUpdate`, on the
+ *                   frame — but `--isolate=bullet:impact` is bit-for-bit
+ *                   identical to the baseline. The channel carries none of it.
+ *
+ * NOT IN THE SUITE: THE SCENARIO IS NOT REPRODUCIBLE ENOUGH YET
+ *
+ * Run alone this gate is green. Run as part of `npm test` it went red, with a
+ * signature that says what is missing: all five rates first diverge within one
+ * tick of each other (+131, +132) and an `awareness` drops to 0 — a bot DIED
+ * inside the span. Bot hitboxes are posed in `ai.lateUpdate`, on the frame, and
+ * `MASK.BULLET` contains ACTOR, so which bone a round lands on — and therefore
+ * WHEN someone dies — is a function of the frame rate. Everything downstream of
+ * that death is a consequence, not a cause.
+ *
+ * That is a real defect and probably the next one to fix. But until the span
+ * either excludes deaths or the hitbox path is settled, this gate is FLAKY, and
+ * a flaky gate is worse than a red one: a red gate tells you something, a flaky
+ * one teaches the next person to re-run it until it passes.
+ *
+ * `--isolate=bullet:impact` does NOT catch this. That channel is the NOISE a
+ * round makes; this is the DAMAGE it does. Different path, same posed rig.
+ *
+ * WHY EVERY CONDITION RUNS INSIDE ONE INVOCATION
+ *
+ * Each run boots the page fresh and snapshots a different world, so comparing
+ * one invocation against another compares two scenarios. `--induce=drawnhead`
+ * read 0 fields once and 7 the next time on identical flags before this was
+ * fixed. `--isolate` and `--induce` are both sweeps from the SAME snapshot, and
+ * the gate's own verdict always comes from the clean one.
  *
  *   node tools/perceive.mjs [--port=5173] [--ticks=240] [--nolod] [--tol=N]
+ *                           [--isolate=<event>]  cut one channel, same snapshot
+ *                           [--induce=drawnhead|frameevents]  put a defect back
  */
 import { chromium } from 'playwright';
 import { spawn } from 'node:child_process';
@@ -186,7 +212,7 @@ await page.goto(`http://127.0.0.1:${PORT}/?prewarm=0`, { waitUntil: 'load' });
 await page.waitForFunction("window.__READY__ === true", null, { timeout: 120000 });
 
 const out = await page.evaluate(
-  async ({ RATES, TICKS, NOLOD }) => {
+  async ({ RATES, TICKS, NOLOD, ISOLATE, INDUCE }) => {
     const e = window.__ENGINE__;
     const ctx = e.ctx;
     const SIM_IDS = ['physics', 'match', 'world', 'weapons', 'player', 'ai'];
@@ -220,6 +246,73 @@ const out = await page.evaluate(
       }
     }
 
+    // `--induce=drawnhead` — put perception back on the interpolated pose.
+    //
+    // A guard nobody has watched fire is a guard nobody knows the shape of, and
+    // this defect is one `simHead` -> `head` away at all times: three call
+    // sites, no type to stop it, and the gate that would otherwise catch it
+    // (`replay.mjs`) is blind to this class by construction.
+    //
+    // TOGGLEABLE, not global, and that distinction cost a wrong reading. Applied
+    // for the whole page, `--induce` also corrupts the baseline it is supposed
+    // to be measured against — and since every invocation boots fresh and
+    // snapshots a different world, comparing an induced RUN against a clean one
+    // compares two different scenarios. It read 0 fields once and 7 the next
+    // time on identical flags. Both conditions now run from the same snapshot in
+    // the same page, which is the only comparison this tool can make.
+    let induceProto = null;
+    let induceOrig = null;
+    if (INDUCE === 'drawnhead') {
+      const c0 = ctx.peek('match')?.combatants?.[0];
+      if (!c0) return { fatal: 'no combatants to induce against' };
+      induceProto = Object.getPrototypeOf(c0);
+      induceOrig = Object.getOwnPropertyDescriptor(induceProto, 'simHead');
+      if (!induceOrig) return { fatal: 'Combatant has no simHead to induce against' };
+    }
+
+    // `--induce=frameevents` — drain the movement edges on the FRAME again.
+    //
+    // This is the defect this gate actually caught: `stepEvent`/`landEvent`/
+    // `jumped` are one-shot flags set on the tick, so a frame holding four fixed
+    // steps saw one of them and the other three were overwritten unread.
+    let playerProto = null;
+    let origDrain = null;
+    let origUpdate = null;
+    if (INDUCE === 'frameevents') {
+      playerProto = Object.getPrototypeOf(ctx.get('player'));
+      origDrain = playerProto._drainMovementEvents;
+      origUpdate = playerProto.update;
+      if (!origDrain || !origUpdate) return { fatal: 'player has no _drainMovementEvents/update to induce against' };
+    } else if (INDUCE && INDUCE !== 'drawnhead') {
+      return { fatal: `unknown --induce="${INDUCE}"` };
+    }
+
+    const setInduced = (on) => {
+      if (induceProto) {
+        if (on) {
+          Object.defineProperty(induceProto, 'simHead', {
+            get() { return this.head; },
+            configurable: true,
+          });
+        } else {
+          Object.defineProperty(induceProto, 'simHead', induceOrig);
+        }
+      }
+      if (playerProto) {
+        if (on) {
+          // Neutralise the tick-side call and put one back on the frame.
+          playerProto._drainMovementEvents = function () {};
+          playerProto.update = function (dt, c) {
+            origUpdate.call(this, dt, c);
+            origDrain.call(this);
+          };
+        } else {
+          playerProto._drainMovementEvents = origDrain;
+          playerProto.update = origUpdate;
+        }
+      }
+    };
+
     const H = 1000 / 120;
     e.stop();
     let clock = performance.now();
@@ -246,6 +339,22 @@ const out = await page.evaluate(
     // Let the bots spread out and acquire before the snapshot, so the span has
     // live perception in it rather than a roomful of bots still deciding.
     for (let i = 0; i < 360; i++) tick1();
+
+    // SNAPSHOT WHILE SOMEONE IS ACTUALLY LOOKING AT THE PLAYER.
+    //
+    // Without this the starting world is whatever tick 1190 happened to be, and
+    // guard 3 caught the consequence on a real run: a sweep where no bot ever
+    // held a visible target, which measures hearing and calls it perception.
+    // `replay.mjs` §1.3 is the same lesson — the scenario is part of the gate,
+    // and a green (or a red) from a scenario that cannot exercise the path is
+    // worth nothing either way.
+    const aiSys = ctx.peek('ai');
+    const anyVisible = () => (aiSys?.agents ?? []).some((a) => a.alive && a.targetVisible);
+    let waited = 0;
+    while (!anyVisible() && waited < 3600) { tick1(); waited++; }
+    if (!anyVisible()) {
+      return { fatal: `no bot acquired the player within ${waited} ticks of the live phase — nothing to measure` };
+    }
 
     /* ---- the starting gun ----------------------------------------------- */
     const snap = {};
@@ -285,8 +394,40 @@ const out = await page.evaluate(
       return rows;
     };
 
-    const runs = [];
-    for (const fps of RATES) {
+    /**
+     * ISOLATION — cut one event channel and re-run the whole sweep.
+     *
+     * Every rate starts from the same snapshot, so two CONDITIONS started from
+     * that snapshot are a controlled experiment and a comparison BETWEEN RUNS of
+     * this tool is not: each invocation boots the page fresh, reaches `live` at
+     * a different moment and snapshots a different world. The first attempt at
+     * this measured `--no-impact` against a previous invocation's numbers and
+     * the two were not comparable — the same mistake `replay.mjs` documents,
+     * which is why its induced failures could not be believed until its baseline
+     * was green.
+     *
+     * The cut is made at `events.emit`, which is the narrowest seam that removes
+     * a channel without touching the code under test. `fx` and `audio` lose the
+     * event too; neither steers anything this gate reads.
+     */
+    const origEmit = ctx.events.emit.bind(ctx.events);
+    let blocked = null;
+    ctx.events.emit = (type, payload) => {
+      if (blocked && blocked === type) return undefined;
+      return origEmit(type, payload);
+    };
+
+    const sweep = (cut, induced = false) => {
+      blocked = cut;
+      setInduced(induced);
+      const out = [];
+      for (const fps of RATES) out.push(runOne(fps));
+      setInduced(false);
+      blocked = null;
+      return out;
+    };
+
+    const runOne = (fps) => {
       for (const id of SIM_IDS) ctx.peek(id).restoreState(snap[id]);
       // DEBRIS IS NOT IN THE SNAPSHOT, AND IT IS IN `MASK.SIGHT`.
       //
@@ -388,7 +529,7 @@ const out = await page.evaluate(
       let sawTicks = 0;
       for (const rows of byTick.values()) if (rows.some((r) => r.visible === 1)) sawTicks++;
 
-      runs.push({
+      return {
         fps, frames,
         landedAt: ctx.time.tick,
         travelled,
@@ -397,12 +538,29 @@ const out = await page.evaluate(
         sawTicks,
         samples: byTick.size,
         series: [...byTick.entries()].map(([t, rows]) => [t, rows]),
-      });
-    }
+      };
+    };
 
-    return { kTick, runs, agents: ai?.agents?.length ?? 0 };
+    // The gate's own verdict always comes from the CLEAN sweep, so `--induce`
+    // and `--isolate` can never turn a red into a green by accident.
+    const runs = sweep(null);
+    // Both extra conditions run from the SAME snapshot, so the only thing that
+    // differs is the one thing being varied.
+    const isolated = ISOLATE ? sweep(ISOLATE) : null;
+    const induced = INDUCE ? sweep(null, true) : null;
+
+    return {
+      kTick, runs, isolated, induced,
+      isolate: ISOLATE, induce: INDUCE,
+      agents: ai?.agents?.length ?? 0,
+    };
   },
-  { RATES, TICKS, NOLOD: !!args.nolod }
+  {
+    RATES, TICKS,
+    NOLOD: !!args.nolod,
+    ISOLATE: typeof args.isolate === 'string' ? args.isolate : null,
+    INDUCE: typeof args.induce === 'string' ? args.induce : null,
+  }
 );
 
 await browser.close();
@@ -471,20 +629,47 @@ if (!minSaw) {
 
 /* ---- the question --------------------------------------------------- */
 const FIELDS = ['visible', 'awareness', 'age', 'x', 'y', 'z'];
-const diffs = [];
+
+/** Score one sweep the same way, so two conditions are comparable numbers. */
+const score = (rs) => {
+  const ctl = rs.find((r) => r.fps === 120) ?? rs[0];
+  const ds = [];
+  for (const r of rs) {
+    if (r === ctl) continue;
+    for (let i = 0; i < r.rows.length; i++) {
+      const a = ctl.rows[i];
+      const b = r.rows[i];
+      if (!a || a.id !== b.id) continue;
+      for (const f of FIELDS) {
+        const d = Math.abs(a[f] - b[f]);
+        if (d > TOL) ds.push({ fps: r.fps, id: b.id, field: f, control: a[f], got: b[f], d });
+      }
+    }
+  }
+  const ctlSeries = new Map(ctl.series);
+  const firsts = [];
+  for (const r of rs) {
+    if (r === ctl) continue;
+    let firstTick = null;
+    for (const [t, rows] of r.series) {
+      const c = ctlSeries.get(t);
+      if (!c) continue;
+      let bad = false;
+      for (let i = 0; i < rows.length && !bad; i++) {
+        for (const f of FIELDS) if (Math.abs(c[i][f] - rows[i][f]) > TOL) { bad = true; break; }
+      }
+      if (bad) { firstTick = t; break; }
+    }
+    firsts.push({ fps: r.fps, firstTick });
+  }
+  return { diffs: ds, firsts, worst: ds.length ? Math.max(...ds.map((d) => d.d)) : 0 };
+};
+
+const diffs = score(runs).diffs;
 for (const r of runs) {
   if (r === control) continue;
-  for (let i = 0; i < r.rows.length; i++) {
-    const a = control.rows[i];
-    const b = r.rows[i];
-    if (!a || a.id !== b.id) {
-      fail.push(`harness: bot roster differs between ${control.fps} and ${r.fps} fps`);
-      break;
-    }
-    for (const f of FIELDS) {
-      const d = Math.abs(a[f] - b[f]);
-      if (d > TOL) diffs.push({ fps: r.fps, id: b.id, field: f, control: a[f], got: b[f], d });
-    }
+  if (r.rows.length !== control.rows.length || r.rows.some((b, i) => control.rows[i]?.id !== b.id)) {
+    fail.push(`harness: bot roster differs between ${control.fps} and ${r.fps} fps`);
   }
 }
 
@@ -528,6 +713,47 @@ if (!diffs.length) {
     console.log(`    ${String(d.fps).padStart(3)}fps  agent#${d.id}.${d.field.padEnd(9)} control ${d.control}  got ${d.got}`);
   }
   fail.push(`${diffs.length} perception field(s) depend on the frame rate — what a bot sees is not a function of the tick`);
+}
+
+/* ---- the isolation, if one was asked for ------------------------------ */
+//
+// Both conditions ran from the SAME snapshot in the SAME page, so these two
+// numbers are a controlled experiment. Comparing against a previous invocation
+// would not be: every run boots fresh and snapshots a different world.
+if (out.isolated) {
+  const base = score(runs);
+  const iso = score(out.isolated);
+  console.log(`\n  isolation — "${out.isolate}" suppressed at events.emit, same snapshot:`);
+  console.log(`    baseline          ${String(base.diffs.length).padStart(3)} field(s), worst ${base.worst.toExponential(3)}`);
+  console.log(`    without ${out.isolate.padEnd(16)} ${String(iso.diffs.length).padStart(3)} field(s), worst ${iso.worst.toExponential(3)}`);
+  const b = base.firsts.map((f) => `${f.fps}:${f.firstTick === null ? 'clean' : `+${f.firstTick - out.kTick}`}`).join(' ');
+  const i = iso.firsts.map((f) => `${f.fps}:${f.firstTick === null ? 'clean' : `+${f.firstTick - out.kTick}`}`).join(' ');
+  console.log(`    first divergence  baseline ${b}   without ${b === i ? '(same)' : i}`);
+  if (!iso.diffs.length && base.diffs.length) {
+    console.log(`    => "${out.isolate}" CARRIES the rate dependence`);
+  } else if (iso.diffs.length >= base.diffs.length) {
+    console.log(`    => "${out.isolate}" does not carry it — the spread survives without the channel`);
+  } else {
+    console.log(`    => "${out.isolate}" carries PART of it`);
+  }
+}
+
+/* ---- the induced failure, if one was asked for ------------------------ */
+//
+// Same snapshot, same page, defect reinstated. The clean sweep is the gate's
+// verdict; this one only has to be RED. If it is not, the gate is not watching
+// what its header claims it watches.
+if (out.induced) {
+  const base = score(runs);
+  const ind = score(out.induced);
+  console.log(`\n  induced — "${out.induce}", same snapshot:`);
+  console.log(`    clean     ${String(base.diffs.length).padStart(3)} field(s), worst ${base.worst.toExponential(3)}`);
+  console.log(`    induced   ${String(ind.diffs.length).padStart(3)} field(s), worst ${ind.worst.toExponential(3)}`);
+  if (!ind.diffs.length) {
+    fail.push(`induced "${out.induce}" did NOT go red — this gate cannot see the defect it was built for, so its green means nothing`);
+  } else {
+    console.log(`    => the gate sees it`);
+  }
 }
 
 if (fail.length) {

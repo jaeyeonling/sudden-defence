@@ -17,6 +17,7 @@
     "test:navsanity": "node tools/navsanity.mjs",
     "test:cmdstream": "node tools/cmdstream.mjs",
     "test:replay": "node tools/replay.mjs",
+    "test:perceive": "node tools/perceive.mjs",
     "test:reach": "node tools/reach.mjs",
     "test:symmetry": "node tools/symmetry.mjs",
     "test:converge": "node tools/converge.mjs",

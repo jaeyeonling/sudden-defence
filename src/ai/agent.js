@@ -839,7 +839,7 @@ export class Agent {
     cand.length = 0;
     for (let i = 0; i < enemies.length; i++) {
       const c = enemies[i];
-      const h = c.head;
+      const h = c.simHead;
       const dx = h.x - eye.x;
       const dy = h.y - eye.y;
       const dz = h.z - eye.z;
@@ -868,7 +868,7 @@ export class Agent {
       const c = cand[bi];
       const d = cand[bi + 1];
       cand[bi] = null; // probed
-      if (this.phys && !this.phys.lineOfSight(eye, c.head, this.phys.MASK.SIGHT)) continue;
+      if (this.phys && !this.phys.lineOfSight(eye, c.simHead, this.phys.MASK.SIGHT)) continue;
       if (d < seenDist) {
         seen = c;
         seenDist = d;
@@ -881,7 +881,7 @@ export class Agent {
       // reaction: fast head-on and close, slow at the edge of vision
       const rate = 1 / Math.max(0.12, 0.16 + seenDist * 0.0075 + (1 - this.alertness) * 0.28);
       this.awareness = Math.min(1, this.awareness + dt * rate);
-      this.lastKnown.copy(seen.head);
+      this.lastKnown.copy(seen.simHead);
       this.lastKnownAge = 0;
       // The only place `lastSeenAge` is reset. See `update` for why the hunt
       // needs a clock that ears cannot touch.

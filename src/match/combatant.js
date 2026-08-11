@@ -165,7 +165,7 @@ export class Combatant {
     '_dead', '_lastAttacker', '_lastPart', '_lastHeadshot',
   ];
   static excludedState = [
-    'id', 'host', 'team', 'name', 'isPlayer', 'rig', 'colliders', '_physics', '_head',
+    'id', 'host', 'team', 'name', 'isPlayer', 'rig', 'colliders', '_physics', '_head', '_simHead',
   ];
 
   captureState(out = {}) {
@@ -214,6 +214,8 @@ export class Combatant {
     this._lastHeadshot = false;
     /** Reused by the `head` getter — this is read every AI perception tick. */
     this._head = new THREE.Vector3();
+    /** Reused by `simHead`. Separate from `_head`; see that getter. */
+    this._simHead = new THREE.Vector3();
   }
 
   /**
@@ -251,6 +253,17 @@ export class Combatant {
   get head() {
     const p = this.position;
     return this._head.set(p.x, p.y + this.height * HEAD_FRACTION, p.z);
+  }
+
+  /** EXPERIMENT: feet as the fixed step left them. */
+  get simPosition() {
+    return this.host.feetPosition ?? this.host.position;
+  }
+
+  /** EXPERIMENT: `head`, off the fixed-step feet. */
+  get simHead() {
+    const p = this.simPosition;
+    return this._simHead.set(p.x, p.y + this.height * HEAD_FRACTION, p.z);
   }
 
   /**

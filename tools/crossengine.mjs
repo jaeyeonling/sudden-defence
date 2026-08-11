@@ -289,6 +289,116 @@ const PROBE = async ({ TICKS, INJECT, NOFIRE }) => {
   // injection did not take and nothing downstream is worth reading.
   const start = dump();
 
+  // Ragdoll forensics. The control's dominant divergence signature is one
+  // whole ragdoll's particles, first and alone — which is either a doll BORN
+  // different (creation reads something outside the snapshot) or a doll
+  // STEPPED apart (integration reads one). Logging the creation tick and a
+  // hash of the initial particle state separates the two.
+  const phys_ = ctx.peek('physics');
+  const rlog = [];
+  // Bisect the pose pipeline: hash the Poser accumulator (pre-IK) and the foot
+  // probe results after every evaluation, so a birth-pose difference names its
+  // half — clip/additive inputs, or the IK chain.
+  {
+    const ai0 = ctx.peek('ai');
+    for (const ag of ai0?.agents ?? []) {
+      const an = ag.animator;
+      if (!an) continue;
+      const protoUpdate = Object.getPrototypeOf(an).update;
+      const fbuf = new DataView(new ArrayBuffer(8));
+      const mixF = (h, v) => {
+        fbuf.setFloat64(0, v);
+        h = (h * 31 + fbuf.getUint32(0)) >>> 0;
+        return (h * 31 + fbuf.getUint32(4)) >>> 0;
+      };
+      // Record the FIRST _aimIk call's actual inputs after the span starts:
+      // if they match while its output bones differ, the solver is impure; if
+      // they differ, the impurity is upstream of it and older than this tick.
+      const protoAim = Object.getPrototypeOf(an)._aimIk;
+      an._aimIk = function (target, weight) {
+        if (!this.__aimLog) {
+          const hand = this.bones[this.iHandR];
+          const bore = this._v.copy(this.boreLocal).applyQuaternion(this._wq(this.iHandR, this._q2)).normalize();
+          const muzzle = this._v2.copy(this.muzzleLocal).applyMatrix4(hand.matrixWorld);
+          this.__aimLog = [
+            't', target.x.toFixed(9), target.y.toFixed(9), target.z.toFixed(9),
+            'w', weight.toFixed(9),
+            'bore', bore.x.toFixed(9), bore.y.toFixed(9), bore.z.toFixed(9),
+            'mz', muzzle.x.toFixed(9), muzzle.y.toFixed(9), muzzle.z.toFixed(9),
+          ].join(',');
+        }
+        return protoAim.call(this, target, weight);
+      };
+      const protoLook = Object.getPrototypeOf(an)._lookAt;
+      an._lookAt = function (target, weight) {
+        if (!this.__lookLog) {
+          const wq = this._wq(this.iNeck, this._q2);
+          const fwd = this._v.set(0, 0, 1).applyQuaternion(wq);
+          const wp = this._wp(this.iNeck, this._v3);
+          this.__lookLog = [
+            'tgt', target.x.toFixed(9), target.y.toFixed(9), target.z.toFixed(9),
+            'w', weight.toFixed(9),
+            'fwd', fwd.x.toFixed(9), fwd.y.toFixed(9), fwd.z.toFixed(9),
+            'wp', wp.x.toFixed(9), wp.y.toFixed(9), wp.z.toFixed(9),
+          ].join(',');
+        }
+        return protoLook.call(this, target, weight);
+      };
+      an.update = function (dt, now) {
+        protoUpdate.call(this, dt, now);
+        let h = 0 >>> 0;
+        const d3 = this.P?.d3;
+        if (d3) for (let i = 0; i < d3.length; i++) h = mixF(h, d3[i]);
+        this.__d3h = h.toString(16);
+        let f = 0 >>> 0;
+        f = mixF(f, this._footY[0]);
+        f = mixF(f, this._footY[1]);
+        this.__footh = f.toString(16);
+        const nb = this.bones[this.iNeck];
+        this.__neckAtReturn = `${nb.quaternion.x.toFixed(9)},${nb.quaternion.y.toFixed(9)},${nb.quaternion.w.toFixed(9)}`;
+      };
+    }
+  }
+  if (phys_?.createRagdollFromSkeleton) {
+    const orig = phys_.createRagdollFromSkeleton.bind(phys_);
+    phys_.createRagdollFromSkeleton = (mesh, opts) => {
+      const rd = orig(mesh, opts);
+      if (rd) {
+        let h = 0 >>> 0;
+        const mix = (arr) => { if (arr) for (let i = 0; i < arr.length; i++) h = (h * 31 + ((arr[i] * 1e6) | 0)) >>> 0; };
+        mix(rd.px); mix(rd.py); mix(rd.pz);
+        mix(rd.qx); mix(rd.qy); mix(rd.qz);
+        // Split creation-INPUT from pose-OUTPUT: if the victim's sim fields and
+        // animator timelines match while the bones do not, the pose evaluation
+        // reads something outside the snapshot; if the timelines already
+        // differ, the divergence is upstream and older than this death.
+        const a = opts?.actor;
+        let bones = 0 >>> 0;
+        let sim = '';
+        if (a) {
+          for (const b of (mesh?.skeleton?.bones ?? [])) {
+            bones = (bones * 31 + ((b.quaternion.x * 1e6) | 0)) >>> 0;
+            bones = (bones * 31 + ((b.quaternion.w * 1e6) | 0)) >>> 0;
+          }
+          const an = a.animator;
+          sim = [
+            a.position.x.toFixed(6), a.position.z.toFixed(6), a.yaw.toFixed(6),
+            an?.phase?.toFixed(6), an?.blend?.toFixed(4), an?.state?.clip,
+            an?.hitT?.toFixed(4), an?.recoilT?.toFixed(4),
+            a.aimTarget.x.toFixed(4), a.aimWeight?.toFixed?.(4),
+            `d3:${an?.__d3h}`, `foot:${an?.__footh}`,
+          ].join('|');
+        }
+        rlog.push({
+          tick: ctx.time.tick, actor: a?.id ?? -1, hash: h,
+          bones: bones.toString(16), sim,
+          n: rd.particleCount ?? (rd.px?.length ?? 0),
+        });
+      }
+      return rd;
+    };
+  }
+
   const BTN = e.commands.BTN ?? { fire: 1 };
   // Constant, so every tick in both engines receives identical input. A command
   // that varied with the frame index would make this measure the harness.
@@ -304,16 +414,111 @@ const PROBE = async ({ TICKS, INJECT, NOFIRE }) => {
   // cross-process scale a half-second window is enough to name the event
   // (a death, a reload, a grenade) without dumping 4,600 leaves per tick.
   const trail = [];
+  const ai1 = ctx.peek('ai');
+  // arm the aim log at span start only
+  for (const ag of ai1?.agents ?? []) if (ag.animator) { ag.animator.__aimLog = null; ag.animator.__lookLog = null; }
+  // Catch the post-update bone writer red-handed: hook the neck quaternion's
+  // change callback on the first alive agent, and record the stack of the
+  // first write that lands AFTER an.update has returned this tick.
+  let mutStack = null;
+  {
+    const fa = (ai1?.agents ?? []).find((a) => a.alive);
+    const an = fa?.animator;
+    const nb = an?.bones?.[an.iNeck];
+    if (nb && an) {
+      const q = nb.quaternion;
+      const orig = q._onChangeCallback;
+      an.__inUpdate = false;
+      const protoU2 = an.update; // the already-wrapped update
+      an.update = function (dt, now) {
+        this.__inUpdate = true;
+        try { protoU2.call(this, dt, now); } finally { this.__inUpdate = false; }
+      };
+      an.__fires = 0;
+      an.__firesOutside = 0;
+      an.__hookedQ = q;
+      q._onChangeCallback = function () {
+        orig.call(this);
+        an.__fires++;
+        if (!an.__inUpdate) {
+          an.__firesOutside++;
+          if (!mutStack) mutStack = String(new Error('writer').stack).split('\n').slice(1, 6).join(' <- ');
+        }
+      };
+    }
+  }
+  const boneDump = (ag) => (ag?.mesh?.skeleton?.bones ?? [])
+    .map((b, i) => `${i}:${b.quaternion.x.toFixed(9)},${b.quaternion.y.toFixed(9)},${b.quaternion.z.toFixed(9)},${b.quaternion.w.toFixed(9)}`)
+    .join(' ');
+  const early = [];
+  const poseRow = () => {
+    const rows = [];
+    for (const ag of ai1?.agents ?? []) {
+      if (!ag.alive) { rows.push(`a${ag.id}:dead`); continue; }
+      let bh = 0 >>> 0, wh = 0 >>> 0;
+      for (const b of ag.mesh?.skeleton?.bones ?? []) {
+        bh = (bh * 31 + ((b.quaternion.x * 1e6) | 0)) >>> 0;
+        bh = (bh * 31 + ((b.quaternion.w * 1e6) | 0)) >>> 0;
+      }
+      const hips = ag.mesh?.skeleton?.bones?.[0];
+      if (hips) for (let i = 0; i < 16; i++) wh = (wh * 31 + ((hips.matrixWorld.elements[i] * 1e5) | 0)) >>> 0;
+      rows.push(`a${ag.id}:d3=${ag.animator?.__d3h}:b=${bh.toString(16)}:w=${wh.toString(16)}`);
+    }
+    return rows.join(' ');
+  };
+  // Phase-slice tick 1: read the neck after every subsystem hook, so the
+  // writer names its phase instead of being inferred from traps that disagree.
+  const phaseLog = [];
+  {
+    const fa0 = (ai1?.agents ?? []).find((a) => a.alive);
+    const an0 = fa0?.animator;
+    const neckStr = () => {
+      const nb = an0?.bones?.[an0.iNeck];
+      return nb ? `${nb.quaternion.x.toFixed(9)},${nb.quaternion.y.toFixed(9)}` : '?';
+    };
+    const ALL = ['physics', 'match', 'world', 'weapons', 'player', 'ai', 'fx', 'render', 'audio', 'ui'];
+    for (const id of ALL) {
+      const sys = ctx.peek(id);
+      if (!sys) continue;
+      for (const hook of ['fixedUpdate', 'update', 'lateUpdate']) {
+        if (typeof sys[hook] !== 'function') continue;
+        const orig = sys[hook].bind(sys);
+        sys[hook] = (...args) => {
+          const r = orig(...args);
+          if (phaseLog.__armed) phaseLog.push(`${id}.${hook}=${neckStr()}`);
+          return r;
+        };
+      }
+    }
+    phaseLog.__armed = false;
+  }
+
   for (let i = 0; i < TICKS; i++) {
+    phaseLog.__armed = i === 0;
     tick1();
-    if ((i + 1) % 60 === 0) trail.push({ tick: ctx.time.tick, dump: dump() });
+    phaseLog.__armed = false;
+    if (i < 2) {
+      const fa = (ai1?.agents ?? []).find((a) => a.alive);
+      const nb = fa?.animator?.bones?.[fa.animator.iNeck];
+      const anx = fa?.animator;
+      early.push({
+        fires: anx?.__fires, firesOutside: anx?.__firesOutside,
+        sameQ: anx ? (nb?.quaternion === anx.__hookedQ) : null,
+        tick: ctx.time.tick, bones: boneDump(fa),
+        aim: fa?.animator?.__aimLog ?? '(no aim yet)',
+        look: fa?.animator?.__lookLog ?? '(no look yet)',
+        neckAtReturn: fa?.animator?.__neckAtReturn ?? '?',
+        neckAtTickEnd: nb ? `${nb.quaternion.x.toFixed(9)},${nb.quaternion.y.toFixed(9)},${nb.quaternion.w.toFixed(9)}` : '?',
+      });
+    }
+    if ((i + 1) % 60 === 0) trail.push({ tick: ctx.time.tick, dump: dump(), pose: poseRow() });
   }
   e.commands.override = null;
 
   return {
     startTick, warmed,
     liveTick: ctx.time.tick,
-    boot, start, snapshot, trail,
+    boot, start, snapshot, trail, rlog, early, mutStack, phaseLog: [...phaseLog],
     stepped: dump(),
     ua: navigator.userAgent,
   };
@@ -446,9 +651,67 @@ for (const r of results) {
     console.log(`      stepped ${row.path}\n        ${base.name.padEnd(16)} ${row.a}\n        ${r.name.padEnd(16)} ${row.b}`);
   }
 
+  if (base.out.early && r.out.early) {
+    for (let i = 0; i < Math.min(base.out.early.length, r.out.early.length); i++) {
+      const ea = base.out.early[i], eb = r.out.early[i];
+      if (ea.bones === eb.bones) continue;
+      const ba = ea.bones.split(' '), bb = eb.bones.split(' ');
+      const bad = ba.map((x, k) => (x !== bb[k] ? k : -1)).filter((k) => k >= 0);
+      console.log(`    first alive agent's bones differ at tick ${ea.tick} (span tick ${i + 1}): bones [${bad.join(',')}]`);
+      console.log(`      first _aimIk inputs ${ea.aim === eb.aim ? 'IDENTICAL — the solver output differs on equal inputs' : 'DIFFER:'}`);
+      if (ea.aim !== eb.aim) { console.log(`        ${base.name.padEnd(16)} ${ea.aim}`); console.log(`        ${r.name.padEnd(16)} ${eb.aim}`); }
+      console.log(`      first _lookAt inputs ${ea.look === eb.look ? 'IDENTICAL' : 'DIFFER:'}`);
+      if (base.out.phaseLog && r.out.phaseLog) {
+        const pa = base.out.phaseLog, pb = r.out.phaseLog;
+        for (let k = 0; k < Math.max(pa.length, pb.length); k++) {
+          if (pa[k] !== pb[k]) {
+            console.log(`      tick-1 phase where the neck first differs across processes:`);
+            console.log(`        ${base.name.padEnd(16)} ${pa[k]}`);
+            console.log(`        ${r.name.padEnd(16)} ${pb[k]}`);
+            console.log(`        previous phase   ${pa[k - 1] ?? '(start)'} — still equal there`);
+            break;
+          }
+        }
+      }
+      if (base.out.mutStack) console.log(`      post-update writer (${base.name}): ${base.out.mutStack}`);
+      console.log(`      callback fires ${ea.fires}/${eb.fires} · outside update ${ea.firesOutside}/${eb.firesOutside} · same quaternion object ${ea.sameQ}/${eb.sameQ}`);
+      const mutA = ea.neckAtReturn !== ea.neckAtTickEnd, mutB = eb.neckAtReturn !== eb.neckAtTickEnd;
+      console.log(`      neck at update-return ${ea.neckAtReturn === eb.neckAtReturn ? 'IDENTICAL across processes' : 'DIFFERS across processes'} · mutated after return: ${base.name}=${mutA} ${r.name}=${mutB}`);
+      if (ea.neckAtReturn !== eb.neckAtReturn) { console.log(`        ${base.name.padEnd(16)} ${ea.neckAtReturn}`); console.log(`        ${r.name.padEnd(16)} ${eb.neckAtReturn}`); }
+      if (ea.look !== eb.look) { console.log(`        ${base.name.padEnd(16)} ${ea.look}`); console.log(`        ${r.name.padEnd(16)} ${eb.look}`); }
+      for (const k of bad.slice(0, 3)) console.log(`      bone ${k}\n        ${base.name.padEnd(16)} ${ba[k]}\n        ${r.name.padEnd(16)} ${bb[k]}`);
+      break;
+    }
+  }
+  if (base.out.rlog?.length || r.out.rlog?.length) {
+    const la = base.out.rlog ?? [], lb = r.out.rlog ?? [];
+    const short = (l) => l.map((x) => `t${x.tick}·a${x.actor}·${x.hash.toString(16)}`).join('  ');
+    if (short(la) !== short(lb)) {
+      console.log(`    ragdoll births differ:`);
+      for (let i = 0; i < Math.max(la.length, lb.length); i++) {
+        const x = la[i], y = lb[i];
+        if (!x || !y) { console.log(`      #${i}: ${x ? 'only ' + base.name : 'only ' + r.name}`); continue; }
+        if (x.hash === y.hash) continue;
+        console.log(`      #${i} t${x.tick}/t${y.tick} actor ${x.actor}/${y.actor}`);
+        console.log(`        bones  ${x.bones} vs ${y.bones}  ${x.bones === y.bones ? '(SAME — divergence is in ragdoll construction itself)' : '(differ — the pose differs)'}`);
+        console.log(`        sim    ${x.sim === y.sim ? 'identical — evaluation reads outside the snapshot' : 'DIFFER — upstream, older than this death:'}`);
+        if (x.sim !== y.sim) { console.log(`          ${base.name}: ${x.sim}`); console.log(`          ${r.name}: ${y.sim}`); }
+      }
+    } else {
+      console.log(`    ragdoll births identical: ${short(la) || '(none)'}`);
+    }
+  }
   if (s.count && base.out.trail && r.out.trail) {
     for (let i = 0; i < Math.min(base.out.trail.length, r.out.trail.length); i++) {
-      const w = diff(base.out.trail[i].dump, r.out.trail[i].dump);
+      const ta = base.out.trail[i], tb = r.out.trail[i];
+      if (ta.pose !== tb.pose) {
+        const ra = ta.pose.split(' '), rb = tb.pose.split(' ');
+        const bad = ra.map((x, k) => (x !== rb[k] ? `${x} vs ${rb[k]}` : null)).filter(Boolean);
+        console.log(`    pose trail first differs at window tick ${ta.tick}:`);
+        for (const line of bad.slice(0, 3)) console.log(`      ${line}`);
+      }
+      const w = diff(ta.dump, tb.dump);
+      if (ta.pose !== tb.pose && !w.count) { console.log(`      (all captured sim leaves still identical in this window)`); break; }
       if (w.count) {
         console.log(`    first differing window: tick ${r.out.trail[i].tick} (${(i + 1) * 60} ticks in) — ${w.count} leaves`);
         for (const row of w.rows.slice(0, 6)) console.log(`      ${row.path}`);

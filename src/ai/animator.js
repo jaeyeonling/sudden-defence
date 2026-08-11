@@ -67,6 +67,65 @@ class Poser {
 
 export class Animator {
   /**
+   * Snapshot classification (netcode step 5, extended by step 6).
+   *
+   * The animator used to be presentation and excluded wholesale. It stopped
+   * being either the moment the pose moved onto the AI tick: `syncHitboxes`
+   * welds the hit capsules to these bones, `MASK.BULLET` contains ACTOR, so the
+   * timelines below decide WHICH BONE A ROUND LANDS ON — and anything that
+   * decides where damage goes rewinds with the world (§3.5 of the handoff, one
+   * layer further in).
+   *
+   * What is NOT here is everything derived per evaluation: the pose itself
+   * (`_writePose` rebuilds every bone quaternion from `rig.localQuat` each
+   * call), the foot IK plant (`_footY`/`_footN` are written fresh from the
+   * ground probe both on hit and on miss), and the muzzle outputs. Capturing a
+   * derived value would restore it twice — once as bits, once by re-derivation
+   * — and the second write wins for reasons nobody chose.
+   *
+   * `state` is excluded with one carve-out: `_drive` re-sets it from simulation
+   * fields every tick BEFORE `update`, so it is derived — except `state.clip`,
+   * which `setState` compares against to detect a transition (`prevClip`,
+   * `blend = 0`). Restored without it, the first tick after a rewind would
+   * re-trigger a crossfade that already happened. `captureState` carries it as
+   * `clip`.
+   */
+  static snapshotState = [
+    'phase', 'prevClip', 'blend',
+    'recoilT', 'recoilK',
+    'hitT', 'hitRegion', 'hitSide', 'hitK',
+    'reloadT', 'reloadDur',
+    'vaultT', 'vaultDur',
+    'turnT', 'turnDir',
+    'enabled', 'footIk',
+  ];
+  static excludedState = [
+    // wiring, constant for the life of the instance
+    'rig', 'bones', 'weapon', 'rng', 'probe', 'scale', 'P',
+    'iHips', 'iSpine', 'iSpine1', 'iSpine2', 'iNeck', 'iHead', 'iHandR',
+    'armL', 'armR', 'legs',
+    'boreLocal', 'muzzleLocal', 'foregripLocal', 'magLocal', 'ejectLocal',
+    // derived per evaluation (see above)
+    'time', 'state', 'muzzleWorld', 'muzzleDir', 'ejectWorld',
+    '_footY', '_footN', '_probeOut',
+    // scratch
+    '_q', '_q2', '_q3', '_qa', '_qb', '_qc', '_qd', '_e',
+    '_v', '_v2', '_v3', '_v4', '_v5',
+    '_pole', '_elbow', '_target', '_up',
+  ];
+
+  captureState(out = {}) {
+    for (const k of Animator.snapshotState) out[k] = this[k];
+    out.clip = this.state.clip; // see the classification note
+    return out;
+  }
+
+  restoreState(s) {
+    for (const k of Animator.snapshotState) this[k] = s[k];
+    this.state.clip = s.clip;
+  }
+
+  /**
    * @param rig    the shared Rig
    * @param bones  this instance's THREE.Bone array (same order as the rig)
    * @param opts   { weapon, rng, probe, scale }
@@ -160,7 +219,8 @@ export class Animator {
     this._probeOut = { y: 0, nx: 0, ny: 1, nz: 0, hit: false };
     this._footY = [0, 0];
     this._footN = [new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 1, 0)];
-    this._aimApplied = 0;
+    // `_aimApplied` used to sit here: assigned once, read nowhere. The snapshot
+    // classification is what surfaced it, same as `player._prevYaw` (§4.2).
     this.muzzleWorld = new THREE.Vector3();
     this.muzzleDir = new THREE.Vector3(0, 0, 1);
     this.ejectWorld = new THREE.Vector3();

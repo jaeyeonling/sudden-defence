@@ -1147,7 +1147,14 @@ export class AiSystem {
    *
    * Relevance is decided here and not on the simulation tick because it is a
    * question about the CAMERA (see `_updateRelevance`), and the camera only has
-   * a final transform once per frame. Skinning follows it for the same reason.
+   * a final transform once per frame.
+   *
+   * The pose is NOT driven here any more. It moved to the tick (`simulate` ->
+   * `_drive` -> `syncHitboxes`) when `crossengine.mjs` traced its own control
+   * noise to hit capsules welded to frame-animated bones. What a frame gets is
+   * the last tick's pose — at 60 Hz AI against 120 Hz displays that is a pose
+   * every other frame, which is exactly what the LOD skip already served for
+   * any bot the camera could not see, now uniform and deterministic.
    */
   update(dt, ctx) {
     if (this._navPending) {
@@ -1158,17 +1165,15 @@ export class AiSystem {
       if (!this._navPending && (!ctx.config.deterministic || this.forcePopulate)) this.populate();
     }
     this._updateRelevance(ctx);
-    for (let i = 0; i < this.agents.length; i++) this.agents[i].present(dt);
   }
 
   lateUpdate() {
     const g = this.ground;
     g.begin();
     for (let i = 0; i < this.agents.length; i++) {
-      const a = this.agents[i];
-      a.syncHitboxes();
-      // Dead men keep their contact: a ragdoll on the floor needs it most.
-      g.addActor(a);
+      // Hitboxes sync on the tick with the pose that moves them; the ground
+      // shadow is pixels and stays with the frame.
+      g.addActor(this.agents[i]);
     }
     g.end();
   }

@@ -267,15 +267,17 @@ export class Agent {
     'huntTimer', 'hunting', 'holdTime', 'holdD0', 'holdSuppress',
     'stuckTimer', 'stuckCount', 'vaultCooldown',
     'clip', 'vaultFrom', 'vaultTo', 'vaultT',
+    // the pose timelines — they decide which bone a round lands on
+    'animator',
   ];
   static excludedState = [
     // wiring and identity
     'ai', 'ctx', 'id', 'isAgent', 'team', 'variantName', 'def', 'scale',
     // owned elsewhere
     'squad', 'combatant', 'controller', 'colliders', 'ragdoll', 'phys',
-    // presentation
-    'bones', 'skeleton', 'mesh', 'group', 'skinnedMesh', 'animator',
-    'lodIrrelevant', '_animSkip', '_animAccum',
+    // presentation. `lodIrrelevant` stays: it only gates shadows now.
+    'bones', 'skeleton', 'mesh', 'group', 'skinnedMesh',
+    'lodIrrelevant',
     // tuning, constant for the life of the agent
     'mass', 'height', 'radius', 'maxHealth', 'eyeHeight', 'viewRange', 'viewCos',
     'weaponRange', 'fireRate', 'magSize', 'weaponDamage', 'patrolPoints',
@@ -290,10 +292,19 @@ export class Agent {
     out.target = this.target ? this.target.id : null;
     // Index, not pointer. `-1` also covers "the point is not in the map any
     // more", which cannot happen today and would be silent if it did.
-    out.cover = this.cover ? this.ai.cover.points.indexOf(this.cover) : -1;
+    // POSITION, not index. The index was documented here as the safe encoding
+    // ("-1 covers 'not in the map any more'") and inside one process it is —
+    // but `crossengine.mjs` caught its limit: the cover bake does not order
+    // `points` identically across processes, so an index is a pointer wearing a
+    // number. The position IS the point's identity: the bake derives everything
+    // else from it, and an exact triple either finds the same piece of cover or
+    // honestly fails to.
+    out.cover = this.cover ? [this.cover.x, this.cover.y, this.cover.z] : null;
+
+    out.animator = this.animator.captureState(out.animator);
 
     for (const k of Agent.snapshotState) {
-      if (k === 'rng' || k === 'target' || k === 'cover') continue;
+      if (k === 'rng' || k === 'target' || k === 'cover' || k === 'animator') continue;
       const v = this[k];
       if (v && v.isVector3) out[k] = v3(v);
       else if (Array.isArray(v)) out[k] = v.map((e) => (e && e.isVector3 ? v3(e) : e));
@@ -306,10 +317,17 @@ export class Agent {
   restoreState(s, byCombatantId) {
     this.rng.restoreState(s.rng);
     this.target = s.target === null ? null : (byCombatantId?.get(s.target) ?? null);
-    this.cover = s.cover < 0 ? null : (this.ai.cover.points[s.cover] ?? null);
+    // Exact match only. A nearest-point fallback would resolve to a PLAUSIBLE
+    // wrong object — the §2.1 failure shape — where a miss is at least loud.
+    this.cover = s.cover === null || s.cover === undefined || typeof s.cover === 'number'
+      ? null
+      : (this.ai.cover.points.find(
+          (pt) => pt.x === s.cover[0] && pt.y === s.cover[1] && pt.z === s.cover[2]
+        ) ?? null);
+    this.animator.restoreState(s.animator);
 
     for (const k of Agent.snapshotState) {
-      if (k === 'rng' || k === 'target' || k === 'cover') continue;
+      if (k === 'rng' || k === 'target' || k === 'cover' || k === 'animator') continue;
       const cur = this[k];
       const v = s[k];
       // `vaultFrom`/`vaultTo` are null when no vault is in flight, so neither
@@ -604,10 +622,8 @@ export class Agent {
     this._pendingDest = new THREE.Vector3();
 
     /* ---------------- LOD ---------------- */
-    /** set by AiSystem._updateRelevance: nothing this actor does reaches a pixel */
+    /** set by AiSystem._updateRelevance — gates SHADOWS only, never the pose */
     this.lodIrrelevant = false;
-    this._animSkip = 0;
-    this._animAccum = 0;
 
     /* ---------------- scratch ---------------- */
     this._v = new THREE.Vector3();
@@ -749,22 +765,24 @@ export class Agent {
       this._shoot(dt);
     }
     // Root motion is simulation: a vault MOVES the body, and driving it from the
-    // render frame would make how far a bot travels depend on frame rate. The
-    // rest of `_drive` — the group transform, the clip choice, the animator — is
-    // presentation and stays there.
+    // render frame would make how far a bot travels depend on frame rate.
     this._driveVault(dt);
+    // The pose and the hitboxes welded to it, in that order, after everything
+    // above has decided where the body is and what it is doing. Once presentation
+    // — but a hit capsule on an animated bone means the pose decides which bone a
+    // round lands on, and that rewinds with the world.
+    this._drive(dt);
+    this.syncHitboxes();
   }
 
   /**
-   * PRESENTATION. Runs once per rendered frame, on the render `dt`.
-   *
-   * Nothing here may change simulation state. It reads what `simulate()` decided
-   * and turns it into a pose.
+   * THE POSE IS SIMULATION and there is no `present()` any more. It read as
+   * presentation only for as long as nothing consumed it, but `syncHitboxes`
+   * welds the hit capsules to the animated bones, so the pose decides where
+   * damage lands. `simulate()` drives it on the tick; this note stays because
+   * "the animator is presentation" was load-bearing in three prior commit
+   * messages, and whoever greps for it should find the reversal, not silence.
    */
-  present(dt) {
-    if (!this.alive) return;
-    this._drive(dt);
-  }
 
   /**
    * Freeze time: stand still, hold fire, keep the FSM where it is.
@@ -2291,26 +2309,24 @@ export class Agent {
       suppress: Math.min(1, this.suppression * 0.8),
     });
 
-    // ANIMATION RATE LOD. The pose write, the three IK chains and the two foot
-    // ground rays are the whole per-actor cost, and for an actor that cannot
-    // reach a pixel this frame (see AiSystem._updateRelevance) they buy nothing.
-    // Evaluate a third as often and hand the solver the accumulated dt, so the
-    // stride phase, the recoil envelope and the reload timeline stay on the same
-    // clock — nothing skates or slides when the actor becomes visible again, and
-    // the frame it does become visible is always a full evaluation because
-    // lodIrrelevant is false by then.
-    this._animAccum += dt;
-    if (this.lodIrrelevant) {
-      if (this._animSkip > 0) {
-        this._animSkip--;
-        return;
-      }
-      this._animSkip = 2; // one evaluation in three while nothing can see it
-    } else {
-      this._animSkip = 0;
-    }
-    an.update(this._animAccum, this.ctx.time.elapsed);
-    this._animAccum = 0;
+    // Full rate, every tick, no animation LOD. The one-evaluation-in-three
+    // skip that lived here was keyed to the CAMERA, and the pose stopped being
+    // presentation the moment it moved onto the tick: `syncHitboxes` welds the
+    // hit capsules to these bones and `MASK.BULLET` contains ACTOR, so the skip
+    // made WHICH BONE A ROUND LANDS ON a function of where somebody was
+    // looking. `crossengine.mjs` measured the consequence — two processes of
+    // the SAME engine, same injected state, same commands, 25 leaves apart —
+    // noise that made the netcode architecture question unanswerable.
+    //
+    // What the skip bought was measured before it was removed: 15.9 µs per
+    // evaluation, and the frustum typically excludes ONE bot of seven
+    // (p10=p50=p90=1 over 600 live ticks). The half of LOD that pays — dropping
+    // invisible actors from the shadow cascades — is untouched and still
+    // camera-keyed in `_updateRelevance`, because pixels belong to the frame.
+    //
+    // `time.elapsed`, not wall clock: simulation time, advanced on the tick,
+    // carried by every rewind harness.
+    an.update(dt, this.ctx.time.elapsed);
   }
 
   /** Push the hit capsules onto the animated skeleton. */

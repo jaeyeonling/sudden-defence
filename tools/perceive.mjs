@@ -242,7 +242,7 @@ const out = await page.evaluate(
         Object.getPrototypeOf(ai0)._updateRelevance = function () {
           for (const a of this.agents) a.lodIrrelevant = false;
         };
-        for (const a of ai0.agents) { a.lodIrrelevant = false; a._animSkip = 0; }
+        for (const a of ai0.agents) a.lodIrrelevant = false;
       }
     }
 

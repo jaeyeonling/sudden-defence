@@ -170,7 +170,7 @@ if (!(await portOpen(PORT))) {
  * (`lockstep=1` fixes the boot, but it implies `capture=1`, which suppresses
  * `populate()` and leaves an empty arena.)
  */
-const PROBE = async ({ TICKS, INJECT }) => {
+const PROBE = async ({ TICKS, INJECT, NOFIRE }) => {
   const e = window.__ENGINE__;
   const ctx = e.ctx;
   const SIM_IDS = ['physics', 'match', 'world', 'weapons', 'player', 'ai'];
@@ -213,7 +213,18 @@ const PROBE = async ({ TICKS, INJECT }) => {
   const dump = () => {
     const out = new Map();
     const seen = new WeakSet();
-    for (const id of SIM_IDS) flatten(ctx.peek(id).captureState({}), id, out, seen);
+    for (const id of SIM_IDS) {
+      // Per-subsystem, so a capture that throws names its owner. A server that
+      // snapshots on ITS schedule gets no say in which tick it lands on, so
+      // "captureState is safe at every tick" is part of the contract — and the
+      // first mid-span dump this tool ever took found a tick where it was not.
+      try {
+        flatten(ctx.peek(id).captureState({}), id, out, seen);
+      } catch (err) {
+        const top = String(err?.stack ?? err).split('\n').slice(0, 3).join(' <- ');
+        out.set(`${id}.__captureThrew`, `s:${top.slice(0, 300)}`);
+      }
+    }
     return [...out.entries()];
   };
 
@@ -240,13 +251,40 @@ const PROBE = async ({ TICKS, INJECT }) => {
   };
 
   // Hand the second engine the first one's world.
+  // THE CLOCK IS PART OF THE INJECTION, and forgetting it was this tool's own
+  // 28-leaf control noise. `engine.step` derives dt as `(now - _last) / 1000`,
+  // so two processes whose absolute `performance.now()` differs round the SAME
+  // nominal 1/120 s to different doubles — `replay.mjs` §5.2 measured what that
+  // buys: 50 ULP on a round timer, one shifted respawn, everything downstream.
+  // Both processes therefore restart their clock at the same constant before
+  // the span, and the reference does it BEFORE capturing, so tick/elapsed/raw
+  // in the snapshot agree with the clock the span will actually run on.
+  //
+  // Debris is cleared on BOTH sides for the same reason it is cleared at all
+  // (not in the snapshot, in `MASK.SIGHT`) — clearing only the injected side
+  // was an asymmetry: the reference kept its boot brass.
+  const CLOCK0 = 8_000_000; // arbitrary, identical, far from either boot's now
+  ctx.peek('physics')?.bodies?.clear?.();
+  clock = CLOCK0;
+  e._last = clock;
+  e._accum = 0;
+
   if (INJECT) {
     for (const id of SIM_IDS) ctx.peek(id).restoreState(INJECT[id]);
-    // Debris is not in the snapshot and IS in `MASK.SIGHT` (see perceive.mjs),
-    // so it would arrive at the span differently on each engine.
-    ctx.peek('physics')?.bodies?.clear?.();
+    ctx.time.tick = INJECT.__time.tick;
+    ctx.time.elapsed = INJECT.__time.elapsed;
+    ctx.time.raw = INJECT.__time.raw;
+    ctx.time.alpha = INJECT.__time.alpha;
+    ctx.time.dt = INJECT.__time.dt;
+    ctx.time.frame = INJECT.__time.frame;
   }
   const snapshot = INJECT ? null : capture();
+  if (snapshot) {
+    snapshot.__time = {
+      tick: ctx.time.tick, elapsed: ctx.time.elapsed, raw: ctx.time.raw,
+      alpha: ctx.time.alpha, dt: ctx.time.dt, frame: ctx.time.frame,
+    };
+  }
   // The state both engines actually start the span from. If these differ, the
   // injection did not take and nothing downstream is worth reading.
   const start = dump();
@@ -254,14 +292,28 @@ const PROBE = async ({ TICKS, INJECT }) => {
   const BTN = e.commands.BTN ?? { fire: 1 };
   // Constant, so every tick in both engines receives identical input. A command
   // that varied with the frame index would make this measure the harness.
-  e.commands.override = { moveX: 0, moveY: 1, held: BTN.fire, edge: 0 };
-  for (let i = 0; i < TICKS; i++) tick1();
+  //
+  // `--nofire` exists because the player's trigger has a KNOWN determinism
+  // boundary: the first magazine runs dry at ~270 ticks and the reload is
+  // completed by a VIEWMODEL CLIP EVENT — presentation, not in the snapshot, in
+  // a different phase in every process. Holding fire past one magazine measures
+  // that defect, not the engines.
+  e.commands.override = { moveX: 0, moveY: 1, held: NOFIRE ? 0 : BTN.fire, edge: 0 };
+  // A dump every 60 ticks. When two runs disagree at N, the FIRST differing
+  // window is the diagnosis — `replay.mjs --trace` earned this pattern; at
+  // cross-process scale a half-second window is enough to name the event
+  // (a death, a reload, a grenade) without dumping 4,600 leaves per tick.
+  const trail = [];
+  for (let i = 0; i < TICKS; i++) {
+    tick1();
+    if ((i + 1) % 60 === 0) trail.push({ tick: ctx.time.tick, dump: dump() });
+  }
   e.commands.override = null;
 
   return {
     startTick, warmed,
     liveTick: ctx.time.tick,
-    boot, start, snapshot,
+    boot, start, snapshot, trail,
     stepped: dump(),
     ua: navigator.userAgent,
   };
@@ -290,7 +342,7 @@ for (const label of PLAN) {
   try {
     await page.goto(`http://127.0.0.1:${PORT}/?prewarm=0`, { waitUntil: 'load' });
     await page.waitForFunction('window.__READY__ === true', null, { timeout: 180000 });
-    out = await page.evaluate(PROBE, { TICKS, INJECT: inject });
+    out = await page.evaluate(PROBE, { TICKS, INJECT: inject, NOFIRE: !!args.nofire });
     if (!out?.fatal && out?.snapshot) inject = out.snapshot;
   } catch (err) {
     out = { fatal: `${name}: ${String(err?.message ?? err).split('\n')[0]}` };
@@ -392,6 +444,17 @@ for (const r of results) {
 
   for (const row of s.rows) {
     console.log(`      stepped ${row.path}\n        ${base.name.padEnd(16)} ${row.a}\n        ${r.name.padEnd(16)} ${row.b}`);
+  }
+
+  if (s.count && base.out.trail && r.out.trail) {
+    for (let i = 0; i < Math.min(base.out.trail.length, r.out.trail.length); i++) {
+      const w = diff(base.out.trail[i].dump, r.out.trail[i].dump);
+      if (w.count) {
+        console.log(`    first differing window: tick ${r.out.trail[i].tick} (${(i + 1) * 60} ticks in) — ${w.count} leaves`);
+        for (const row of w.rows.slice(0, 6)) console.log(`      ${row.path}`);
+        break;
+      }
+    }
   }
 
   if (r.name.endsWith('#control')) {

@@ -152,14 +152,26 @@ export class Rng {
    * behalf of whoever adds the next fork, and the two dead streams this
    * argument uncovered survived precisely because forking cost nothing.
    */
-  fork({ snapshot } = {}) {
+  fork({ snapshot, seed } = {}) {
     if (typeof snapshot !== 'boolean') {
       throw new TypeError(
         'Rng.fork requires { snapshot: boolean } — does this stream rewind with the world? ' +
           'See the class comment; there is no correct default.'
       );
     }
-    const child = new Rng(this.u32());
+    // An explicit seed detaches the child from the parent's PHASE — and the
+    // parent is not consumed, so streams forked after this one are unmoved.
+    //
+    // The phase is a boot artifact: it counts how many draws happened before
+    // this fork, and with an async boot that count varies with frame timing.
+    // For most streams that is fine (per-boot variety in spawns is a feature).
+    // It is NOT fine for anything that generates geometry other systems bake
+    // against: the level forked from the phase gave every boot a slightly
+    // different warehouse — measured at 1188 vs 1236 static wood triangles —
+    // which made the cover bake differ, which made bot cover choices differ,
+    // which put a floor under `crossengine.mjs`'s control noise that no
+    // snapshot could remove, because the divergent state was the LEVEL.
+    const child = new Rng(seed !== undefined ? seed >>> 0 : this.u32());
     // Link every child to the root, not just the registered ones. A presentation
     // stream is allowed to fork a simulation stream — `ai.fxRng` is one branch
     // away from being that — and if the link were conditional, such a grandchild

@@ -60,7 +60,12 @@ export class WorldSystem {
     // reading — the bake it drives decides what bullets hit. It is excluded
     // because it is spent here and never advanced again: the level is frozen
     // before the first tick, so rewinding to a tick can never need it back.
-    const rng = ctx.rng.fork({ snapshot: false });
+    // FIXED seed, not the root's phase. The warehouse must be the same
+    // building in every boot and in every process — the nav grid, the cover
+    // map and the bullet BVH are all baked from it, and a level that varies
+    // with boot timing makes every one of those bakes a per-process fact.
+    // `snapshot: false` is still right: frozen after boot, nothing rewinds.
+    const rng = ctx.rng.fork({ snapshot: false, seed: 0x5eed1e7e });
 
     this.group = new THREE.Group();
     this.group.name = 'world';

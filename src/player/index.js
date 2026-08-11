@@ -338,6 +338,9 @@ export class PlayerSystem {
     // even with control off — see `CameraRig.stepAim`. After `step`, so the
     // round leaves from where this tick put the body rather than the last one's.
     this.rig.stepAim(h, this.movement);
+    // After `step`, so a landing or a footstep produced by THIS tick goes out
+    // with this tick rather than waiting for a frame that may hold three more.
+    this._drainMovementEvents();
   }
 
   update(dt, ctx) {
@@ -347,7 +350,6 @@ export class PlayerSystem {
     // contained no tick has nothing to say — `movement.cmd` keeps the last one,
     // which is what `camera.js` wants for its strafe lean anyway.
 
-    this._drainMovementEvents();
     this.health.update(dt);
 
     this.rig.update(dt, this.movement, this.health);
@@ -390,7 +392,30 @@ export class PlayerSystem {
     return this.spectator.update(dt, match, this.combatant, ctx.camera, this.physics);
   }
 
-  /** Turn the movement machine's one-shot flags into events + camera impulses. */
+  /**
+   * Turn the movement machine's one-shot flags into events + camera impulses.
+   *
+   * ON THE TICK, because the flags are set on the tick and they are one-shot.
+   * Drained from `update`, a frame that contained four fixed steps saw one
+   * `stepEvent.pending` — the other three were overwritten before anything read
+   * them — so at 30 fps three of every four footsteps never happened. That is
+   * not cosmetic in either direction:
+   *
+   *   footstep  `ai` turns it into `agent.hear(position, 24|11)`. A player at
+   *             30 fps was quieter than the same player at 144. `perceive.mjs`
+   *             isolated this channel and it carried ALL of the remaining
+   *             frame-rate dependence in bot perception — suppress it and every
+   *             rate agrees exactly.
+   *   land      a hard landing calls `health.damage`. Two landings inside one
+   *             frame cost one lot of fall damage.
+   *   jump      `rig.addRecoil`, and recoil is part of the AIM (`710c630`), so
+   *             the frame owned a channel the tick was given.
+   *
+   * Camera impulses come along, and that is right rather than tolerated: the
+   * springs they kick are integrated in `stepAim`, which is already on the tick.
+   * `player:state` stays on the frame — it is a broadcast of current values, not
+   * an edge, so nothing is lost by sampling it once per drawn frame.
+   */
   _drainMovementEvents() {
     const m = this.movement;
 

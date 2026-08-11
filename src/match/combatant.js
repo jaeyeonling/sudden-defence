@@ -327,9 +327,18 @@ export class Combatant {
    */
   syncHitboxes() {
     // A host-owned rig is driven by the host's bone transforms, which it writes
-    // in its own lateUpdate. Touching it here would fight the animator.
+    // on its own tick. Touching it here would fight the animator.
     if (this.rig === 'host' || !this.colliders.length) return;
-    const p = this.position;
+    // The FIXED-STEP feet, not the drawn ones. This rig belongs to the local
+    // player, who renders in first person: no screen shows this body, so the
+    // "hitboxes must agree with the thing on screen" argument protects nothing
+    // here — while the interpolated pose made where a bot's round LANDS (and
+    // the `bullet:impact` every nearby bot hears) a function of the frame
+    // rate, which `perceive.mjs` caught at sub-millimetre and flaky. Bots
+    // already aim at the fixed-step head (`simHead`); the hitbox now agrees
+    // with the aim by construction. Online, what a remote shooter saw is lag
+    // compensation's job, not this getter's.
+    const p = this.simPosition;
     const h = this.height;
     const yaw = this.host.yaw ?? 0;
     // Local +x (the host's right) in world space. Forward at yaw is

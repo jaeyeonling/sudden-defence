@@ -393,9 +393,19 @@ export class MatchSystem {
   }
 
   /**
-   * Two jobs, both of which have to happen after every host has finished its
-   * frame: place the hitbox rigs on the interpolated transforms, and turn any
-   * alive->dead transition into exactly one `combatant:death`.
+   * The player's hitbox rig is placed on the TICK, from the fixed-step feet —
+   * a round lands against simulation state, so the target must be posed by it.
+   * Bots place their own rigs at the end of `simulate()`; this covers the
+   * 'fractions' rigs (the player), whose host has no tick hook of its own here.
+   */
+  fixedUpdate() {
+    for (const c of this.combatants) c.syncHitboxes();
+  }
+
+  /**
+   * Death bookkeeping stays on the frame: it only turns an alive->dead
+   * transition into exactly one `combatant:death`, and the flag it reads is
+   * simulation state that does not move between ticks.
    */
   lateUpdate() {
     for (const c of this.combatants) {
@@ -419,7 +429,6 @@ export class MatchSystem {
         // Standing again — a round reset does not need to know this field exists.
         c._dead = false;
       }
-      c.syncHitboxes();
     }
   }
 

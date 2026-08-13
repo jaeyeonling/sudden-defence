@@ -190,19 +190,40 @@
  * frame-posed collider; nothing is in the way that was not in the way at 120 fps.
  * The hitbox path is not implicated by this measurement.
  *
- * WHAT IS STILL NOT SEPARATED, and it is three things, because `incident` is the
- * ray AFTER the spread cone is applied:
+ * AND THE SHOOTER IS NOT THE PLAYER. The first attempt to split the aim hooked
+ * `WeaponSystem._syncAim` and never fired once: this harness drives the player
+ * with `held: 0`, so THE PLAYER NEVER SHOOTS in the span. Every impact is a
+ * BOT's round, and a bot does not pass through the weapon system's trigger at
+ * all — `agent._shoot` calls `physics.fireBullet` directly. The spread cone,
+ * `_spread` and the weapons rng were never in this story.
  *
- *     the basis      `_aimDir`/`_aimQuat`, from `player.aimForward`/`aimPitch`/
- *                    `aimYaw` — all written only in `CameraRig.stepAim`, on the
- *                    tick, all snapshot state
- *     the magnitude  `_spread`, decayed in `weapons.fixedUpdate` (line ~915)
- *     the draw       `rng.disc()`, off the weapons rng, snapshot state
+ * Hooked at `fireBullet` instead, which both paths share and which carries the
+ * ray as submitted:
  *
- * Every one of those inspects as tick-written state that rewinds, and the aim
- * still moves — so one of the three is not what it looks like. Hooking
- * `_syncAim` and logging `_aimDir`, `_eye` and `_spread` per shot splits them in
- * a single run, and that is the next probe.
+ *     submitted by #1 · origin same · dir DIFFERS
+ *       dir  -0.250794235268,-0.044228941761,0.967029499171
+ *            -0.250831027210,-0.044265355293,0.967018290473
+ *
+ * SAME BOT, SAME MUZZLE, DIFFERENT AIM. `agent._shoot` builds the direction as
+ * `_muzzleDir.copy(this.aimTarget).sub(origin)`, so with the origin identical
+ * the difference is entirely in `aimTarget`.
+ *
+ * WHICH CLOSES A LOOP RATHER THAN ENDING THE HUNT. `aimTarget` is lerped toward
+ * `lastKnown` with a wobble scaled by `suppression` — and BOTH of those are
+ * raised by `bullet:impact` (`hear` and the suppression pass). So the channel
+ * this gate convicted is the one that feeds its own cause. Cutting it goes clean
+ * because it opens the loop, not because the leak is inside it.
+ *
+ * The entry point is therefore EARLIER than the first traced impact (t1049,
+ * +211) and this gate cannot see it: it samples six fields — `visible`,
+ * `awareness`, `age` and `lastKnown` — and `suppression`, `aimTarget` and the
+ * lerp state behind them are not among them. The first divergence it reports
+ * (+212, `awareness`) is one tick AFTER the first impact already differed.
+ *
+ * NEXT PROBE: sample `aimTarget` and `suppression` per agent per tick and find
+ * the first tick ANY of them parts. Something diverges before the first round is
+ * fired, and every field this gate currently watches is still identical when it
+ * does.
  *
  * NOT IN THE SUITE: THE SCENARIO IS NOT REPRODUCIBLE ENOUGH YET
  *
@@ -619,6 +640,36 @@ const out = await page.evaluate(
     // Isolation can only say "this channel"; it cannot tell these apart, and
     // fixing the wrong one of the three is indistinguishable from fixing none.
     let trace = null;
+    // THE AIM'S THREE INPUTS, captured where they are produced.
+    //
+    // `incident` on the impact is the ray AFTER the spread cone, so a direction
+    // difference has three possible sources and the payload alone cannot name
+    // one. These two hooks split them: `_syncAim` produces the BASIS and holds
+    // the spread MAGNITUDE at the moment it is read, and `rng.disc` is the DRAW.
+    // Every one of the three inspects as tick-written snapshot state, so exactly
+    // one of them is expected to be lying.
+    // Hooked at `physics.fireBullet` rather than at `WeaponSystem._syncAim`,
+    // because the first version of this probe never fired: this harness drives
+    // the player with `held: 0`, so THE PLAYER NEVER SHOOTS. Every impact in the
+    // span is a BOT's round, and a bot does not go through the weapon system's
+    // trigger at all — `agent._shoot` calls `fireBullet` directly with a muzzle
+    // origin and a direction aimed at `aimTarget`. `fireBullet` is the seam both
+    // paths share, and it carries the ray as submitted, before any solve.
+    let lastAim = null;
+    const ph = ctx.peek('physics');
+    if (ph && typeof ph.fireBullet === 'function') {
+      const origFire = ph.fireBullet.bind(ph);
+      ph.fireBullet = (o) => {
+        const d = o?.dir;
+        const g = o?.origin;
+        lastAim = {
+          ax: +(d?.x ?? NaN), ay: +(d?.y ?? NaN), az: +(d?.z ?? NaN),
+          ex: +(g?.x ?? NaN), ey: +(g?.y ?? NaN), ez: +(g?.z ?? NaN),
+          src: o?.source?.id ?? null,
+        };
+        return origFire(o);
+      };
+    }
     ctx.events.emit = (type, payload) => {
       if (blocked && blocked === type) return undefined;
       if (trace && type === TRACE) {
@@ -636,6 +687,7 @@ const out = await page.evaluate(
           ix: +(inc?.x ?? NaN), iy: +(inc?.y ?? NaN), iz: +(inc?.z ?? NaN),
           surf: p.surface ?? null,
           actor: p.actor?.id ?? null,
+          aim: lastAim,
           // `damage` and `part` say WHICH round this was when positions match;
           // without them two impacts a millimetre apart look like one moved.
           d: p.damage ?? null,
@@ -1085,12 +1137,35 @@ if (control?.trace) {
         // difference here has three possible sources and this trace separates
         // none of them. Saying "the basis" would be the same mistake as reading
         // an endpoint and calling it a channel.
-        console.log(`             => THE AIM DIFFERS, and this trace cannot say which part of it:`);
-        console.log(`                  the basis      \`_aimDir\`/\`_aimQuat\` from player.aimForward/aimPitch/aimYaw`);
-        console.log(`                  the magnitude  \`_spread\`, decayed in weapons.fixedUpdate`);
-        console.log(`                  the draw       \`rng.disc()\` off the weapons rng`);
-        console.log(`                All three inspect as tick-written snapshot state, so one of them`);
-        console.log(`                is not what it looks like. Trace them at \`_syncAim\` to split it.`);
+        // Split the three inputs, if the aim hooks were installed.
+        const av = A.aim;
+        const bv = B.aim;
+        if (!av || !bv) {
+          console.log(`             => THE RAY DIFFERS; the \`fireBullet\` hook did not install, so the`);
+          console.log(`                submitted origin and direction are not separated from the solve.`);
+        } else {
+          const v3 = (o, p) => `${o[p + 'x'].toFixed(12)},${o[p + 'y'].toFixed(12)},${o[p + 'z'].toFixed(12)}`;
+          const dirSubSame = v3(av, 'a') === v3(bv, 'a');
+          const origSame = v3(av, 'e') === v3(bv, 'e');
+          console.log(`             submitted by ${av.src === bv.src ? `#${av.src}` : `#${av.src} vs #${bv.src} — DIFFERENT SHOOTER`} · origin ${origSame ? 'same' : 'DIFFERS'} · dir ${dirSubSame ? 'same' : 'DIFFERS'}`);
+          if (!origSame) { console.log(`               origin  ${v3(av, 'e')}`); console.log(`                       ${v3(bv, 'e')}`); }
+          if (!dirSubSame) { console.log(`               dir     ${v3(av, 'a')}`); console.log(`                       ${v3(bv, 'a')}`); }
+          if (av.src !== bv.src) {
+            console.log(`             => a DIFFERENT BOT fired this round. The divergence is upstream of`);
+            console.log(`                ballistics entirely — who decided to shoot moved.`);
+          } else if (!origSame && !dirSubSame) {
+            console.log(`             => the shooter's MUZZLE and AIM both moved: the firing pose is`);
+            console.log(`                frame-dependent. \`agent._shoot\` builds both from the rig.`);
+          } else if (!origSame) {
+            console.log(`             => the MUZZLE ORIGIN moved — the shooter's rig is posed differently.`);
+          } else if (!dirSubSame) {
+            console.log(`             => the AIM moved on a fixed muzzle: \`aimTarget\` differs, which is`);
+            console.log(`                perception feeding back into ballistics.`);
+          } else {
+            console.log(`             => the SAME ray was submitted and landed elsewhere: the solve read`);
+            console.log(`                something the frame moved.`);
+          }
+        }
       } else if (!hitSame) {
         console.log(`             => THE RAY IS BLOCKED DIFFERENTLY. Same aim, stopped by something else —`);
         console.log(`                a collider posed on the frame is in the way. Back on the hitbox path.`);

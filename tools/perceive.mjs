@@ -94,6 +94,22 @@
  * `--induce=drawnhead` first; if it still passes, the gate has a blind spot
  * worth closing before it is trusted with that class.
  *
+ * THE SCENARIO HAS NOW BEEN TIGHTENED AND THAT RE-RUN IS DONE. The blind spot
+ * is real and it is worse than "it still passes":
+ *
+ *     clean       8 field(s), worst 1.065e-3
+ *     induced     8 field(s), worst 1.065e-3
+ *
+ * Identical, field for field and worst for worst. Putting perception back on the
+ * drawn pose changes NOTHING this gate can measure on this scenario, so a green
+ * from `--induce=drawnhead` never ruled that defect out and a red would not have
+ * convicted it either. The verdict used to print "the gate sees it" for any
+ * non-zero induced number, which was reading the BASELINE's spread and crediting
+ * it to the induction; it now compares the two.
+ *
+ * Until the baseline's own spread is settled, this gate cannot price the class
+ * of defect it was built for.
+ *
  * TWO OTHER HYPOTHESES DIED, recorded so nobody kills them twice:
  *
  *   LOD             `_updateRelevance` does run on the frame; `--nolod` changes
@@ -944,10 +960,22 @@ if (out.induced) {
   console.log(`\n  induced — "${out.induce}", same snapshot:`);
   console.log(`    clean     ${String(base.diffs.length).padStart(3)} field(s), worst ${base.worst.toExponential(3)}`);
   console.log(`    induced   ${String(ind.diffs.length).padStart(3)} field(s), worst ${ind.worst.toExponential(3)}`);
+  // "Induced is non-zero" only means something when CLEAN IS ZERO. Once the
+  // baseline spreads on its own, a red induced run is the baseline's red wearing
+  // the induction's name, and the question — can this gate SEE the defect it was
+  // built for — is answered by whether the induction MOVED the number.
+  const same = ind.diffs.length === base.diffs.length && ind.worst === base.worst;
   if (!ind.diffs.length) {
     fail.push(`induced "${out.induce}" did NOT go red — this gate cannot see the defect it was built for, so its green means nothing`);
+  } else if (same) {
+    console.log(`    => INVISIBLE: identical to the clean sweep, field for field and worst for worst.`);
+    console.log(`       The induction changed nothing this gate can measure, so a green from it`);
+    console.log(`       would not have ruled the defect out. Settle the baseline spread first.`);
+  } else if (!base.diffs.length) {
+    console.log(`    => the gate sees it — clean is 0 and the induction moved it`);
   } else {
-    console.log(`    => the gate sees it`);
+    console.log(`    => the gate MOVED (${base.diffs.length} -> ${ind.diffs.length} fields), but the baseline was already spreading;`);
+    console.log(`       the delta is the evidence here, not the red`);
   }
 }
 

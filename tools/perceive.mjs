@@ -118,6 +118,43 @@
  *                   frame — but `--isolate=bullet:impact` is bit-for-bit
  *                   identical to the baseline. The channel carries none of it.
  *
+ * ONE OF THOSE TWO WAS NOT DEAD. `bullet:impact` IS THE CARRIER.
+ *
+ * Both acquittals above were measured before the scenario was pinned, so each
+ * ran on a world drawn from `Math.random()` — a different scenario every time,
+ * and an acquittal from a world that never spread is not an acquittal. Re-run on
+ * the fixed seed, with a clean control and a baseline that does spread:
+ *
+ *     baseline               8 field(s), first divergence 30:+212 60:+212
+ *                                                        100:+212 144:+211
+ *     without bullet:impact  0 field(s), every rate clean at every tick
+ *
+ * Both signals, not just the endpoint. Cut the channel and no rate parts from
+ * the control anywhere in the span. `weapon:fire`, tested the same way on the
+ * same world, changes nothing at all (8 -> 8, same first divergence), and
+ * `player:footstep` was fixed long ago.
+ *
+ * THE MECHANISM IS STILL OPEN, and the obvious readings have been checked and do
+ * NOT explain it — recorded so the next session starts past them:
+ *
+ *   the trigger      `_runTrigger` is called from `WeaponSystem.fixedUpdate`
+ *                    (line ~936). It is DEFINED below `update()`, so a grep that
+ *                    credits a call to the nearest hook above it says "frame".
+ *                    It is not; the same trap cost this session two false leads.
+ *   the firing basis `_eye`/`_aimDir` come from `player.aimOrigin`/`aimForward`,
+ *                    which are `CameraRig` snapshot state advanced by `stepAim`
+ *                    on the tick. Simulation, and it rewinds.
+ *   the raycasts     `_raycastBodies` reads `b.position` and `_raycastRagdolls`
+ *                    reads `rd.px/py/pz` — both stepped in `physics.fixedUpdate`,
+ *                    and the ragdoll AABB used for the broadphase cull is rebuilt
+ *                    inside `step()` too.
+ *
+ * So the channel is proven and the leak inside it is not. The next probe is the
+ * PAYLOAD rather than the plumbing: log every `bullet:impact` with its tick and
+ * position at two rates from this snapshot and diff the streams — whether the
+ * events differ in COUNT, in TICK, or in POSITION picks out three different
+ * defects, and this tool currently cannot tell them apart.
+ *
  * NOT IN THE SUITE: THE SCENARIO IS NOT REPRODUCIBLE ENOUGH YET
  *
  * Run alone this gate is green. Run as part of `npm test` it went red, with a

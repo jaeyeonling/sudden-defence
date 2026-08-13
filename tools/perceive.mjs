@@ -120,6 +120,31 @@
  * `--isolate=bullet:impact` does NOT catch this. That channel is the NOISE a
  * round makes; this is the DAMAGE it does. Different path, same posed rig.
  *
+ * THE CONTROL, AND WHAT IT REVEALED ABOUT THE DEFAULT SPAN
+ *
+ * Every rate is compared against the 120 fps run, so a difference is evidence
+ * about the FRAME RATE only if two runs at the SAME rate agree. The sweep
+ * therefore runs 120 fps a SECOND time and scores that pair first; the verdict
+ * is gated on it, and a dirty control downgrades the rate number to
+ * INCONCLUSIVE instead of reporting the harness's own noise as a finding.
+ *
+ * The control is clean — and that is what makes the next line worth acting on:
+ *
+ *     --ticks=240 (default)   control IDENTICAL · rates IDENTICAL
+ *     --ticks=480             control IDENTICAL · rates DIFFER, first at ~+393
+ *
+ * PERCEPTION IS FRAME-RATE DEPENDENT AND THE DEFAULT SPAN IS TOO SHORT TO SEE
+ * IT. The divergence needs roughly 390 ticks to surface, so a 240-tick span
+ * stops about 150 ticks before its own subject. The green at the default is
+ * real — the control says so — but it is a statement about 2 seconds, not about
+ * the simulation, and the gate's tolerance is 1e-12 precisely because the
+ * authors did not intend it to be a statement about 2 seconds.
+ *
+ * The field count varies between invocations (23, 47, 64 observed) for the
+ * reason the next section gives: each invocation snapshots a different world.
+ * That is scenario variance, NOT flakiness — within one invocation the control
+ * is bit-identical every time.
+ *
  * WHY EVERY CONDITION RUNS INSIDE ONE INVOCATION
  *
  * Each run boots the page fresh and snapshots a different world, so comparing
@@ -417,11 +442,24 @@ const out = await page.evaluate(
       return origEmit(type, payload);
     };
 
+    const CONTROL_FPS = RATES.includes(120) ? 120 : RATES[0];
+
     const sweep = (cut, induced = false) => {
       blocked = cut;
       setInduced(induced);
       const out = [];
       for (const fps of RATES) out.push(runOne(fps));
+      // THE CONTROL: the reference rate, run a SECOND time from the same
+      // snapshot. Every other row in this sweep is compared against the first
+      // 120 fps run, so a difference is only evidence about the FRAME RATE if
+      // two runs at the SAME rate agree. Without this row the gate cannot tell
+      // "composed at a different rate" from "run twice", and a tool that cannot
+      // separate those reports its own noise as a finding — which is exactly
+      // what `crossengine.mjs` had to fix in itself before its numbers meant
+      // anything.
+      const c = runOne(CONTROL_FPS);
+      c.isControl2 = true;
+      out.push(c);
       setInduced(false);
       blocked = null;
       return out;
@@ -580,7 +618,10 @@ if (errors.length) {
 }
 
 const fail = [];
-const runs = out.runs;
+// The second same-rate run is not a rate — hold it aside so every existing
+// comparison below keeps meaning what it meant, and read it first.
+const runs = out.runs.filter((r) => !r.isControl2);
+const control2 = out.runs.find((r) => r.isControl2);
 const control = runs.find((r) => r.fps === 120) ?? runs[0];
 
 console.log(`\nPERCEIVE — ${TICKS} ticks at 120 Hz from one snapshot (tick ${out.kTick}), composed at ${RATES.length} frame rates`);
@@ -665,6 +706,53 @@ const score = (rs) => {
   return { diffs: ds, firsts, worst: ds.length ? Math.max(...ds.map((d) => d.d)) : 0 };
 };
 
+/* ---- READ THE INSTRUMENT BEFORE READING WHAT IT MEASURED -------------- */
+//
+// Every row below is compared against the FIRST 120 fps run. That comparison is
+// evidence about the frame rate only if two runs at the SAME rate agree, so the
+// same-rate pair is scored first and the verdict is gated on it.
+let controlNoise = 0;
+if (control2) {
+  const ds = [];
+  for (let i = 0; i < control2.rows.length; i++) {
+    const a = control.rows[i];
+    const b = control2.rows[i];
+    if (!a || a.id !== b.id) continue;
+    for (const f of FIELDS) {
+      const d = Math.abs(a[f] - b[f]);
+      if (d > TOL) ds.push({ id: b.id, field: f, a: a[f], b: b[f], d });
+    }
+  }
+  const cs = new Map(control.series);
+  let firstTick = null;
+  let firstRows = null;
+  for (const [t, rows] of control2.series) {
+    const c = cs.get(t);
+    if (!c) continue;
+    const bad = [];
+    for (let i = 0; i < rows.length; i++) {
+      for (const f of FIELDS) if (Math.abs(c[i][f] - rows[i][f]) > TOL) bad.push(`agent#${rows[i].id}.${f}`);
+    }
+    if (bad.length) { firstTick = t; firstRows = bad; break; }
+  }
+  controlNoise = ds.length;
+  if (!ds.length) {
+    console.log(`\n  control — ${control.fps} fps run twice from the same snapshot: IDENTICAL`);
+  } else {
+    console.log(`\n  control — ${control.fps} fps run twice from the same snapshot: ${ds.length} field(s) DIFFER, worst ${Math.max(...ds.map((d) => d.d)).toExponential(3)}`);
+    if (firstTick !== null) {
+      console.log(`            first differs at tick ${firstTick} (+${firstTick - out.kTick}) in ${firstRows.length}: ${firstRows.slice(0, 4).join(', ')}`);
+    }
+    for (const d of ds.slice(0, 6)) {
+      console.log(`            agent#${String(d.id).padEnd(2)} ${d.field.padEnd(9)} ${d.a}  vs  ${d.b}`);
+    }
+    fail.push(
+      `the control is not clean: ${control.fps} fps run twice differs in ${ds.length} field(s) — ` +
+        `nothing below can be attributed to the frame rate until that is 0`
+    );
+  }
+}
+
 const diffs = score(runs).diffs;
 for (const r of runs) {
   if (r === control) continue;
@@ -712,7 +800,13 @@ if (!diffs.length) {
   for (const d of diffs.slice(0, 12)) {
     console.log(`    ${String(d.fps).padStart(3)}fps  agent#${d.id}.${d.field.padEnd(9)} control ${d.control}  got ${d.got}`);
   }
-  fail.push(`${diffs.length} perception field(s) depend on the frame rate — what a bot sees is not a function of the tick`);
+  if (controlNoise) {
+    // Do NOT call this a rate dependence. The control moved too, so this number
+    // is noise plus signal and this tool separates neither.
+    console.log(`  INCONCLUSIVE — the control moved ${controlNoise} field(s) on its own, so ${diffs.length} is an upper bound on noise + signal`);
+  } else {
+    fail.push(`${diffs.length} perception field(s) depend on the frame rate — what a bot sees is not a function of the tick`);
+  }
 }
 
 /* ---- the isolation, if one was asked for ------------------------------ */

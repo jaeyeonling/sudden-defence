@@ -153,11 +153,36 @@
  *                    and the ragdoll AABB used for the broadphase cull is rebuilt
  *                    inside `step()` too.
  *
- * So the channel is proven and the leak inside it is not. The next probe is the
- * PAYLOAD rather than the plumbing: log every `bullet:impact` with its tick and
- * position at two rates from this snapshot and diff the streams — whether the
- * events differ in COUNT, in TICK, or in POSITION picks out three different
- * defects, and this tool currently cannot tell them apart.
+ * So the channel is proven and the leak inside it is not. `--trace=<event>` is
+ * that next probe, and it has now been run:
+ *
+ *     control    9 events · same-rate repeat IDENTICAL
+ *     30 fps     9 events — POSITION differs on 9
+ *       #0 at t1049   control 1.046120,0.022040,18.000000
+ *                      30fps  1.045086,0.021079,18.000000
+ *
+ * SAME COUNT, SAME TICKS, DIFFERENT PLACE. Every rate fires the same nine rounds
+ * on the same nine ticks and every one of them lands somewhere else. That rules
+ * out both of the other two defects the trace can distinguish: the trigger is
+ * not reading frame time (count would move) and the round is not being announced
+ * on a frame (tick would move). What is left is the RAY.
+ *
+ * And the ray's basis looks clean on inspection, which is the interesting part.
+ * `_eye`/`_aimDir` come from `player.aimOrigin`/`aimForward`; both, plus the
+ * `eye` height they are built from, are written ONLY in `CameraRig.stepAim` —
+ * called on the tick — and all three are snapshot state that rewinds. The spread
+ * cone draws from the weapons rng, which is snapshot state too.
+ *
+ * Note `z` is 18.000000 in both: the same wall, hit at a different point. So
+ * either the basis differs despite being sim-written, or the ray is stopped by
+ * something else first and that something moved.
+ *
+ * THE NEXT PROBE IS THE RAY ITSELF. Trace origin and direction alongside the
+ * impact and the two cases separate immediately: if the basis matches and the
+ * hit does not, the ray is being blocked by a frame-posed collider before it
+ * reaches the wall — which puts it back on the hitbox path, one layer past where
+ * `c248e64` left it. If the basis differs, something writes it outside
+ * `stepAim`, and the snapshot classification is wrong about a field it carries.
  *
  * NOT IN THE SUITE: THE SCENARIO IS NOT REPRODUCIBLE ENOUGH YET
  *
@@ -230,6 +255,8 @@
  * the gate's own verdict always comes from the clean one.
  *
  *   node tools/perceive.mjs [--port=5173] [--ticks=240] [--nolod] [--tol=N]
+ *                           [--seed=N]           which world to measure
+ *                           [--trace=<event>]    diff one channel's stream
  *                           [--isolate=<event>]  cut one channel, same snapshot
  *                           [--induce=drawnhead|frameevents]  put a defect back
  */
@@ -331,7 +358,7 @@ await page.goto(
 await page.waitForFunction("window.__READY__ === true", null, { timeout: 120000 });
 
 const out = await page.evaluate(
-  async ({ RATES, TICKS, NOLOD, ISOLATE, INDUCE }) => {
+  async ({ RATES, TICKS, NOLOD, ISOLATE, INDUCE, TRACE }) => {
     const e = window.__ENGINE__;
     const ctx = e.ctx;
     const SIM_IDS = ['physics', 'match', 'world', 'weapons', 'player', 'ai'];
@@ -563,8 +590,29 @@ const out = await page.evaluate(
      */
     const origEmit = ctx.events.emit.bind(ctx.events);
     let blocked = null;
+    // TRACE: record the stream of one channel per run, so a channel that
+    // `--isolate` has already convicted can be asked HOW it differs. Three
+    // answers are possible and they are three different defects:
+    //   COUNT     the rates do not fire the same number of events
+    //   TICK      same events, announced on different ticks
+    //   POSITION  same events, same ticks, different payload
+    // Isolation can only say "this channel"; it cannot tell these apart, and
+    // fixing the wrong one of the three is indistinguishable from fixing none.
+    let trace = null;
     ctx.events.emit = (type, payload) => {
       if (blocked && blocked === type) return undefined;
+      if (trace && type === TRACE) {
+        const p = payload ?? {};
+        const pos = p.position ?? p.point ?? p;
+        trace.push({
+          t: ctx.time.tick,
+          x: +(pos?.x ?? NaN), y: +(pos?.y ?? NaN), z: +(pos?.z ?? NaN),
+          // `damage` and `part` say WHICH round this was when positions match;
+          // without them two impacts a millimetre apart look like one moved.
+          d: p.damage ?? null,
+          part: p.part ?? null,
+        });
+      }
       return origEmit(type, payload);
     };
 
@@ -592,6 +640,7 @@ const out = await page.evaluate(
     };
 
     const runOne = (fps) => {
+      trace = TRACE ? [] : null;
       for (const id of SIM_IDS) ctx.peek(id).restoreState(snap[id]);
       // DEBRIS IS NOT IN THE SNAPSHOT, AND IT IS IN `MASK.SIGHT`.
       //
@@ -695,6 +744,7 @@ const out = await page.evaluate(
 
       return {
         fps, frames,
+        trace: trace ? [...trace] : null,
         landedAt: ctx.time.tick,
         travelled,
         lerpProbe,
@@ -722,6 +772,7 @@ const out = await page.evaluate(
   {
     RATES, TICKS,
     NOLOD: !!args.nolod,
+    TRACE: typeof args.trace === 'string' ? args.trace : null,
     ISOLATE: typeof args.isolate === 'string' ? args.isolate : null,
     INDUCE: typeof args.induce === 'string' ? args.induce : null,
   }
@@ -942,6 +993,61 @@ if (!diffs.length) {
   } else {
     fail.push(`${diffs.length} perception field(s) depend on the frame rate — what a bot sees is not a function of the tick`);
   }
+}
+
+/* ---- the trace, if one was asked for ---------------------------------- */
+//
+// `--isolate` convicts a CHANNEL. This asks the next question, which isolation
+// structurally cannot: HOW does the stream differ? Three answers, three defects.
+if (control?.trace) {
+  console.log(`\n  trace — "${args.trace}" stream vs the ${control.fps} fps control:`);
+  const key = (e) => `${e.x.toFixed(6)},${e.y.toFixed(6)},${e.z.toFixed(6)}`;
+  const c2 = control2?.trace;
+  if (c2) {
+    const same = c2.length === control.trace.length
+      && c2.every((e, i) => e.t === control.trace[i].t && key(e) === key(control.trace[i]));
+    console.log(`    control      ${String(control.trace.length).padStart(4)} events · same-rate repeat ${same ? 'IDENTICAL' : 'DIFFERS — read nothing below'}`);
+    if (!same) fail.push(`the traced stream is not reproducible at a fixed rate — the trace cannot diagnose anything`);
+  }
+  for (const r of runs) {
+    if (r === control || !r.trace) continue;
+    const a = control.trace;
+    const b = r.trace;
+    if (a.length !== b.length) {
+      console.log(`    ${String(r.fps).padStart(3)}fps  ${String(b.length).padStart(4)} events — COUNT differs (control ${a.length}). The rates do not fire the same rounds.`);
+      continue;
+    }
+    // Same count: line them up and ask which of the two remaining fields moved.
+    let tickOff = 0;
+    let posOff = 0;
+    let firstT = null;
+    let firstP = null;
+    for (let i = 0; i < a.length; i++) {
+      if (a[i].t !== b[i].t) { tickOff++; if (firstT === null) firstT = i; }
+      if (key(a[i]) !== key(b[i])) { posOff++; if (firstP === null) firstP = i; }
+    }
+    if (!tickOff && !posOff) {
+      console.log(`    ${String(r.fps).padStart(3)}fps  ${String(b.length).padStart(4)} events — IDENTICAL stream`);
+      continue;
+    }
+    const parts = [];
+    if (tickOff) parts.push(`TICK differs on ${tickOff}`);
+    if (posOff) parts.push(`POSITION differs on ${posOff}`);
+    console.log(`    ${String(r.fps).padStart(3)}fps  ${String(b.length).padStart(4)} events — ${parts.join(' · ')}`);
+    if (firstT !== null) {
+      console.log(`           first tick shift  #${firstT}: control t${a[firstT].t} vs t${b[firstT].t} (${b[firstT].t - a[firstT].t >= 0 ? '+' : ''}${b[firstT].t - a[firstT].t})`);
+    }
+    if (firstP !== null) {
+      console.log(`           first pos shift   #${firstP} at t${a[firstP].t}`);
+      console.log(`             control  ${key(a[firstP])}`);
+      console.log(`             ${String(r.fps).padStart(3)}fps   ${key(b[firstP])}`);
+    }
+  }
+  // Say what each answer would mean, so the next session does not have to
+  // reconstruct the reasoning from the numbers.
+  console.log(`    COUNT differs    -> the trigger or its rationing is reading frame time`);
+  console.log(`    TICK differs     -> the round is decided on the tick but ANNOUNCED on a frame`);
+  console.log(`    POSITION differs -> the ray reads something the frame moved (pose, interpolated transform)`);
 }
 
 /* ---- the isolation, if one was asked for ------------------------------ */

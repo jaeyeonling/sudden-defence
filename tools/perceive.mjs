@@ -220,10 +220,52 @@
  * lerp state behind them are not among them. The first divergence it reports
  * (+212, `awareness`) is one tick AFTER the first impact already differed.
  *
- * NEXT PROBE: sample `aimTarget` and `suppression` per agent per tick and find
- * the first tick ANY of them parts. Something diverges before the first round is
- * fired, and every field this gate currently watches is still identical when it
- * does.
+ * THE ENTRY POINT, FOUND WITH `--deep`. `time.elapsed` IS FRAME TIME.
+ *
+ * `--deep` samples a wider set per tick (position, yaw, `aimTarget`,
+ * `suppression`, awareness, health, `lastKnown`) without touching the verdict,
+ * and asks only what parts FIRST:
+ *
+ *     144fps  first at tick 839 (+1)  in 21: agent#1.atx, agent#1.aty, ...
+ *     100fps  first at tick 840 (+2)  in 21: same
+ *      60fps  first at tick 840 (+2)  in 21: same
+ *      30fps  first at tick 842 (+4)  in 21: same
+ *
+ * Not `awareness` at +212 — `aimTarget`, at +1, on EVERY bot at once. Which
+ * points straight at the one input all seven share:
+ *
+ *     // agent.js, _aim()
+ *     const wobbleT = this.ctx.time.elapsed * 1.7 + this.id;
+ *
+ * And `engine.js:147` advances that field ONCE PER FRAME, by the frame's delta:
+ *
+ *     t.dt = rawDt * t.scale;
+ *     t.elapsed += t.dt;          // <- before the fixed-step loop
+ *     while (this._accum >= FIXED_DT) { ...fixedUpdate... }
+ *
+ * So `time.elapsed` is FRAME TIME, not simulation time. Every fixed step inside
+ * one frame reads the same already-advanced value, and at a given TICK the value
+ * depends on how the frames were divided. A bot's aim wobble is therefore a
+ * function of the display rate, which is exactly the +1-tick, all-agents,
+ * scales-with-rate signature above.
+ *
+ * `agent.js` asserts the opposite two hundred lines further down — "`time.elapsed`,
+ * not wall clock: simulation time, advanced on the tick, carried by every rewind
+ * harness" — and that comment is the justification for feeding it to the pose.
+ * It is wrong, and it is not the only simulation consumer: `weapons` builds
+ * proxy timers from it and `player/health.js` stamps `lastDamageTime` with it,
+ * which puts regeneration timing on the frame rate too.
+ *
+ * This also explains why cutting `bullet:impact` goes clean without the leak
+ * being inside it: the aim difference is ~1e-5 at +1 and needs the impact
+ * feedback loop (aim -> round -> hear/suppress -> aim) to grow into anything the
+ * six-field verdict can see by +212. And it explains why `replay.mjs` stays
+ * BIT-IDENTICAL: one tick per `step` means `elapsed` advances identically, so
+ * that gate cannot vary the one thing this defect depends on.
+ *
+ * THE FIX IS A CORE DECISION, NOT A PATCH HERE: simulation needs its own clock,
+ * advanced inside the fixed loop, with every sim consumer repointed at it and
+ * `elapsed` left to presentation. Sized and left for its own commit.
  *
  * NOT IN THE SUITE: THE SCENARIO IS NOT REPRODUCIBLE ENOUGH YET
  *
@@ -298,6 +340,7 @@
  *   node tools/perceive.mjs [--port=5173] [--ticks=240] [--nolod] [--tol=N]
  *                           [--seed=N]           which world to measure
  *                           [--trace=<event>]    diff one channel's stream
+ *                           [--deep]             what parts FIRST, wider than the verdict
  *                           [--isolate=<event>]  cut one channel, same snapshot
  *                           [--induce=drawnhead|frameevents]  put a defect back
  */
@@ -399,7 +442,7 @@ await page.goto(
 await page.waitForFunction("window.__READY__ === true", null, { timeout: 120000 });
 
 const out = await page.evaluate(
-  async ({ RATES, TICKS, NOLOD, ISOLATE, INDUCE, TRACE }) => {
+  async ({ RATES, TICKS, NOLOD, ISOLATE, INDUCE, TRACE, DEEP }) => {
     const e = window.__ENGINE__;
     const ctx = e.ctx;
     const SIM_IDS = ['physics', 'match', 'world', 'weapons', 'player', 'ai'];
@@ -599,6 +642,38 @@ const out = await page.evaluate(
      * smoothly — a bot that sees you one tick later at 144 Hz shows up here
      * before it shows up anywhere else.
      */
+    /**
+     * DEEP SAMPLE — wider than the gate's verdict, and deliberately not part of
+     * it.
+     *
+     * The six fields above are the QUESTION this gate asks, so widening them
+     * would change what a red means. But those six are also why the gate cannot
+     * find its own entry point: the first traced round already flew differently
+     * one tick BEFORE `awareness` moved, and the state that aimed it —
+     * `aimTarget`, and the `suppression` that scales its wobble — is not
+     * sampled. This records the upstream fields per tick so "what parts first"
+     * can be answered without touching the verdict.
+     *
+     * `position`/`yaw` are here to catch the case where nothing perceptual
+     * diverges at all and the bot is simply somewhere else.
+     */
+    const deep = () => {
+      const rows = [];
+      for (const a of [...(ai?.agents ?? [])].sort((x, y) => x.id - y.id)) {
+        rows.push({
+          id: a.id,
+          px: a.position.x, py: a.position.y, pz: a.position.z,
+          yaw: a.yaw,
+          atx: a.aimTarget.x, aty: a.aimTarget.y, atz: a.aimTarget.z,
+          supp: a.suppression ?? 0,
+          aw: a.awareness,
+          health: a.health,
+          lkx: a.lastKnown.x, lky: a.lastKnown.y, lkz: a.lastKnown.z,
+        });
+      }
+      return rows;
+    };
+
     const perception = () => {
       const rows = [];
       for (const a of [...(ai?.agents ?? [])].sort((x, y) => x.id - y.id)) {
@@ -797,10 +872,12 @@ const out = await page.evaluate(
       // boundaries, so the series are sparse and only their COMMON ticks are
       // compared. That is enough to bracket the first divergence.
       const byTick = new Map();
+      const byTickDeep = DEEP ? new Map() : null;
       for (let f = 0; f < frames; f++) {
         clock = clockK + (totalMs * (f + 1)) / frames;
         e.step(clock);
         byTick.set(ctx.time.tick, perception());
+        if (byTickDeep) byTickDeep.set(ctx.time.tick, deep());
         if (!lerpProbe && ctx.time.tick >= probeTick) {
           const p = player.position; // the interpolated draw pose
           lerpProbe = { x: p.x, y: p.y, z: p.z };
@@ -833,6 +910,7 @@ const out = await page.evaluate(
         sawTicks,
         samples: byTick.size,
         series: [...byTick.entries()].map(([t, rows]) => [t, rows]),
+        deep: byTickDeep ? [...byTickDeep.entries()].map(([t, rows]) => [t, rows]) : null,
       };
     };
 
@@ -854,6 +932,7 @@ const out = await page.evaluate(
     RATES, TICKS,
     NOLOD: !!args.nolod,
     TRACE: typeof args.trace === 'string' ? args.trace : null,
+    DEEP: !!args.deep,
     ISOLATE: typeof args.isolate === 'string' ? args.isolate : null,
     INDUCE: typeof args.induce === 'string' ? args.induce : null,
   }
@@ -1073,6 +1152,55 @@ if (!diffs.length) {
     console.log(`  INCONCLUSIVE — the control moved ${controlNoise} field(s) on its own, so ${diffs.length} is an upper bound on noise + signal`);
   } else {
     fail.push(`${diffs.length} perception field(s) depend on the frame rate — what a bot sees is not a function of the tick`);
+  }
+}
+
+/* ---- the deep sample, if one was asked for ---------------------------- */
+//
+// The verdict's six fields answer "does perception depend on the rate". They
+// cannot answer "what parted FIRST", and on this scenario the answer is earlier
+// than any of them: the first round already flew differently one tick before
+// `awareness` moved. This walks a wider set per tick and names the earliest
+// field to move, which is the only thing that points at a cause.
+if (control?.deep) {
+  const DEEPF = ['px', 'py', 'pz', 'yaw', 'atx', 'aty', 'atz', 'supp', 'aw', 'health', 'lkx', 'lky', 'lkz'];
+  console.log(`\n  deep — first field to part, per rate (verdict unaffected):`);
+  const c2 = control2?.deep;
+  if (c2) {
+    const cs = new Map(control.deep);
+    let dirty = false;
+    for (const [t, rows] of c2) {
+      const c = cs.get(t);
+      if (!c) continue;
+      for (let i = 0; i < rows.length && !dirty; i++) {
+        for (const f of DEEPF) if (Math.abs(c[i][f] - rows[i][f]) > TOL) { dirty = true; break; }
+      }
+      if (dirty) break;
+    }
+    console.log(`    control      same-rate repeat ${dirty ? 'DIFFERS — read nothing below' : 'IDENTICAL'}`);
+    if (dirty) fail.push(`the deep sample is not reproducible at a fixed rate`);
+  }
+  const cs = new Map(control.deep);
+  for (const r of runs) {
+    if (r === control || !r.deep) continue;
+    let hit = null;
+    for (const [t, rows] of r.deep) {
+      const c = cs.get(t);
+      if (!c) continue;
+      const bad = [];
+      for (let i = 0; i < rows.length; i++) {
+        for (const f of DEEPF) {
+          const d = Math.abs(c[i][f] - rows[i][f]);
+          if (d > TOL) bad.push({ id: rows[i].id, f, a: c[i][f], b: rows[i][f], d });
+        }
+      }
+      if (bad.length) { hit = { t, bad }; break; }
+    }
+    if (!hit) { console.log(`    ${String(r.fps).padStart(3)}fps  nothing parts`); continue; }
+    const names = [...new Set(hit.bad.map((x) => `agent#${x.id}.${x.f}`))];
+    console.log(`    ${String(r.fps).padStart(3)}fps  first at tick ${hit.t} (+${hit.t - out.kTick}) in ${names.length}: ${names.slice(0, 5).join(', ')}`);
+    const w = hit.bad.reduce((m, x) => (x.d > m.d ? x : m));
+    console.log(`           largest  agent#${w.id}.${w.f}  ${w.a}  vs  ${w.b}  (${w.d.toExponential(3)})`);
   }
 }
 

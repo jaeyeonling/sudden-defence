@@ -145,19 +145,24 @@
  * That is scenario variance, NOT flakiness — within one invocation the control
  * is bit-identical every time.
  *
- * THE STANDING SUSPECT: EVENTS AI HEARS ARE EMITTED ON THE FRAME
+ * THE STANDING SUSPECT: `weapon:fire` IS FLUSHED ON THE FRAME
  *
- * `ai` consumes `player:footstep` and `weapon:fire`, and both are emitted from
- * FRAME hooks — `PlayerSystem.update` and `WeaponSystem.update` — while the
- * conditions that produce them are decided on the tick. Earlier fixes addressed
- * the ADDRESS these carry (`82e35f3` put a footstep at the tick that took it,
- * `0c65020` took a gunshot's position off the viewmodel) and not the MOMENT
- * they fire. A bot's `hear()` sets `lastKnown` and raises `awareness`, so which
- * TICK a cue lands on is a function of how often the page composed a frame.
+ * `ai` turns a gunshot into `agent.hear(...)`, which writes `lastKnown` and
+ * raises `awareness` — so which TICK a shot lands on steers perception.
+ * `WeaponSystem._flushShots` emits `weapon:fire` and is called from
+ * `WeaponSystem.lateUpdate`, a FRAME hook, while the shots it flushes were
+ * decided on the tick. `0c65020` fixed the ADDRESS a gunshot carries (off the
+ * viewmodel, onto the tick) and not the MOMENT it is announced.
  *
- * That is a hypothesis with a mechanism, not a measurement — `--isolate` has
- * not yet caught it, because the one run attempted landed on a snapshot whose
- * baseline never spread (see the guard on that verdict below).
+ * A hypothesis with a mechanism, not a measurement. `--isolate=weapon:fire` is
+ * the test and it has not been run yet.
+ *
+ * NOT `player:footstep`, THOUGH IT LOOKS LIKE IT SHOULD BE. That one was found
+ * and fixed already — see THE DEFECT above — and `_drainMovementEvents` now
+ * runs from the fixed step. A grep that attributes an `emit` to the nearest
+ * hook ABOVE it in the file says otherwise, because the drain is defined below
+ * `update()` and gets credited to it; this note exists because that mistake was
+ * made here, and briefly written into this header as fact.
  *
  * WHY EVERY CONDITION RUNS INSIDE ONE INVOCATION
  *
@@ -354,7 +359,24 @@ const out = await page.evaluate(
 
     const H = 1000 / 120;
     e.stop();
-    let clock = performance.now();
+    // THE CLOCK IS PART OF THE SCENARIO.
+    //
+    // Starting from `performance.now()` starts every invocation from a different
+    // absolute time, and `engine.step` derives dt as `(now - _last) / 1000`, so
+    // the SAME nominal 1/120 s rounds to a different double depending on how
+    // large the operands are. `crossengine.mjs` traced 28 leaves of its own
+    // control noise to exactly this and pinned a constant; this harness warms
+    // for thousands of ticks before it snapshots, which is thousands of chances
+    // for that rounding to pick a different world to hand the sweep.
+    //
+    // A constant here does not make the boot reproducible on its own — the page
+    // free-runs until `__READY__`, and `crossengine.mjs` established that
+    // `__READY__` waits on three rAF frames that arrive at different wall-clock
+    // times, so the rng is already a few draws apart before this line runs. It
+    // removes the source this tool controls; `warmed`/`waited`/`kTick` are
+    // reported so the remainder is visible rather than assumed.
+    const CLOCK0 = 8_000_000; // arbitrary, constant, far from any real `now`
+    let clock = CLOCK0;
     e._last = clock;
     e._accum = 0;
 
@@ -399,6 +421,21 @@ const out = await page.evaluate(
     const snap = {};
     for (const id of SIM_IDS) snap[id] = ctx.peek(id).captureState({});
     const kTick = ctx.time.tick;
+    // THE WORLD'S FINGERPRINT, not just the tick's. Pinning the clock made the
+    // scenario SHAPE reproducible — two invocations now warm the same number of
+    // ticks and snapshot at the same tick number — while the STATE at that tick
+    // still differs, because the page free-runs until `__READY__` and the rng is
+    // already a few draws apart before this harness takes the wheel. A tick
+    // number that matches is not a world that matches, and every isolation
+    // result in this tool is a comparison between invocations, so the thing that
+    // has to match must be printed rather than assumed.
+    let snapHash = '(unhashable)';
+    try {
+      const s = JSON.stringify(snap);
+      let h = 0x811c9dc5 >>> 0;
+      for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+      snapHash = h.toString(16).padStart(8, '0');
+    } catch { /* a snapshot that will not serialise still runs; it just cannot be compared */ }
     const clockK = clock;
     const engineK = { last: e._last, accum: e._accum };
     const timeK = {
@@ -602,7 +639,7 @@ const out = await page.evaluate(
     const induced = INDUCE ? sweep(null, true) : null;
 
     return {
-      kTick, runs, isolated, induced,
+      kTick, warmed, waited, snapHash, runs, isolated, induced,
       isolate: ISOLATE, induce: INDUCE,
       agents: ai?.agents?.length ?? 0,
     };
@@ -640,6 +677,11 @@ const control = runs.find((r) => r.fps === 120) ?? runs[0];
 
 console.log(`\nPERCEIVE — ${TICKS} ticks at 120 Hz from one snapshot (tick ${out.kTick}), composed at ${RATES.length} frame rates`);
 console.log(`  ${out.agents} bots`);
+// THE SCENARIO'S FINGERPRINT. Two invocations that print the same three numbers
+// snapshotted the same world and their results are comparable; two that do not
+// ran different scenarios, and a difference between them says nothing. Every
+// isolation claim in this tool's history rests on this being checked.
+console.log(`  scenario: warmed ${out.warmed} + settle 360 + waited ${out.waited} -> snapshot at tick ${out.kTick}, world ${out.snapHash}`);
 
 /* ---- the span has to be the same span at every rate ------------------- */
 for (const r of runs) {

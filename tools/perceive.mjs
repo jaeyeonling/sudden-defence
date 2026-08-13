@@ -145,6 +145,20 @@
  * That is scenario variance, NOT flakiness — within one invocation the control
  * is bit-identical every time.
  *
+ * THE STANDING SUSPECT: EVENTS AI HEARS ARE EMITTED ON THE FRAME
+ *
+ * `ai` consumes `player:footstep` and `weapon:fire`, and both are emitted from
+ * FRAME hooks — `PlayerSystem.update` and `WeaponSystem.update` — while the
+ * conditions that produce them are decided on the tick. Earlier fixes addressed
+ * the ADDRESS these carry (`82e35f3` put a footstep at the tick that took it,
+ * `0c65020` took a gunshot's position off the viewmodel) and not the MOMENT
+ * they fire. A bot's `hear()` sets `lastKnown` and raises `awareness`, so which
+ * TICK a cue lands on is a function of how often the page composed a frame.
+ *
+ * That is a hypothesis with a mechanism, not a measurement — `--isolate` has
+ * not yet caught it, because the one run attempted landed on a snapshot whose
+ * baseline never spread (see the guard on that verdict below).
+ *
  * WHY EVERY CONDITION RUNS INSIDE ONE INVOCATION
  *
  * Each run boots the page fresh and snapshots a different world, so comparing
@@ -823,7 +837,17 @@ if (out.isolated) {
   const b = base.firsts.map((f) => `${f.fps}:${f.firstTick === null ? 'clean' : `+${f.firstTick - out.kTick}`}`).join(' ');
   const i = iso.firsts.map((f) => `${f.fps}:${f.firstTick === null ? 'clean' : `+${f.firstTick - out.kTick}`}`).join(' ');
   console.log(`    first divergence  baseline ${b}   without ${b === i ? '(same)' : i}`);
-  if (!iso.diffs.length && base.diffs.length) {
+  if (!base.diffs.length) {
+    // AN ISOLATION AGAINST A CLEAN BASELINE MEASURES NOTHING. Cutting a channel
+    // cannot remove a spread that was not there, so "0 without it" is the same
+    // reading as "0 with it" and says nothing about the channel. This is not
+    // hypothetical: the scenario diverges only in SOME snapshots (see the
+    // header — each invocation snapshots a different world), so an isolation
+    // run can land on a world that never spreads, and the old wording called
+    // that "does not carry it".
+    console.log(`    => INCONCLUSIVE: the baseline never spread in this snapshot, so cutting "${out.isolate}" had nothing to remove`);
+    console.log(`       re-run with a longer --ticks until the baseline is non-zero, then isolate`);
+  } else if (!iso.diffs.length) {
     console.log(`    => "${out.isolate}" CARRIES the rate dependence`);
   } else if (iso.diffs.length >= base.diffs.length) {
     console.log(`    => "${out.isolate}" does not carry it — the spread survives without the channel`);

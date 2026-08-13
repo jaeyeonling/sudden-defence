@@ -88,8 +88,69 @@
  * measuring cross-machine determinism at all. Until the control is clean, the
  * netcode architecture cannot be chosen on evidence.
  *
- * Two findings survive the inconclusive verdict, because neither depends on the
- * control being clean:
+ * THERE IS NO POST-UPDATE BONE WRITER. RESOLVED — READ THIS BEFORE HUNTING ONE.
+ *
+ * A previous session cornered the death-path noise onto a suspected writer that
+ * moved the neck AFTER `an.update` returned, on the evidence of two probes that
+ * contradicted each other: a checkpoint said the value moved between the
+ * animator's return and the tick's end, while an `_onChangeCallback` trap on the
+ * same quaternion counted ZERO writes. Both probes were lying, in different ways,
+ * and the self-check that says so now runs inside the tool (`PROBE SELF-CHECK`):
+ *
+ *   trap alive          the trap is fired once by a no-op write to its own values
+ *                       at install time, so a silent trap is told apart from a
+ *                       detached one. RESULT: alive. It counted honestly.
+ *   same agent          the checkpoint re-runs `find(alive)`; a death would hand
+ *                       it a different bot than the one hooked. RESULT: same bot.
+ *   animator run count  RESULT: 0 over the sampled window, 600 over 1200 ticks.
+ *
+ * That last number IS the answer. The AI ticks at 60 Hz against a 120 Hz step, so
+ * the animator runs every OTHER tick, and it had not run yet in the two-tick
+ * window the probes sampled. `neckAtReturn` was therefore a STALE string left
+ * over from the warm-up, and comparing it against a live read manufactured a
+ * "mutation" that never happened. Over the whole span the trap counts 2400 writes
+ * and ZERO outside `an.update`: nothing writes these bones but the animator.
+ *
+ * What the same run establishes instead, and it is a better finding:
+ *
+ *   THE POSE DIVERGENCE IS INHERITED ACROSS INJECTION, NOT PRODUCED BY THE STEP
+ *   LOOP. The bones already differ at the end of span tick 1 — before the
+ *   animator's first run, with zero writes recorded. `restoreState` carries the
+ *   animator's DRIVERS (`phase`, `blend`, the timers) but not the bones, on the
+ *   documented grounds that `_writePose` re-derives every quaternion from the rig
+ *   each call. It does — but not until the animator's next turn, and the capsules
+ *   `syncHitboxes` welds to those bones are read on every tick in between. Two
+ *   processes therefore enter the span holding different rigs, and one stale tick
+ *   is enough to move where a round lands; after that the simulations have
+ *   genuinely diverged and every later pose difference is downstream of it.
+ *
+ * RE-DERIVING THE POSE AT RESTORE DOES NOT FIX IT — MEASURED, NOT ASSUMED.
+ *
+ * The obvious repair is to let the restore finish the derivation: end
+ * `AiSystem.restoreState` with `_drive(0)` per living agent, which re-reads
+ * `state` from the restored simulation fields and evaluates the animator with
+ * dt = 0. It was tried and it made the control WORSE — 10 leaves to 263 — for
+ * two reasons worth writing down, because both are easy to re-propose:
+ *
+ *   THE HARNESS RESTORES ONE SIDE ONLY. `restoreState` runs under `if (INJECT)`;
+ *   the reference process never calls it and enters the span with whatever pose
+ *   its own free-running warm-up left. Re-deriving on the injected side alone
+ *   moves that side to a pose the reference does not share.
+ *
+ *   `_drive(0)` IS NOT IDEMPOTENT. It poses from the CURRENT simulation fields,
+ *   while a running process's bones hold the pose from its LAST AI TICK. The AI
+ *   ticks at 60 Hz against a 120 Hz step, so at an arbitrary capture instant the
+ *   pose lags its own drivers by up to one tick — and that lag is not in the
+ *   snapshot. `_aiAccum` restores WHEN the next AI tick falls, not what the rig
+ *   looked like before it.
+ *
+ * So the pose is not a pure function of captured state at an arbitrary instant,
+ * which is the assumption `animator.js`'s exclusion note rests on. Closing it
+ * means either capturing the bones after all, or removing the lag by posing on
+ * every step so that pose and drivers are never out of phase.
+ *
+ * Two more findings survive the inconclusive verdict, because neither depends on
+ * the control being clean:
  *
  *   BOOT IS NOT REPRODUCIBLE ACROSS ENGINES. ~150 leaves differ before a single
  *   driven tick, including bot spawn positions by 1.6 m. `__READY__` waits on
@@ -421,17 +482,21 @@ const PROBE = async ({ TICKS, INJECT, NOFIRE }) => {
   // change callback on the first alive agent, and record the stack of the
   // first write that lands AFTER an.update has returned this tick.
   let mutStack = null;
+  let hookedAgent = null;
   {
     const fa = (ai1?.agents ?? []).find((a) => a.alive);
     const an = fa?.animator;
     const nb = an?.bones?.[an.iNeck];
     if (nb && an) {
+      hookedAgent = fa;
       const q = nb.quaternion;
       const orig = q._onChangeCallback;
       an.__inUpdate = false;
+      an.__updateCalls = 0;
       const protoU2 = an.update; // the already-wrapped update
       an.update = function (dt, now) {
         this.__inUpdate = true;
+        this.__updateCalls++;
         try { protoU2.call(this, dt, now); } finally { this.__inUpdate = false; }
       };
       an.__fires = 0;
@@ -445,6 +510,17 @@ const PROBE = async ({ TICKS, INJECT, NOFIRE }) => {
           if (!mutStack) mutStack = String(new Error('writer').stack).split('\n').slice(1, 6).join(' <- ');
         }
       };
+      // CONTROL FOR THE TRAP ITSELF. The trap and the neck checkpoint contradict
+      // each other (value moves, callback silent), so one of them is lying — and
+      // an uninstrumented instrument cannot be told apart from a quiet subject.
+      // Write the quaternion's own values back into it: a live hook MUST fire,
+      // and the state is unchanged because the values are identical.
+      q.set(q.x, q.y, q.z, q.w);
+      an.__trapAlive = an.__fires > 0;
+      an.__fires = 0;
+      an.__firesOutside = 0;
+      mutStack = null; // the control write is not the writer we are hunting
+      an.__agentId = fa.id;
     }
   }
   const boneDump = (ag) => (ag?.mesh?.skeleton?.bones ?? [])
@@ -504,6 +580,21 @@ const PROBE = async ({ TICKS, INJECT, NOFIRE }) => {
       early.push({
         fires: anx?.__fires, firesOutside: anx?.__firesOutside,
         sameQ: anx ? (nb?.quaternion === anx.__hookedQ) : null,
+        // Which probe is lying? These three fields decide it:
+        //   trapAlive   false  -> the hook is detached; `fires: 0` proves nothing.
+        //   sameAgent   false  -> the victim died and `find(alive)` handed the
+        //                         checkpoint a DIFFERENT bot than the one hooked,
+        //                         so `neckAtReturn` and `neckAtTickEnd` are two
+        //                         different bodies and the "mutation" is an artifact.
+        //   updateCalls 0      -> `neckAtReturn` is a STALE string from an earlier
+        //                         tick (the animator was skipped), so comparing it
+        //                         against a live read cannot show a post-update write.
+        trapAlive: hookedAgent?.animator?.__trapAlive ?? null,
+        sameAgent: hookedAgent ? fa === hookedAgent : null,
+        hookedId: hookedAgent?.id ?? null,
+        hookedAlive: hookedAgent?.alive ?? null,
+        faId: fa?.id ?? null,
+        updateCalls: hookedAgent?.animator?.__updateCalls ?? null,
         tick: ctx.time.tick, bones: boneDump(fa),
         aim: fa?.animator?.__aimLog ?? '(no aim yet)',
         look: fa?.animator?.__lookLog ?? '(no look yet)',
@@ -515,8 +606,21 @@ const PROBE = async ({ TICKS, INJECT, NOFIRE }) => {
   }
   e.commands.override = null;
 
+  // Span TOTALS for the hooked rig. `early` only samples the first two ticks,
+  // which cannot tell "the animator had not come round yet" from "the animator
+  // never runs in a stepped span at all" — and those two imply opposite fixes.
+  const hookedEnd = hookedAgent?.animator
+    ? {
+        updateCalls: hookedAgent.animator.__updateCalls,
+        fires: hookedAgent.animator.__fires,
+        firesOutside: hookedAgent.animator.__firesOutside,
+        alive: hookedAgent.alive,
+        sameQ: hookedAgent.animator.bones?.[hookedAgent.animator.iNeck]?.quaternion === hookedAgent.animator.__hookedQ,
+      }
+    : null;
+
   return {
-    startTick, warmed,
+    startTick, warmed, hookedEnd,
     liveTick: ctx.time.tick,
     boot, start, snapshot, trail, rlog, early, mutStack, phaseLog: [...phaseLog],
     stepped: dump(),
@@ -675,6 +779,18 @@ for (const r of results) {
       }
       if (base.out.mutStack) console.log(`      post-update writer (${base.name}): ${base.out.mutStack}`);
       console.log(`      callback fires ${ea.fires}/${eb.fires} · outside update ${ea.firesOutside}/${eb.firesOutside} · same quaternion object ${ea.sameQ}/${eb.sameQ}`);
+      // Read the instrument before reading what it measured.
+      console.log(`      PROBE SELF-CHECK  trap alive ${ea.trapAlive}/${eb.trapAlive} · hooked agent a${ea.hookedId}(alive ${ea.hookedAlive})/a${eb.hookedId}(alive ${eb.hookedAlive}) · evaluated a${ea.faId}/a${eb.faId} · same agent ${ea.sameAgent}/${eb.sameAgent} · animator update calls ${ea.updateCalls}/${eb.updateCalls}`);
+      if (ea.trapAlive === false || eb.trapAlive === false) console.log(`        VERDICT: the TRAP lies — the hook is detached, so 'fires: 0' says nothing about writes.`);
+      else if (ea.sameAgent === false || eb.sameAgent === false) console.log(`        VERDICT: the CHECKPOINT lies — it evaluated a different bot than the one hooked; the 'mutation' compares two bodies.`);
+      else if (ea.updateCalls === 0 || eb.updateCalls === 0) console.log(`        VERDICT: the CHECKPOINT lies — the animator never ran, so neckAtReturn is stale from an earlier tick.`);
+      else if (ea.sameQ === false || eb.sameQ === false) console.log(`        VERDICT: the bone's quaternion OBJECT was replaced — the writer swaps the instance, it does not mutate it.`);
+      else console.log(`        VERDICT: both probes hold — a write reached the hooked quaternion without firing its callback (direct _x/_y/_z/_w assignment, or the callback was replaced after we hooked it).`);
+      const ha = base.out.hookedEnd, hb = r.out.hookedEnd;
+      if (ha && hb) {
+        console.log(`      OVER THE WHOLE SPAN  animator update calls ${ha.updateCalls}/${hb.updateCalls} · neck writes ${ha.fires}/${hb.fires} (outside update ${ha.firesOutside}/${hb.firesOutside}) · still alive ${ha.alive}/${hb.alive} · same quaternion ${ha.sameQ}/${hb.sameQ}`);
+        if (ha.fires === 0 && hb.fires === 0) console.log(`        -> NOTHING wrote this neck all span, yet the bones differ from span tick 1: the pose divergence is INHERITED across injection, not produced by the step loop. The snapshot does not carry pose.`);
+      }
       const mutA = ea.neckAtReturn !== ea.neckAtTickEnd, mutB = eb.neckAtReturn !== eb.neckAtTickEnd;
       console.log(`      neck at update-return ${ea.neckAtReturn === eb.neckAtReturn ? 'IDENTICAL across processes' : 'DIFFERS across processes'} · mutated after return: ${base.name}=${mutA} ${r.name}=${mutB}`);
       if (ea.neckAtReturn !== eb.neckAtReturn) { console.log(`        ${base.name.padEnd(16)} ${ea.neckAtReturn}`); console.log(`        ${r.name.padEnd(16)} ${eb.neckAtReturn}`); }

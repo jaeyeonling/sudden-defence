@@ -26,7 +26,17 @@ export class Engine {
     this.events = new EventBus();
     this.input = new Input(canvas, config);
     this.commands = new CommandStream();
-    this.rng = new Rng(config.deterministic ? 0x5eed1234 : (Math.random() * 2 ** 32) >>> 0);
+    // The master seed, and the only place a run's whole world is decided.
+    //
+    // `config.seed` exists so a harness can pin it WITHOUT `deterministic`. The
+    // two had been the same switch, and `deterministic` also suppresses
+    // `ai.populate` — so the only way to get a reproducible world was to get an
+    // empty one. `tools/perceive.mjs` needs a reproducible FIREFIGHT, and spent
+    // several sessions comparing isolation runs across invocations that were
+    // each seeded from `Math.random()` and therefore never the same scenario.
+    this.rng = new Rng(
+      config.seed ?? (config.deterministic ? 0x5eed1234 : (Math.random() * 2 ** 32) >>> 0)
+    );
 
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(config.fov, 1, 0.05, 1200);

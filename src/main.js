@@ -22,9 +22,25 @@ const capture = params.get('capture') === '1';
 // Deterministic shutter for the pixel gate: the engine does not schedule its own
 // frames, the driver advances exactly N of them through window.__PUMP__. Opt-in,
 // because tools that measure real frame pacing need the loop to free-run.
-const lockstep = capture && params.get('lockstep') === '1';
+// Independent of `capture` on purpose. Lockstep answers "how many frames have
+// run", which is what a MEASUREMENT harness needs so its boot is a function of a
+// frame count rather than of how long the machine took to get here; capture also
+// sets `deterministic`, which suppresses `ai.populate` and hands back a world
+// with no bots in it. Tying the two meant no harness could have a reproducible
+// boot AND a populated level. `tools/perceive.mjs` needs exactly that pair: it
+// snapshots a live firefight, and two invocations were landing on different
+// worlds because `__READY__` waits on rAF frames that arrive when they arrive.
+const lockstep = params.get('lockstep') === '1';
+
+// `?seed=<u32>` pins the master rng without pinning anything else. Separate
+// from `?capture=1` for the same reason `lockstep` now is: capture implies
+// `deterministic`, which suppresses `ai.populate`, so pinning the world used to
+// cost you the bots in it.
+const seedParam = params.get('seed');
+const seed = seedParam === null ? undefined : (Number(seedParam) >>> 0);
 
 const config = createConfig({
+  seed,
   // No `?? 'ultra'` here. That hardcoded fallback shadowed `DEFAULTS.quality`
   // entirely, so the tier named as the default in config.js was never the tier
   // that booted — changing it there had no effect at all, which is exactly how it

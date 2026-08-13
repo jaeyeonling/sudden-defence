@@ -233,11 +233,23 @@ export function installShotApi(engine, { capture, lockstep = false } = {}) {
     engine.start = function () { this._running = true; };
     window.__LOCKSTEP__ = true;
 
+    // THE PUMP CARRIES ITS OWN CLOCK.
+    //
+    // It used to call `engine.step()` with no argument and rely on capture mode
+    // having monkey-patched `step` to ignore the argument and use a fake
+    // monotonic clock. That coupling is why lockstep could not be used without
+    // `?capture=1` — and capture also sets `config.deterministic`, which makes
+    // `ai.populate` skip, so any harness that wanted a REPRODUCIBLE BOOT had to
+    // accept a world with no bots in it. A pump that supplies its own clock has
+    // no such dependency; under capture the patched `step` ignores this argument
+    // exactly as before, so nothing about the pixel gate changes.
+    let pumped = 0;
+
     /** Advance exactly `n` engine frames, one per rAF so each is presented. */
     window.__PUMP__ = (n = 1) => new Promise((resolve) => {
       let i = 0;
       const tick = () => {
-        engine.step();
+        engine.step((pumped += 1000 / 60));
         snapInfo();
         if (++i >= n) resolve(engine.time.frame);
         else requestAnimationFrame(tick);

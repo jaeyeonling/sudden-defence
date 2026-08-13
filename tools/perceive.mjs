@@ -217,6 +217,8 @@ const TICKS = Number(args.ticks ?? 240);
  * "surely nobody notices" ceiling waves through.
  */
 const TOL = Number(args.tol ?? 1e-12);
+/** Master rng seed for the page. Pins WHICH world the sweep measures. */
+const SEED = Number(args.seed ?? 0x5eed1234) >>> 0;
 /** How far the player must travel for guard 1 to pass, metres. */
 const MOVED_MIN = 0.5;
 /**
@@ -252,7 +254,23 @@ const page = await browser.newPage({ viewport: { width: 640, height: 480 } });
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 
-await page.goto(`http://127.0.0.1:${PORT}/?prewarm=0`, { waitUntil: 'load' });
+// `lockstep=1` so the boot is a FRAME COUNT rather than a race. Without it the
+// engine free-runs until `__READY__`, which waits on three rAF frames that land
+// whenever the machine gets to them, and two invocations reach this line having
+// consumed the rng a different number of times — different world, same tick
+// number. The `scenario:` line in the report is what makes that checkable.
+// `seed` pins the world and `lockstep=1` pins the boot, and BOTH are needed for
+// two invocations to be comparable. The seed is the bigger of the two by far:
+// without it `Engine` draws its master rng from `Math.random()`, so every run
+// was a different scenario and every isolation result in this tool's history
+// was a comparison between two worlds that had never met. `lockstep` then makes
+// the boot a frame COUNT rather than a race against `__READY__`'s rAF probe.
+// `--seed=N` picks a different world on purpose; the `scenario:` line reports
+// which one was actually reached.
+await page.goto(
+  `http://127.0.0.1:${PORT}/?prewarm=0&lockstep=1&seed=${SEED}`,
+  { waitUntil: 'load' }
+);
 await page.waitForFunction("window.__READY__ === true", null, { timeout: 120000 });
 
 const out = await page.evaluate(

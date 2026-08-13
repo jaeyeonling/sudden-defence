@@ -185,6 +185,15 @@ export const DEFAULTS = {
   exposure: 1.0,
   /** Capture mode disables anything nondeterministic so screenshots are stable. */
   deterministic: false,
+  /**
+   * Master rng seed, or `undefined` to draw one from `Math.random()` at boot.
+   *
+   * Separate from `deterministic` on purpose. That flag also suppresses
+   * `ai.populate`, so before this existed the only reproducible world was an
+   * empty one — and every measurement harness that compared two invocations was
+   * silently comparing two different scenarios. See `Engine`'s constructor.
+   */
+  seed: undefined,
 };
 
 /**

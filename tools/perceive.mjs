@@ -686,7 +686,11 @@ if (!minSaw) {
 const FIELDS = ['visible', 'awareness', 'age', 'x', 'y', 'z'];
 
 /** Score one sweep the same way, so two conditions are comparable numbers. */
-const score = (rs) => {
+const score = (rs0) => {
+  // The same-rate control row is not a rate. Scoring it as one would compare the
+  // baseline sweep (which has it held aside) against an isolated sweep that
+  // still carried it, and the two numbers would not be the same measurement.
+  const rs = rs0.filter((r) => !r.isControl2);
   const ctl = rs.find((r) => r.fps === 120) ?? rs[0];
   const ds = [];
   for (const r of rs) {
@@ -837,7 +841,16 @@ if (out.isolated) {
   const b = base.firsts.map((f) => `${f.fps}:${f.firstTick === null ? 'clean' : `+${f.firstTick - out.kTick}`}`).join(' ');
   const i = iso.firsts.map((f) => `${f.fps}:${f.firstTick === null ? 'clean' : `+${f.firstTick - out.kTick}`}`).join(' ');
   console.log(`    first divergence  baseline ${b}   without ${b === i ? '(same)' : i}`);
-  if (!base.diffs.length) {
+  // TWO SIGNALS, AND A CHANNEL ONLY CLEARS THE SWEEP IF IT SILENCES BOTH.
+  // `diffs` scores the FINAL perception rows; `firsts` scans the whole series
+  // for the first tick a rate parts from the control. They can disagree, and
+  // the first reading of this verdict did: cutting `player:footstep` took the
+  // final rows to 0 while every rate still parted at the SAME tick as the
+  // baseline (+242, +242, +241). The spread started exactly as before and
+  // happened to re-converge by the last tick. Scoring only the endpoint called
+  // that "CARRIES the rate dependence", which the series flatly contradicts.
+  const spread = (s) => s.diffs.length || s.firsts.some((f) => f.firstTick !== null);
+  if (!spread(base)) {
     // AN ISOLATION AGAINST A CLEAN BASELINE MEASURES NOTHING. Cutting a channel
     // cannot remove a spread that was not there, so "0 without it" is the same
     // reading as "0 with it" and says nothing about the channel. This is not
@@ -847,8 +860,12 @@ if (out.isolated) {
     // that "does not carry it".
     console.log(`    => INCONCLUSIVE: the baseline never spread in this snapshot, so cutting "${out.isolate}" had nothing to remove`);
     console.log(`       re-run with a longer --ticks until the baseline is non-zero, then isolate`);
+  } else if (!spread(iso)) {
+    console.log(`    => "${out.isolate}" CARRIES the rate dependence — cut it and no rate parts from the control at any tick`);
   } else if (!iso.diffs.length) {
-    console.log(`    => "${out.isolate}" CARRIES the rate dependence`);
+    const w = iso.firsts.filter((f) => f.firstTick !== null).map((f) => `${f.fps}:+${f.firstTick - out.kTick}`).join(' ');
+    console.log(`    => "${out.isolate}" does NOT clear it: the final rows agree, but the spread still STARTS (${w})`);
+    console.log(`       an endpoint that re-converged is not a channel that carried anything`);
   } else if (iso.diffs.length >= base.diffs.length) {
     console.log(`    => "${out.isolate}" does not carry it — the spread survives without the channel`);
   } else {

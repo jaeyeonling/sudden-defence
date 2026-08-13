@@ -177,12 +177,32 @@
  * either the basis differs despite being sim-written, or the ray is stopped by
  * something else first and that something moved.
  *
- * THE NEXT PROBE IS THE RAY ITSELF. Trace origin and direction alongside the
- * impact and the two cases separate immediately: if the basis matches and the
- * hit does not, the ray is being blocked by a frame-posed collider before it
- * reaches the wall — which puts it back on the hitbox path, one layer past where
- * `c248e64` left it. If the basis differs, something writes it outside
- * `stepAim`, and the snapshot classification is wrong about a field it carries.
+ * THE RAY WAS TRACED NEXT, and it answers the question the point alone could
+ * not. `bullet:impact` carries `incident`, so no instrumentation in `src` was
+ * needed:
+ *
+ *     direction DIFFERS · what it hit the same
+ *       control  -0.250794235,-0.044228942,0.967029499
+ *        30fps   -0.250831027,-0.044265355,0.967018290
+ *
+ * Same wall, same surface, same everything downstream — the ROUND IS AIMED
+ * DIFFERENTLY, by about 4e-5 in direction. So the ray is not being blocked by a
+ * frame-posed collider; nothing is in the way that was not in the way at 120 fps.
+ * The hitbox path is not implicated by this measurement.
+ *
+ * WHAT IS STILL NOT SEPARATED, and it is three things, because `incident` is the
+ * ray AFTER the spread cone is applied:
+ *
+ *     the basis      `_aimDir`/`_aimQuat`, from `player.aimForward`/`aimPitch`/
+ *                    `aimYaw` — all written only in `CameraRig.stepAim`, on the
+ *                    tick, all snapshot state
+ *     the magnitude  `_spread`, decayed in `weapons.fixedUpdate` (line ~915)
+ *     the draw       `rng.disc()`, off the weapons rng, snapshot state
+ *
+ * Every one of those inspects as tick-written state that rewinds, and the aim
+ * still moves — so one of the three is not what it looks like. Hooking
+ * `_syncAim` and logging `_aimDir`, `_eye` and `_spread` per shot splits them in
+ * a single run, and that is the next probe.
  *
  * NOT IN THE SUITE: THE SCENARIO IS NOT REPRODUCIBLE ENOUGH YET
  *
@@ -604,9 +624,18 @@ const out = await page.evaluate(
       if (trace && type === TRACE) {
         const p = payload ?? {};
         const pos = p.position ?? p.point ?? p;
+        // `incident` is the ray's DIRECTION and it is what splits the last two
+        // candidates. A hit point can move for two reasons and they need
+        // opposite fixes: the ray was aimed differently (direction moves), or
+        // the ray was aimed identically and stopped by something else on the way
+        // (direction matches, and `surface`/`actor`/`part` say what stopped it).
+        const inc = p.incident;
         trace.push({
           t: ctx.time.tick,
           x: +(pos?.x ?? NaN), y: +(pos?.y ?? NaN), z: +(pos?.z ?? NaN),
+          ix: +(inc?.x ?? NaN), iy: +(inc?.y ?? NaN), iz: +(inc?.z ?? NaN),
+          surf: p.surface ?? null,
+          actor: p.actor?.id ?? null,
           // `damage` and `part` say WHICH round this was when positions match;
           // without them two impacts a millimetre apart look like one moved.
           d: p.damage ?? null,
@@ -1038,9 +1067,36 @@ if (control?.trace) {
       console.log(`           first tick shift  #${firstT}: control t${a[firstT].t} vs t${b[firstT].t} (${b[firstT].t - a[firstT].t >= 0 ? '+' : ''}${b[firstT].t - a[firstT].t})`);
     }
     if (firstP !== null) {
-      console.log(`           first pos shift   #${firstP} at t${a[firstP].t}`);
-      console.log(`             control  ${key(a[firstP])}`);
-      console.log(`             ${String(r.fps).padStart(3)}fps   ${key(b[firstP])}`);
+      const A = a[firstP];
+      const B = b[firstP];
+      console.log(`           first pos shift   #${firstP} at t${A.t}`);
+      console.log(`             control  ${key(A)}   [${A.surf}${A.actor !== null ? ` actor#${A.actor}/${A.part}` : ''}]`);
+      console.log(`             ${String(r.fps).padStart(3)}fps   ${key(B)}   [${B.surf}${B.actor !== null ? ` actor#${B.actor}/${B.part}` : ''}]`);
+      // THE SPLIT. Same aim + different landing = something stopped the ray.
+      // Different aim = the firing basis is not what it claims to be.
+      const dirKey = (e) => `${e.ix.toFixed(9)},${e.iy.toFixed(9)},${e.iz.toFixed(9)}`;
+      const dirSame = dirKey(A) === dirKey(B);
+      const hitSame = A.surf === B.surf && A.actor === B.actor && A.part === B.part;
+      console.log(`             direction ${dirSame ? 'IDENTICAL' : 'DIFFERS'} · what it hit ${hitSame ? 'the same' : 'DIFFERENT'}`);
+      if (!dirSame) {
+        console.log(`               ${dirKey(A)}`);
+        console.log(`               ${dirKey(B)}`);
+        // `incident` is the ray AFTER the spread cone is applied, so a
+        // difference here has three possible sources and this trace separates
+        // none of them. Saying "the basis" would be the same mistake as reading
+        // an endpoint and calling it a channel.
+        console.log(`             => THE AIM DIFFERS, and this trace cannot say which part of it:`);
+        console.log(`                  the basis      \`_aimDir\`/\`_aimQuat\` from player.aimForward/aimPitch/aimYaw`);
+        console.log(`                  the magnitude  \`_spread\`, decayed in weapons.fixedUpdate`);
+        console.log(`                  the draw       \`rng.disc()\` off the weapons rng`);
+        console.log(`                All three inspect as tick-written snapshot state, so one of them`);
+        console.log(`                is not what it looks like. Trace them at \`_syncAim\` to split it.`);
+      } else if (!hitSame) {
+        console.log(`             => THE RAY IS BLOCKED DIFFERENTLY. Same aim, stopped by something else —`);
+        console.log(`                a collider posed on the frame is in the way. Back on the hitbox path.`);
+      } else {
+        console.log(`             => same aim, same target, different point: the TARGET moved between rates.`);
+      }
     }
   }
   // Say what each answer would mean, so the next session does not have to

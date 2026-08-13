@@ -120,6 +120,10 @@
  *
  * ONE OF THOSE TWO WAS NOT DEAD. `bullet:impact` IS THE CARRIER.
  *
+ * (LOD survives re-checking. `--nolod` on the pinned world scores 8 fields with
+ * the same first divergence as the baseline — it changes nothing, exactly as
+ * recorded. That hypothesis is dead on a measurement that now means something.)
+ *
  * Both acquittals above were measured before the scenario was pinned, so each
  * ran on a world drawn from `Math.random()` — a different scenario every time,
  * and an acquittal from a world that never spread is not an acquittal. Re-run on

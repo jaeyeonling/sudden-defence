@@ -759,12 +759,12 @@ export class PlayerSystem {
         break;
       case 'hurt':
         this.health.value = this.health.max * 0.28;
-        this.health.lastDamageTime = this.ctx.time.elapsed;
+        this.health.lastDamageTime = this.ctx.time.sim;
         this.health.effect = clamp01((HEALTH.lowThreshold - 0.28) / HEALTH.lowThreshold);
         break;
       case 'critical':
         this.health.value = this.health.max * 0.11;
-        this.health.lastDamageTime = this.ctx.time.elapsed;
+        this.health.lastDamageTime = this.ctx.time.sim;
         this.health.effect = 1;
         this.health.hitFlash = 0.6;
         break;

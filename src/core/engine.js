@@ -48,7 +48,26 @@ export class Engine {
     this.viewCamera = new THREE.PerspectiveCamera(60, 1, 0.005, 12);
 
     this.time = {
-      /** Seconds since start, scaled. */ elapsed: 0,
+      /**
+       * SIMULATION SECONDS. Use this, not `elapsed`, for anything the world
+       * agrees on.
+       *
+       * `elapsed` advances once per FRAME by that frame's delta (see `step`),
+       * before the fixed loop runs — so every fixed step inside one frame reads
+       * the same already-advanced value, and at a given `tick` the number
+       * depends on how the frames happened to be divided. Anything in the
+       * simulation that reads it becomes a function of the display rate.
+       * `tools/perceive.mjs --deep` caught this as bot aim: `agent._aim` phases
+       * its wobble on `elapsed`, and every bot's aim parted one tick into a
+       * fixed-seed span, by a margin that scaled with the frame rate.
+       *
+       * Derived from `tick` rather than accumulated, so it needs no state of its
+       * own: it is exact at every step, it rewinds for free with the tick every
+       * snapshot already carries, and it cannot drift out of step with the
+       * counter it is supposed to describe.
+       */
+      get sim() { return this.tick * FIXED_DT; },
+      /** Seconds since start, scaled. FRAME time — presentation only. */ elapsed: 0,
       /** Unscaled wall-clock seconds since start. */ raw: 0,
       /** Last frame delta, scaled and clamped. */ dt: 0,
       /** Fixed step. */ fixed: FIXED_DT,

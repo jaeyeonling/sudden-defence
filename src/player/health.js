@@ -104,7 +104,9 @@ export class Health {
     if (this.dead || amount <= 0) return 0;
     const before = this.value;
     this.value = Math.max(0, this.value - amount);
-    this.lastDamageTime = this.ctx.time.elapsed;
+    // `sim`, not `elapsed`: this is captured state, so an absolute stamp taken
+    // off frame time would mean something different after a rewind.
+    this.lastDamageTime = this.ctx.time.sim;
     const dealt = before - this.value;
     this.lastPart = opts.part ?? 'torso';
 

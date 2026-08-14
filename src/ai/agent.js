@@ -2009,7 +2009,12 @@ export class Agent {
       // that lives in this file — see its definition.
       this._v.set(t.x, t.y - AIM_DROP, t.z);
       const dist = this.position.distanceTo(this._v);
-      const wobbleT = this.ctx.time.elapsed * 1.7 + this.id;
+      // `time.sim`, NOT `time.elapsed`. This wobble is where a bot's rounds
+      // actually go, and `elapsed` advances once per frame — so phasing on it
+      // made every bot's aim a function of the display rate. `perceive --deep`
+      // measured it parting one tick into a fixed-seed span on all seven bots at
+      // once, which is what led here.
+      const wobbleT = this.ctx.time.sim * 1.7 + this.id;
       const wob = 0.012 + this.suppression * 0.05;
       this._v.x += Math.sin(wobbleT) * wob * dist * 0.12;
       this._v.y += Math.sin(wobbleT * 1.7 + 1.1) * wob * dist * 0.08;
@@ -2324,9 +2329,15 @@ export class Agent {
     // invisible actors from the shadow cascades — is untouched and still
     // camera-keyed in `_updateRelevance`, because pixels belong to the frame.
     //
-    // `time.elapsed`, not wall clock: simulation time, advanced on the tick,
-    // carried by every rewind harness.
-    an.update(dt, this.ctx.time.elapsed);
+    // `time.sim`, not `time.elapsed`. The note that used to sit here said
+    // `elapsed` was "simulation time, advanced on the tick, carried by every
+    // rewind harness" — it is none of those things. `Engine.step` advances it
+    // once per FRAME by that frame's delta, before the fixed loop, so it is
+    // frame time wearing a simulation name, and this line was the stated
+    // justification for feeding it to a pose that decides where rounds land.
+    // `time.sim` is `tick * FIXED_DT`: exact per step, and it rewinds with the
+    // tick every snapshot already carries.
+    an.update(dt, this.ctx.time.sim);
   }
 
   /** Push the hit capsules onto the animated skeleton. */

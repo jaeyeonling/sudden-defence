@@ -67,15 +67,28 @@
  * implementation, which is a large, permanent tax on a codebase that generates
  * all of its geometry procedurally.
  *
- * WHAT IT ACTUALLY SAYS TODAY: NOT YET
+ * WHAT IT SAYS NOW THAT THE CONTROL IS CLEAN
  *
- *     chromium vs chromium#control   25/1777 leaves differ after 240 ticks
- *     chromium vs firefox           190/1777
+ *     chromium vs chromium#control   IDENTICAL — boot, injected AND stepped
+ *     chromium vs firefox            1/2287 leaves differ after 240 ticks
+ *                                    (`ai.agents[2].s.animator.phase`)
  *
- * The control is two processes of the SAME engine, injected with the same state
- * and fed the same commands. It should be 0 and it is 25, so the cross-engine
- * number is noise plus signal and this tool separates neither. 190 against 25 is
- * suggestive and that is all it is.
+ * It used to read 25/1777 and 190/1777, and the 25 was the tool's own noise: two
+ * processes were not merely out of phase at boot, they were building DIFFERENT
+ * WORLDS, because `Engine` drew its master seed from `Math.random()`. Every
+ * engine now boots with `?seed=` and `?lockstep=1` and the control is 0.
+ *
+ * Which finally makes the cross-engine number a measurement rather than an upper
+ * bound on noise plus signal. ONE leaf after 240 driven ticks, and it is exactly
+ * the shape the audit at the top predicted: `phase` advances by `dt * strideHz`,
+ * `strideHz` comes off `st.speed`, and speed is computed with `hypot` — which the
+ * spec leaves implementation-approximated. Not a structural disagreement; a
+ * last-bit one, in the place the transcendental audit said to look.
+ *
+ * THAT IS NOT YET AN ANSWER ABOUT THE ARCHITECTURE. Divergence compounds, and one
+ * leaf at 240 ticks says nothing about a thousand. Whether it stays at one, or
+ * grows into where a round lands, is the measurement that actually picks the
+ * netcode — and it is now available to be made, which it was not this morning.
  *
  * The control's noise has a known address: state the snapshot does not carry.
  * `tools/perceive.mjs` established that bot rigs are posed in `ai.lateUpdate`,
@@ -149,22 +162,39 @@
  * means either capturing the bones after all, or removing the lag by posing on
  * every step so that pose and drivers are never out of phase.
  *
- * Two more findings survive the inconclusive verdict, because neither depends on
- * the control being clean:
+ * TWO FINDINGS THAT WERE RECORDED HERE AS STANDING, AND ARE BOTH OVERTURNED.
+ * They are kept in full because the reasoning that produced them was sound and
+ * the conclusions still were not — which is the more useful thing to remember.
  *
- *   BOOT IS NOT REPRODUCIBLE ACROSS ENGINES. ~150 leaves differ before a single
+ *   BOOT IS NOT REPRODUCIBLE ACROSS ENGINES. "~150 leaves differ before a single
  *   driven tick, including bot spawn positions by 1.6 m. `__READY__` waits on
  *   three rAF frames and engines deliver them at different wall-clock times, so
- *   the free-running boot consumes `ai.rng` a different number of times.
+ *   the free-running boot consumes `ai.rng` a different number of times."
  *
- *   THE LEVEL BAKE IS ENGINE-DEPENDENT. `ai.cover.points` has a different LENGTH
- *   on the two engines (364 vs 360) — not different values, a different number
- *   of cover points extracted from the same level. `restoreState` writes values
- *   but does not resize, so injection cannot hide it (`--ignore=ai.cover` sets
- *   it aside to ask the step-loop question separately). A deterministic netcode
- *   would need the bake shipped rather than recomputed per client.
+ *   NOW: `boot (pre-inject) identical`, chromium against firefox. The rAF
+ *   diagnosis was a real mechanism but only half the cause — `Engine` also drew
+ *   its MASTER SEED from `Math.random()`, so the engines were not out of phase
+ *   in one world, they were in two. `?seed=` plus `?lockstep=1` and the boot
+ *   reproduces across engines exactly.
+ *
+ *   THE LEVEL BAKE IS ENGINE-DEPENDENT. "`ai.cover.points` has a different
+ *   LENGTH on the two engines (364 vs 360) — not different values, a different
+ *   number of cover points extracted from the same level. A deterministic
+ *   netcode would need the bake shipped rather than recomputed per client."
+ *
+ *   NOW: the boot dump is identical, `ai.cover` included, so the bake is a
+ *   function of the seed and not of the engine. The different LENGTH was
+ *   downstream of the different world, not of different arithmetic. Nothing has
+ *   to be shipped that the seed cannot rebuild. (`--ignore=ai.cover` stays; it
+ *   costs nothing and the day it is needed again it will be for a real reason.)
+ *
+ * BOTH WERE MEASURED ON UNSEEDED WORLDS, which is the same defect this tool now
+ * guards against in others: a finding taken from a scenario that was never the
+ * same twice. It cost two architectural conclusions, one of them ("ship the
+ * bake") a substantial piece of work that turned out to be unnecessary.
  *
  *   node tools/crossengine.mjs [--ticks=240] [--engines=chromium,firefox]
+ *                              [--seed=N]  which world every engine builds
  *                              [--rows=12] [--port=5173] [--ignore=a.b,c.d]
  */
 import { chromium, firefox, webkit } from 'playwright';
@@ -180,6 +210,8 @@ const args = Object.fromEntries(
 const PORT = Number(args.port ?? 5173);
 const TICKS = Number(args.ticks ?? 240);
 const ROWS = Number(args.rows ?? 12);
+/** Master rng seed handed to EVERY engine. Pins which world is compared. */
+const SEED = Number(args.seed ?? 0x5eed1234) >>> 0;
 const LAUNCHERS = { chromium, firefox, webkit };
 const ENGINES = String(args.engines ?? 'chromium,firefox')
   .split(',')
@@ -228,8 +260,16 @@ if (!(await portOpen(PORT))) {
  * tick 0 — not a last-bit disagreement but a different draw from `ai.rng`,
  * because `__READY__` waits on THREE rAF FRAMES and two engines take different
  * wall-clock times to deliver them. That is the harness, not the mathematics.
- * (`lockstep=1` fixes the boot, but it implies `capture=1`, which suppresses
- * `populate()` and leaves an empty arena.)
+ *
+ * THE PARENTHETICAL THAT USED TO SIT HERE IS OUT OF DATE. It read "`lockstep=1`
+ * fixes the boot, but it implies `capture=1`, which suppresses `populate()` and
+ * leaves an empty arena" — a real constraint, and it has been removed rather
+ * than worked around: `lockstep` is independent of capture mode now, and
+ * `?seed=` pins the master rng without pinning anything else. This harness boots
+ * every engine with both. That closes the rAF-phase half of the divergence AND
+ * the half nobody had named — `Engine` drew its master seed from `Math.random()`,
+ * so the two processes were not merely out of phase, they were building
+ * different worlds and the 1.6 m spawn gap above is what that looks like.
  */
 const PROBE = async ({ TICKS, INJECT, NOFIRE }) => {
   const e = window.__ENGINE__;
@@ -649,7 +689,26 @@ for (const label of PLAN) {
   page.on('pageerror', (e) => errors.push(e.message));
   let out;
   try {
-    await page.goto(`http://127.0.0.1:${PORT}/?prewarm=0`, { waitUntil: 'load' });
+    // `seed` pins the world and `lockstep=1` pins the boot.
+    //
+    // BOTH ENGINES GET THE SAME ONES, which is the point: this file's own header
+    // records "BOOT IS NOT REPRODUCIBLE ACROSS ENGINES — ~150 leaves differ
+    // before a single driven tick, including bot spawn positions by 1.6 m",
+    // diagnosed as `__READY__` waiting on three rAF frames that arrive at
+    // different wall-clock times, so the free-running boot consumes `ai.rng` a
+    // different number of times. That diagnosis was right about the mechanism
+    // and incomplete about the cause: `Engine` also drew its master seed from
+    // `Math.random()`, so the two processes were not merely out of phase, they
+    // were building different worlds. `?seed=` and `?lockstep=1` (both split out
+    // of capture mode, which suppresses `ai.populate`) remove each half.
+    //
+    // What this cannot fix is engine-dependent arithmetic during the bake — see
+    // THE LEVEL BAKE IS ENGINE-DEPENDENT below, which is a different finding and
+    // survives a pinned seed by construction.
+    await page.goto(
+      `http://127.0.0.1:${PORT}/?prewarm=0&lockstep=1&seed=${SEED}`,
+      { waitUntil: 'load' }
+    );
     await page.waitForFunction('window.__READY__ === true', null, { timeout: 180000 });
     out = await page.evaluate(PROBE, { TICKS, INJECT: inject, NOFIRE: !!args.nofire });
     if (!out?.fatal && out?.snapshot) inject = out.snapshot;

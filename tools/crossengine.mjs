@@ -85,10 +85,34 @@
  * spec leaves implementation-approximated. Not a structural disagreement; a
  * last-bit one, in the place the transcendental audit said to look.
  *
- * THAT IS NOT YET AN ANSWER ABOUT THE ARCHITECTURE. Divergence compounds, and one
- * leaf at 240 ticks says nothing about a thousand. Whether it stays at one, or
- * grows into where a round lands, is the measurement that actually picks the
- * netcode — and it is now available to be made, which it was not this morning.
+ * AND AT 1200 TICKS IT IS STILL ONE LEAF. The same one.
+ *
+ *     chromium vs chromium#control   identical
+ *     chromium vs firefox            1/2324 — `ai.agents[2].s.animator.phase`
+ *
+ * Ten seconds of simulation and the disagreement did not compound. That is the
+ * opposite of what 190/1777 implied, and it is the first evidence this project
+ * has that a deterministic architecture is not dead on arrival. Read it as
+ * evidence and not as a verdict: `phase` drives the pose, the pose drives
+ * `syncHitboxes`, and a round landing on a different bone is exactly how one
+ * leaf becomes many. It did not happen in THIS span; a span with the right shot
+ * at the right moment is a different measurement.
+ *
+ * THE CHEAP HALF OF THE FIX IS ALREADY NAMED AT THE TOP OF THIS FILE, and it took
+ * until now to notice. The audit says IEEE 754 pins "+, -, *, / and sqrt to a
+ * correctly-rounded result" and leaves `hypot` among the approximated ones — but
+ * `hypot(x, y, z)` IS `sqrt(x*x + y*y + z*z)` up to overflow handling, and that
+ * spelling is correctly rounded everywhere. So the 75 `hypot` call sites in the
+ * audit (physics 45, ai 18, player 12) are not part of the "large, permanent
+ * tax" the header warns about; they are a mechanical substitution that costs
+ * only the overflow range `hypot` exists to protect, which nothing at game
+ * coordinates needs. The genuinely hard residue is `sin`/`cos`/`atan2`/`exp`/
+ * `acos`, and the divergence measured here traces back through `speed` to
+ * distances — i.e. to the cheap half.
+ *
+ * That substitution is a separate change with its own gates (75 sites, and
+ * `profile.mjs` should see it), and it is the obvious next move on the netcode
+ * question rather than something to fold into a tool commit.
  *
  * The control's noise has a known address: state the snapshot does not carry.
  * `tools/perceive.mjs` established that bot rigs are posed in `ai.lateUpdate`,

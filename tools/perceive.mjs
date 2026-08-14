@@ -94,21 +94,42 @@
  * `--induce=drawnhead` first; if it still passes, the gate has a blind spot
  * worth closing before it is trusted with that class.
  *
- * THE SCENARIO HAS NOW BEEN TIGHTENED AND THAT RE-RUN IS DONE. The blind spot
- * is real and it is worse than "it still passes":
+ * THERE IS NO BLIND SPOT. THE SCENARIO NEVER STAGED THE QUESTION.
  *
- *     clean       8 field(s), worst 1.065e-3
- *     induced     8 field(s), worst 1.065e-3
+ * The re-run was done, on a pinned world with a clean baseline, and
+ * `--induce=drawnhead` still scored 0 against a clean 0. Three explanations
+ * were checked in order, and only the third survives:
  *
- * Identical, field for field and worst for worst. Putting perception back on the
- * drawn pose changes NOTHING this gate can measure on this scenario, so a green
- * from `--induce=drawnhead` never ruled that defect out and a red would not have
- * convicted it either. The verdict used to print "the gate sees it" for any
- * non-zero induced number, which was reading the BASELINE's spread and crediting
- * it to the induction; it now compares the two.
+ *   the induction is broken?   No. It resolves the prototype from a live
+ *                              combatant and dies fatal if `simHead` is not an
+ *                              own descriptor there, and `Combatant.position`
+ *                              still resolves to `movement.renderPosition`, so
+ *                              the swap really does hand back a drawn pose.
+ *   something masks it?        No. `--induce=drawnhead --isolate=player:footstep`
+ *                              — induce the defect AND cut the channel suspected
+ *                              of overwriting it — is still 0. That combination
+ *                              did not exist before; it does now.
+ *   nothing to act on?         YES.
  *
- * Until the baseline's own spread is settled, this gate cannot price the class
- * of defect it was built for.
+ *     guard 3   a bot had a visible target on 100% of sampled ticks
+ *     guard 3b  that target was the PLAYER on 0%
+ *
+ * An `Agent` has no `renderPosition` and no `feetPosition`, so for a BOT target
+ * `head` and `simHead` are the same vector and the induction is a no-op. The
+ * whole interpolated-pose defect class exists only for the player, and in this
+ * span the bots fight each other from the first tick to the last. The induction
+ * had nothing to bite.
+ *
+ * So the note this replaces — "this gate cannot see the defect it was built
+ * for" — was wrong, and guard 3 is why it survived: the guard exists to catch
+ * exactly this kind of vacuity and it was measuring a PROXY. "Somebody saw
+ * something" is not "somebody saw the thing whose pose is interpolated". `3b`
+ * asks the real question and fails the run when `--induce=drawnhead` is asked
+ * for without it.
+ *
+ * WHAT IS STILL UNKNOWN: whether this gate can price that defect class at all.
+ * Nothing here has tested it, and nothing could have. That needs a scenario
+ * where a bot holds the PLAYER — which is a scenario change, not a gate change.
  *
  * TWO OTHER HYPOTHESES DIED, recorded so nobody kills them twice:
  *
@@ -680,6 +701,14 @@ const out = await page.evaluate(
         rows.push({
           id: a.id,
           visible: a.targetVisible ? 1 : 0,
+          // NOT scored — `FIELDS` decides the verdict and this is not in it.
+          // Guard 3 needs it: `--induce=drawnhead` swaps `simHead` for the DRAWN
+          // head, and only the player has a drawn pose to differ from its sim
+          // one. An Agent has no `renderPosition` and no `feetPosition`, so for
+          // a bot target `head` and `simHead` are the same vector and the
+          // induction is a no-op. A span where bots only ever fight each other
+          // cannot exercise that defect no matter how long it runs.
+          onPlayer: a.targetVisible && a.target?.isPlayer ? 1 : 0,
           awareness: a.awareness,
           age: Number.isFinite(a.lastKnownAge) ? a.lastKnownAge : -1,
           x: a.lastKnown.x, y: a.lastKnown.y, z: a.lastKnown.z,
@@ -898,7 +927,11 @@ const out = await page.evaluate(
       // works" when in fact bots saw the player throughout and had lost him by
       // the last frame.
       let sawTicks = 0;
-      for (const rows of byTick.values()) if (rows.some((r) => r.visible === 1)) sawTicks++;
+      let sawPlayerTicks = 0;
+      for (const rows of byTick.values()) {
+        if (rows.some((r) => r.visible === 1)) sawTicks++;
+        if (rows.some((r) => r.onPlayer === 1)) sawPlayerTicks++;
+      }
 
       return {
         fps, frames,
@@ -908,6 +941,7 @@ const out = await page.evaluate(
         lerpProbe,
         rows: perception(),
         sawTicks,
+        sawPlayerTicks,
         samples: byTick.size,
         series: [...byTick.entries()].map(([t, rows]) => [t, rows]),
         deep: byTickDeep ? [...byTickDeep.entries()].map(([t, rows]) => [t, rows]) : null,
@@ -921,9 +955,18 @@ const out = await page.evaluate(
     // differs is the one thing being varied.
     const isolated = ISOLATE ? sweep(ISOLATE) : null;
     const induced = INDUCE ? sweep(null, true) : null;
+    // BOTH AT ONCE — the only way to ask whether a channel is MASKING the
+    // induced defect. `--induce=drawnhead` puts perception back on the drawn
+    // pose, which differs 4.2 cm between rates (guard 2), and the gate still
+    // scores zero. Either it cannot see that class at all, or something
+    // overwrites the induced value before the sample: sight sets `lastKnown`
+    // from the head, and `_onHeard` sets it from a SIM position, so a loud
+    // enough cue arriving often enough erases the difference every tick.
+    // Cutting the suspected masker while the defect is induced separates those.
+    const inducedIsolated = INDUCE && ISOLATE ? sweep(ISOLATE, true) : null;
 
     return {
-      kTick, warmed, waited, snapHash, runs, isolated, induced,
+      kTick, warmed, waited, snapHash, runs, isolated, induced, inducedIsolated,
       isolate: ISOLATE, induce: INDUCE,
       agents: ai?.agents?.length ?? 0,
     };
@@ -1008,6 +1051,27 @@ if (!minSaw) {
 } else {
   const pct = runs.map((r) => `${r.fps}fps ${Math.round((r.sawTicks / r.samples) * 100)}%`).join(' · ');
   console.log(`  guard 3: a bot had a visible target on ${pct} of sampled ticks`);
+}
+
+/* ---- guard 3b: was the target the PLAYER? ----------------------------- */
+//
+// "A bot saw something" is not the same question as "a bot saw the thing whose
+// pose is interpolated". An Agent has no `renderPosition` and no `feetPosition`,
+// so for a BOT target `head` and `simHead` are the same vector — the whole
+// interpolated-pose defect class only exists for the player. A span of bots
+// fighting each other exercises none of it, however long it runs and however
+// busy it looks, and guard 3 passes at 100% throughout.
+const minSawPlayer = Math.min(...runs.map((r) => r.sawPlayerTicks ?? 0));
+const pctP = runs.map((r) => `${r.fps}fps ${Math.round(((r.sawPlayerTicks ?? 0) / r.samples) * 100)}%`).join(' · ');
+console.log(`  guard 3b: that target was the PLAYER on ${pctP} of sampled ticks`);
+if (!minSawPlayer && out.induce === 'drawnhead') {
+  // Only fatal for the induction that needs it. The gate's own verdict is about
+  // perception in general and does not require the player to be the target.
+  fail.push(
+    `guard 3b: no bot ever held the PLAYER as a visible target, and --induce=drawnhead only ` +
+      `differs for the player — the induction had nothing to act on, so "did not go red" says ` +
+      `nothing about the gate`
+  );
 }
 
 /* ---- the question --------------------------------------------------- */
@@ -1371,6 +1435,20 @@ if (out.induced) {
   // the induction's name, and the question — can this gate SEE the defect it was
   // built for — is answered by whether the induction MOVED the number.
   const same = ind.diffs.length === base.diffs.length && ind.worst === base.worst;
+  // MASKING TEST. A defect this gate cannot see is either outside its reach or
+  // being erased before it samples. If inducing changes nothing on its own but
+  // changes something once a channel is cut, that channel was overwriting the
+  // induced value — which is a fact about the SCENARIO, not about the defect.
+  if (out.inducedIsolated) {
+    const mi = score(out.inducedIsolated);
+    console.log(`    induced + no ${out.isolate.padEnd(11)} ${String(mi.diffs.length).padStart(3)} field(s), worst ${mi.worst.toExponential(3)}`);
+    if (!ind.diffs.length && mi.diffs.length) {
+      console.log(`    => "${out.isolate}" was MASKING it. The defect is inside this gate's reach;`);
+      console.log(`       the scenario was overwriting the induced value before the sample.`);
+    } else if (!ind.diffs.length && !mi.diffs.length) {
+      console.log(`    => not masked by "${out.isolate}" either — the gate's blindness is its own.`);
+    }
+  }
   if (!ind.diffs.length) {
     fail.push(`induced "${out.induce}" did NOT go red — this gate cannot see the defect it was built for, so its green means nothing`);
   } else if (same) {

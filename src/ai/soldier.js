@@ -927,11 +927,11 @@ export function buildSoldier(name, { rng, materials, accent = null }) {
 /**
  * Every material slot a soldier's geometry is grouped by, IN THE ORDER
  * `CharacterBuilder.build()` emits them — which is the order the parts are added
- * above, deduplicated. All three variants use all nine.
+ * above, deduplicated. All three variants use all ten.
  *
  * THE ORDER IS LOad-BEARING, and this is not a style preference. `THREE.Material`
  * hands out globally incrementing ids and three sorts the opaque render list by
- * `material.id` (`painterSortStable`), including the nine groups *within* one
+ * `material.id` (`painterSortStable`), including the ten groups *within* one
  * soldier. Create them in a different order and the goggle lens draws before its
  * frame instead of after it; with a depth prepass in front, whichever coplanar
  * surface is drawn last wins the equal-depth test. MEASURED: prewarming these in
@@ -939,7 +939,7 @@ export function buildSoldier(name, { rng, materials, accent = null }) {
  * the pixel gate. `buildSoldier` asserts the order below still matches.
  */
 export const MATERIAL_SLOTS = Object.freeze([
-  'cloth', 'gear', 'boot', 'rubber', 'plate', 'polymer', 'skin', 'glass', 'steel', 'team',
+  'cloth', 'team', 'gear', 'boot', 'rubber', 'plate', 'polymer', 'skin', 'glass', 'steel',
 ]);
 
 /**

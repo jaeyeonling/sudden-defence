@@ -127,9 +127,25 @@
  * asks the real question and fails the run when `--induce=drawnhead` is asked
  * for without it.
  *
- * WHAT IS STILL UNKNOWN: whether this gate can price that defect class at all.
- * Nothing here has tested it, and nothing could have. That needs a scenario
- * where a bot holds the PLAYER — which is a scenario change, not a gate change.
+ * THAT SCENARIO EXISTS NOW, AND THE QUESTION IS CLOSED. `--stage=playertarget`
+ * resets one enemy bot into the player's forward lane (LOS-checked, out loud if
+ * no lane is clear) and waits for GENUINE acquisition — the bot's own
+ * range/cone/LOS pass, nothing written into perception by hand. Guard 3b goes
+ * from 0% to ~88%, and with the question actually staged:
+ *
+ *     clean       0 field(s)
+ *     induced    59 field(s), worst 1.861e+1   — 18.6 METRES
+ *
+ * The gate sees the defect class it was built for, and sees it loudly: put
+ * perception back on the drawn head while a bot is watching the player and
+ * `lastKnown` ends up eighteen metres rate-dependent inside two seconds; keep
+ * it on the fixed-step head and every rate matches to the bit.
+ *
+ * Which also closes the oldest open item in this header: the routing of
+ * perception to `simHead` (§3.5) was adopted on principle after the commit that
+ * claimed to justify it was found reading a contaminated measurement. This is
+ * the uncontaminated version — clean control, pinned world, staged question,
+ * 0 against 59 — and the principle now has its measurement.
  *
  * TWO OTHER HYPOTHESES DIED, recorded so nobody kills them twice:
  *
@@ -362,6 +378,7 @@
  *                           [--seed=N]           which world to measure
  *                           [--trace=<event>]    diff one channel's stream
  *                           [--deep]             what parts FIRST, wider than the verdict
+ *                           [--stage=playertarget]  reset an enemy bot to hold the PLAYER
  *                           [--isolate=<event>]  cut one channel, same snapshot
  *                           [--induce=drawnhead|frameevents]  put a defect back
  */
@@ -463,7 +480,7 @@ await page.goto(
 await page.waitForFunction("window.__READY__ === true", null, { timeout: 120000 });
 
 const out = await page.evaluate(
-  async ({ RATES, TICKS, NOLOD, ISOLATE, INDUCE, TRACE, DEEP }) => {
+  async ({ RATES, TICKS, NOLOD, ISOLATE, INDUCE, TRACE, DEEP, STAGE }) => {
     const e = window.__ENGINE__;
     const ctx = e.ctx;
     const SIM_IDS = ['physics', 'match', 'world', 'weapons', 'player', 'ai'];
@@ -622,6 +639,56 @@ const out = await page.evaluate(
     while (!anyVisible() && waited < 3600) { tick1(); waited++; }
     if (!anyVisible()) {
       return { fatal: `no bot acquired the player within ${waited} ticks of the live phase — nothing to measure` };
+    }
+
+    // `--stage=playertarget` — make a bot hold the PLAYER before the snapshot.
+    //
+    // The comment above says "while someone is actually looking at the player",
+    // and guard 3b measured what the wait actually delivers: a bot with A
+    // target on 100% of ticks, the PLAYER as that target on 0%. The bots fight
+    // each other; the player stands unnoticed at spawn. That vacuity is what
+    // acquitted `--induce=drawnhead` twice — an `Agent` has no interpolated
+    // pose, so a defect that lives in the drawn head has nothing to bite until
+    // somebody is looking at the one combatant who has one.
+    //
+    // Staging RESETS one enemy bot into the player's forward lane, facing back
+    // at them, and then WAITS for genuine acquisition — the bot's own
+    // range/cone/LOS pass sets `target`, nothing is written into perception
+    // state by hand. `reset` is the same entry `match` uses between rounds, so
+    // the staged world is one the simulation could have produced. The spot is
+    // walked outward along the player's facing until the head-to-head ray is
+    // clear, because a stage the level geometry happens to block would recreate
+    // the very vacuity this exists to remove — and if no clear spot exists the
+    // run says so out loud rather than measuring nothing.
+    let staged = null;
+    if (STAGE === 'playertarget') {
+      const phys_ = ctx.peek('physics');
+      const player = ctx.get('player'); // shadows the later declaration on purpose — staging runs first
+      const bot = (aiSys?.agents ?? []).find((a) => a.alive && a.team !== player.team);
+      if (!bot) return { fatal: 'stage=playertarget: no living enemy bot to stage' };
+      const yaw = player.aimYaw ?? 0;
+      // Player forward in world space — see `health.js`: forward at yaw is (-sin, -cos).
+      const fx = -Math.sin(yaw);
+      const fz = -Math.cos(yaw);
+      const eye = { x: player.aimOrigin.x, y: player.aimOrigin.y, z: player.aimOrigin.z };
+      let spot = null;
+      for (const d of [6, 9, 12, 15]) {
+        const c = { x: eye.x + fx * d, y: eye.y, z: eye.z + fz * d };
+        if (phys_?.lineOfSight?.(eye, c, phys_.MASK.SIGHT)) { spot = { d, x: c.x, z: c.z }; break; }
+      }
+      if (!spot) return { fatal: 'stage=playertarget: no clear lane in front of the player at 6-15 m' };
+      // Face the bot back along the lane. `reset` speaks the AI convention,
+      // which differs from world yaw by PI — `aiYaw` is its own inverse, and
+      // `friendfoe.mjs` applies the same +PI for the same reason.
+      const back = Math.atan2(-fx, -fz) + Math.PI;
+      bot.reset(new (player.aimOrigin.constructor)(spot.x, player.feetPosition.y, spot.z), back);
+      let stagedWait = 0;
+      const acquired = () => bot.alive && bot.targetVisible && bot.target?.isPlayer;
+      while (!acquired() && stagedWait < 600) { tick1(); stagedWait++; }
+      if (!acquired()) {
+        return { fatal: `stage=playertarget: bot #${bot.id} did not acquire the player within ${stagedWait} ticks at ${spot.d} m` };
+      }
+      staged = { bot: bot.id, dist: spot.d, stagedWait };
     }
 
     /* ---- the starting gun ----------------------------------------------- */
@@ -966,7 +1033,7 @@ const out = await page.evaluate(
     const inducedIsolated = INDUCE && ISOLATE ? sweep(ISOLATE, true) : null;
 
     return {
-      kTick, warmed, waited, snapHash, runs, isolated, induced, inducedIsolated,
+      kTick, warmed, waited, snapHash, staged, runs, isolated, induced, inducedIsolated,
       isolate: ISOLATE, induce: INDUCE,
       agents: ai?.agents?.length ?? 0,
     };
@@ -976,6 +1043,7 @@ const out = await page.evaluate(
     NOLOD: !!args.nolod,
     TRACE: typeof args.trace === 'string' ? args.trace : null,
     DEEP: !!args.deep,
+    STAGE: typeof args.stage === 'string' ? args.stage : null,
     ISOLATE: typeof args.isolate === 'string' ? args.isolate : null,
     INDUCE: typeof args.induce === 'string' ? args.induce : null,
   }
@@ -1011,6 +1079,7 @@ console.log(`  ${out.agents} bots`);
 // ran different scenarios, and a difference between them says nothing. Every
 // isolation claim in this tool's history rests on this being checked.
 console.log(`  scenario: warmed ${out.warmed} + settle 360 + waited ${out.waited} -> snapshot at tick ${out.kTick}, world ${out.snapHash}`);
+if (out.staged) console.log(`  staged: bot #${out.staged.bot} reset into the player's lane at ${out.staged.dist} m, acquired in ${out.staged.stagedWait} ticks`);
 
 /* ---- the span has to be the same span at every rate ------------------- */
 for (const r of runs) {

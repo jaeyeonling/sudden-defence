@@ -32,9 +32,11 @@ import { dsin } from '../core/dmath.js';
  *    was simply a worse rifle: less damage, more spread, no compensating
  *    strength anywhere on the map.
  *
- *    `maxRange` is now the distance at which a weapon reaches its damage floor,
- *    scaled to the map (longest sightline ~36 m, diagonal 60 m). It is no longer
- *    "how far the round flies" — the trace still reaches, the damage does not.
+ *    The fix was to SPLIT the field rather than redefine it. `falloffRange`
+ *    (55 / 30 / 38 m) is the distance at which a weapon reaches its damage
+ *    floor, scaled to the map (longest sightline ~36 m, diagonal 60 m);
+ *    `maxRange` stays at 200 and stays what it always was, a bound on how far
+ *    the trace runs. The round still reaches; the damage does not.
  *
  * 2. THE HIPFIRE CONE WAS THREE TIMES A TORSO. `spreadHip` is a HALF-angle
  *    applied as `tan(spread) * disc`, so 2.05 degrees is 0.72 m of radius at
@@ -240,27 +242,6 @@ export const WEAPON_DEFS = {
      */
     hipPos: [0.105, -0.202, -0.38],
     hipRot: [-0.03, 0.048, -0.091],
-    /* Eye to the rear lens.
-     *
-     * MEASURED FROM THE ADS FRAME, not chosen for realism. Two numbers have to
-     * come out right and they pull in opposite directions:
-     *
-     *   housing size     the 31 mm tube's outer rim subtends rOuter/relief. At
-     *                    0.078 that was 256 px of radius — a 512 px ring, HALF
-     *                    the frame height, and every critic called the optic
-     *                    oversized. 0.115 puts it at 168 px (336 px across,
-     *                    31% of frame height), which is where a modern shooter
-     *                    frames a tube sight.
-     *   sight picture    is stopped by the objective bore at (relief + len), so a
-     *                    LONGER relief improves the picture-to-housing ratio:
-     *                    (relief)/(relief+len) goes from 0.53 to 0.69.
-     *
-     * So both wanted the same thing and the old value was simply too close. With
-     * the 52 mm tube and the flared bore (see parts.js buildOptic) this lands the
-     * clear aperture at 115 px against a 168 px housing. */
-    /* Sprint: gun dropped and angled across the body, muzzle down-left.
-     * Carried over by the same delta as the hip pose so the blend does not
-     * translate the weapon 90 mm sideways on the way into a sprint. */
     swayScale: 1,
     bobScale: 1,
     magLen: 0.212,
@@ -485,7 +466,7 @@ export const WEAPON_DEFS = {
        * to learn — every shot is a decision, and a first-shot multiplier would
        * only mean "your deliberate shots kick harder than your careless ones",
        * which is backwards. The per-shot kick is the largest of the three
-       * (0.0125 rad) so that mashing walks the muzzle off the target fast; the
+       * (0.0158 rad) so that mashing walks the muzzle off the target fast; the
        * wide drift means it does not walk in a straight, correctable line.
        */
       climbShape: [1.0],
@@ -518,9 +499,9 @@ export const WEAPON_DEFS = {
     drawTime: 0.42,
     holsterTime: 0.3,
     /* A pistol is held out on the arms rather than braced on the shoulder, so
-     * the hip pose is FURTHER from the eye than a carbine's and the ADS eye
-     * relief is most of an arm's length. 0.34 m keeps both elbows visibly bent;
-     * past ~0.40 m the two-bone solve hits full extension and they lock. */
+     * the hip pose sits FURTHER from the eye than a carbine's — most of an arm's
+     * length. 0.4 m keeps both elbows visibly bent; past ~0.42 m the two-bone
+     * solve hits full extension and they lock. */
     hipPos: [0.098, -0.162, -0.4],
     hipRot: [-0.028, 0.042, -0.075],
     swayScale: 1.15,

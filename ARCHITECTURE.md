@@ -100,10 +100,13 @@ Why it is not just a latch:
   pitch)` from its own `fixedUpdate`, because `core` may not name `player`
   (rule 3). Patches are refused once the tick is closed, so history is honest.
 
-Still on the render frame, deliberately: **firing**. `weapons` is welded to the
-viewmodel and the muzzle FX, and moving it is its own change — it would add
-`fire`/`reload` to `BTN` and read them from `current`. The format has room; the
-bits are not there yet because the work is not done.
+**Firing is on the tick too**, since `b7b42e2`. `BTN` carries `fire` and
+`reload` (`core/command.js`), `weapons.fixedUpdate` runs the trigger off
+`commands.current`, and the viewmodel and muzzle FX still ride the frame behind
+it — which is the split that made the move possible. What forced it was a
+measurement rather than tidiness: spread decay was integrated per frame, so how
+fast a cone recovered depended on the monitor. `tools/firerate.mjs` gates the
+result at five frame rates.
 
 ## Ownership map
 
@@ -119,7 +122,7 @@ bits are not there yet because the work is not done.
 | `match` | `src/match/` | teams, combatant registry, round FSM, scoring, spawn assignment | done (M3 registry, M5 rounds) |
 | `player` | `src/player/` | movement state machine, camera feel, health | done (M1); hitboxes now belong to `match` |
 | `ai` | `src/ai/` | bot characters, navigation, perception, combat behaviour | done (M4) |
-| `weapons` | `src/weapons/` | weapon meshes, viewmodel rig, recoil, spread, hitscan ballistics | M1 |
+| `weapons` | `src/weapons/` | weapon meshes, viewmodel rig, recoil, spread, hitscan ballistics | done (M7) |
 | `ui` | `src/ui/` | HUD, crosshair, hitmarkers, match bar, scoreboard, spectate | done (M6) |
 
 Shared, owned by the lead (do not edit): `src/core/`, `src/main.js`,

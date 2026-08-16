@@ -1212,6 +1212,19 @@ export function buildMagazine(asm, mats, o) {
  * centre in ADS, plus the aperture radius for the vignette.
  *
  * Built centred on (0, 0, 0) in optic space; the caller positions it.
+ *
+ * WHY THE TUBE IS 52 mm AND NOT 31. The proportions were solved against an eye
+ * relief this game no longer has — `defs.js` used to carry the derivation next
+ * to an `ads` field, and both went when ADS did — but the conclusion still
+ * governs what the player sees, because the optic is on screen in hipfire too.
+ * The two numbers pulled in opposite directions: the housing's outer rim
+ * subtends `rOuter / relief`, and at 0.078 m of relief the 31 mm tube drew a
+ * 512 px ring, HALF THE FRAME HEIGHT, which every critic called oversized;
+ * while the sight picture is stopped by the objective bore at `relief + len`,
+ * so a longer relief IMPROVES the picture-to-housing ratio (0.53 -> 0.69). Both
+ * wanted the same thing and the old value was simply too close. The 52 mm tube
+ * with the flared bore lands a 115 px aperture inside a 168 px housing — 31 %
+ * of frame height, where a modern shooter frames a tube sight.
  */
 export function buildOptic(asm, o) {
   const rTube = o.rTube ?? 0.0155;

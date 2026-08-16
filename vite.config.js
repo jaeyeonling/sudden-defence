@@ -13,7 +13,11 @@ export default defineConfig({
     hmr: process.env.OW_NO_HMR ? false : undefined,
   },
   preview: { host: '127.0.0.1' },
-  build: { target: 'es2022', sourcemap: true, chunkSizeWarningLimit: 4096 },
+  // `sourcemap: 'hidden'` — the map is still written, so a stack trace from a
+  // built bundle can be resolved by hand, but no `//# sourceMappingURL` comment
+  // ships and no browser fetches 6.5 MB to render a frame. `true` put a map
+  // four times the size of the bundle in front of every visitor.
+  build: { target: 'es2022', sourcemap: 'hidden', chunkSizeWarningLimit: 4096 },
   // Large binary game assets served verbatim.
   assetsInclude: ['**/*.ktx2', '**/*.hdr', '**/*.exr', '**/*.bin', '**/*.glb'],
 });

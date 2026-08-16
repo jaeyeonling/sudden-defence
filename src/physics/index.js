@@ -71,7 +71,8 @@ import { UNITS } from '../core/config.js';
 import { StaticWorld } from './bvh.js';
 import { CharacterController } from './character.js';
 import { RigidBody, RigidBodyWorld } from './rigidbody.js';
-import { Ragdoll, humanoidSpec, specFromSkeleton } from './ragdoll.js';
+import { humanoidSpec, specFromSkeleton } from './ragdoll-spec.js';
+import { Ragdoll } from './ragdoll.js';
 import { Ballistics } from './penetration.js';
 import { PhysicsDebugView } from './debug.js';
 import {

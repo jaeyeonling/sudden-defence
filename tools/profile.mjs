@@ -630,7 +630,6 @@ const result = await page.evaluate(([FRAMES, STALL_MS]) => new Promise((done) =>
     }
 
     // Drive gameplay: orbit the view, walk, and fire in bursts.
-    const t = i / 60;
     e.camera.rotation.y += 0.006;
     const mv = e.ctx.peek('player');
     if (mv) { try { e.input.down.add('KeyW'); } catch {} }

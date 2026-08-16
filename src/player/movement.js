@@ -260,7 +260,6 @@ export class Movement {
       wish.set(0, 0, 0);
       wishLen = 0;
     }
-    const forwardIntent = rawInput > 1e-4 ? my / rawInput : 0;
 
     // ---- discrete decisions, in priority order --------------------------
     this._updateStance(cmd);

@@ -731,7 +731,6 @@ const out = await page.evaluate(
 
     const player = ctx.get('player');
     const ai = ctx.peek('ai');
-    const BTN = e.commands.BTN ?? { fire: 1 };
 
     /**
      * What a bot knows, as comparable numbers.

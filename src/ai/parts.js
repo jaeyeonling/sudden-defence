@@ -14,7 +14,6 @@ import {
 } from './geo.js';
 import { datan2, dcos, dexp, dsin } from '../core/dmath.js';
 
-const V = (x, y, z) => [x, y, z];
 
 /** Cylindrical wrap about the Y axis — bends flat slabs around the torso. */
 export function bendY(mesh, radius, centreZ = 0) {

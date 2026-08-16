@@ -762,7 +762,6 @@ const out = await page.evaluate(
       const drawsA = readCounts();
       const expected = dumpAll();
       const nTick = ctx.time.tick;
-      const N_ = nTick;
 
       // Two separate questions, and conflating them cost a diagnosis.
       //

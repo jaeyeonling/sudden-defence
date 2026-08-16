@@ -282,8 +282,6 @@ const erf = (x) => {
   const s = Math.sign(x);
   const a = Math.abs(x);
   const t = 1 / (1 + 0.3275911 * a);
-  const y = 1 - ((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t * t
-    * Math.exp(-a * a) - 0;
   // Written out rather than golfed, because a wrong erf here is a wrong hit rate
   // everywhere and both look plausible.
   const poly = ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t;

@@ -201,7 +201,6 @@ const out = await page.evaluate(
 
       for (const fps of RATES) {
         const dt = 1 / fps;
-        const steps = Math.round(HOLD_S * fps);
         // Full magazine every run, refilled as it drains: this measures the
         // TRIGGER, and a reload partway through would measure the reload.
         const s = weapons.state;

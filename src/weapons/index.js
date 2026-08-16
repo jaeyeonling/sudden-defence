@@ -733,7 +733,6 @@ export class WeaponSystem {
   /* ====================================================================== */
 
   _onClipEvent(name, clipName) {
-    const s = this.state;
     const isReload = clipName === 'reloadTac' || clipName === 'reloadEmpty';
     switch (name) {
       case 'start':

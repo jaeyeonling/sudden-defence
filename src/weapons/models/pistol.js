@@ -6,7 +6,6 @@ import {
   buildMiniReflex,
   buildSlide,
   triggerPart,
-  cartridge,
 } from '../parts.js';
 
 /**

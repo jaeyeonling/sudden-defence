@@ -195,7 +195,6 @@ for (const pair of PAIRS) {
     const r = await page.evaluate(
       ({ pair, BUDGET }) => new Promise((done) => {
         const e = window.__ENGINE__;
-        const ai = e.ctx.get('ai');
         const ph = e.ctx.get('physics');
 
         // The two subjects were chosen and everyone else was unregistered in

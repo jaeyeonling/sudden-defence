@@ -487,7 +487,7 @@ function furnishShop(A, rng, r, cx, cz, w, d, _m) {
 
 // ----------------------------------------------------------------- living --
 function furnishLiving(A, rng, r, cx, cz, _w, _d, _m) {
-  const { x0, z0, x1, z1, y, h } = r;
+  const { x0, z0, x1, z1, y } = r;
   addRug(A, rng, cx, y, cz, rng.range(2.0, 2.8));
   A.put('mattress', x0 + 1.1, y, z1 - 0.9, rng.range(-0.1, 0.1), 1, [1, 1.1, 1]);
   A.box('fabric', x0 + 1.1, y + 0.1, z1 - 0.9, 1.9, 0.2, 0.9);

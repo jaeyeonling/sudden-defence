@@ -463,7 +463,6 @@ export class NavGrid {
         size++;
         const cx = cur % this.nx;
         const cz = (cur / this.nx) | 0;
-        const cy = this.floor[cur];
         for (let d = 0; d < 8; d++) {
           const dx = DX[d], dz = DZ[d];
           const ix = cx + dx, iz = cz + dz;

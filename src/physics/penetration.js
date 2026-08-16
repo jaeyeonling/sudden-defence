@@ -155,7 +155,7 @@ export class Ballistics {
       if (rng && props.deflect > 0) {
         const spread = props.deflect * frac;
         // Build an orthonormal frame around the current direction and yaw/pitch.
-        let ux = 0, uy = 1, uz = 0;
+        const ux = 0, uy = 1, uz = 0;
         if (Math.abs(dy) > 0.9) { ux = 1; uy = 0; }
         let rx = uy * dz - uz * dy, ry = uz * dx - ux * dz, rz = ux * dy - uy * dx;
         const rl = hypot3(rx, ry, rz) || 1;

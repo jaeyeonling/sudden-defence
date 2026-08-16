@@ -38,7 +38,6 @@ const args = Object.fromEntries(
 );
 const PORT = Number(args.port ?? 5173);
 const OUT = String(args.out ?? 'shots/play');
-const SECONDS = Number(args.seconds ?? 120);
 
 mkdirSync(OUT, { recursive: true });
 
@@ -368,7 +367,6 @@ const until = (fn, ms = 30000) =>
   page.waitForFunction(fn, null, { timeout: ms, polling: 'raf' }).then(() => true, () => false);
 
 const taken = [];
-const phase = () => page.evaluate(() => window.__ENGINE__.ctx.get('match').phase);
 
 // freeze: the opening hold
 if (await until(() => ['warmup', 'freeze'].includes(window.__ENGINE__.ctx.get('match').phase), 12000)) {

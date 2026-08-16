@@ -363,6 +363,9 @@ const out = await page.evaluate(
           if (!ag.hasTarget && ag.peeking && (ag.lastKnownAge ?? 99) < 2.2) {
             hold.onlyTarget++;
           }
+          // Parked, not dead: the question below is open and the collector is
+          // one edit from live.
+          // eslint-disable-next-line no-constant-condition
           if (false) {
             /**
              * A bot in COMBAT holding no target should not exist.

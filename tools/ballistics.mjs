@@ -128,7 +128,6 @@ const out = await page.evaluate(
     const match = e.ctx.get('match');
     const weapons = e.ctx.get('weapons');
     const player = e.ctx.get('player');
-    const ph = e.ctx.get('physics');
 
     match.stopMatch();
     player.setControlEnabled(false);
@@ -679,7 +678,7 @@ if (errors.length) fail.push(`page errors: ${errors.slice(0, 2).join(' | ')}`);
 
 console.log(JSON.stringify(out, null, 2));
 console.log('\n─── summary ' + '─'.repeat(58));
-for (const [id, w] of Object.entries(R)) {
+for (const [, w] of Object.entries(R)) {
   const l = w.lethality;
   console.log(
     `${w.label.padEnd(7)} ${String(w.measuredRpm).padStart(4)} rpm measured (print ${w.rpm}) · ` +

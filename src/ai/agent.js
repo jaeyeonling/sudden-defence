@@ -23,7 +23,7 @@
 import * as THREE from 'three';
 import { RIG } from './rig.js';
 import { Animator } from './animator.js';
-import { datan2, dcos, dsin, hypot2, hypot3 } from '../core/dmath.js';
+import { datan2, dcos, dquatFromEuler, dsin, hypot2, hypot3 } from '../core/dmath.js';
 
 const STATE = {
   IDLE: 'idle',
@@ -383,7 +383,13 @@ export class Agent {
     this.yaw = opts.yaw ?? 0;
     this.targetYaw = this.yaw;
     this.group.position.copy(this.position);
-    this.group.rotation.y = this.yaw;
+    // `dquatFromEuler`, not `.rotation.y =`. The Euler proxy converts through
+    // THREE's setFromEuler, which is native sin/cos — and this quaternion is
+    // the ROOT of every bone's matrixWorld, so its bits reach everything the
+    // pose feeds, ragdoll birth included. The bake gets away with native trig
+    // because walls sit at right angles, where every engine's sin/cos agree;
+    // a bot's yaw is an arbitrary angle, which is exactly where they do not.
+    dquatFromEuler(this.group.quaternion, 0, this.yaw, 0, 'XYZ');
     // The bones' world matrices are derived from the group's, so the group has
     // to be current before anything reads them — including the very first
     // animator pass and a same-frame ragdoll hand-off.
@@ -2293,7 +2299,8 @@ export class Agent {
 
   _drive(dt) {
     this.group.position.copy(this.position);
-    this.group.rotation.y = this.yaw;
+    // Same substitution as `reset` — see the note there.
+    dquatFromEuler(this.group.quaternion, 0, this.yaw, 0, 'XYZ');
     this.group.updateMatrixWorld(true);
 
     const moving = this.speed > 0.25;

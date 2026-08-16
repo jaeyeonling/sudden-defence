@@ -221,6 +221,22 @@ export const dlog = (x) => {
 };
 
 /**
+ * `cosh(x)` as its exp definition — deterministic by construction.
+ *
+ * Convicted through the level BAKE, by the longest chain of this hunt. Seed 1's
+ * corpses diverged cross-engine on QUIET-FALL ticks with every operation in the
+ * ragdoll solver pinned — which forced the conclusion that the solver's INPUT
+ * differed. The one input the state dump does not carry is the static world's
+ * triangle soup, and the bake shapes tarps and cables with `Math.cosh`
+ * catenaries. An engine-flavoured last bit in a triangle is invisible to every
+ * captured leaf until a corpse lands on it.
+ */
+export const dcosh = (x) => {
+  const e = dexp(x < 0 ? x : -x); // exp of the negative half avoids overflow order issues
+  return (1 / e + e) * 0.5;
+};
+
+/**
  * `tan(x)` as the sin/cos ratio — ~2 ulp, deterministic by construction.
  *
  * Substituted at the player's spread cone (`weapons/index.js`), which is the

@@ -360,7 +360,7 @@ if (!(await portOpen(PORT))) {
  * so the two processes were not merely out of phase, they were building
  * different worlds and the 1.6 m spawn gap above is what that looks like.
  */
-const PROBE = async ({ TICKS, INJECT, NOFIRE }) => {
+const PROBE = async ({ TICKS, INJECT, NOFIRE, RDWATCH }) => {
   const e = window.__ENGINE__;
   const ctx = e.ctx;
   const SIM_IDS = ['physics', 'match', 'world', 'weapons', 'player', 'ai'];
@@ -428,6 +428,22 @@ const PROBE = async ({ TICKS, INJECT, NOFIRE }) => {
   // BOOT — before anything is driven. Reported for the record; not the verdict.
   const startTick = ctx.time.tick;
   const boot = dump();
+  // THE TRIANGLE SOUP IS NOT IN THE DUMP, and it is an input to everything a
+  // corpse does. `captureState` excludes the bake (like `grid`) on the grounds
+  // that it is a function of the seed — which is only true if every operation
+  // that SHAPES it is pinned, and three.js's geometry generators place their
+  // circle vertices with the engine's own sin/cos. Hash the world's actual
+  // triangles (as bits, not values) so "the bake is identical" is measured
+  // instead of inherited from leaves that quantise the difference away.
+  {
+    const w = ctx.peek('physics')?.staticWorld;
+    if (w?.pos) {
+      const u32 = new Uint32Array(w.pos.buffer, w.pos.byteOffset, w.pos.length);
+      let h = 0x811c9dc5 >>> 0;
+      for (let i = 0; i < u32.length; i++) h = Math.imul(h ^ u32[i], 0x01000193) >>> 0;
+      boot.push(['physics.__bvhTriHash', `s:${w.triCount}·${h.toString(16)}`]);
+    }
+  }
 
   const round = ctx.peek('match')?.round;
   let warmed = 0;
@@ -698,10 +714,60 @@ const PROBE = async ({ TICKS, INJECT, NOFIRE }) => {
     phaseLog.__armed = false;
   }
 
+  // RDWATCH — per-tick corpse forensics, for the divergence that only appears
+  // on some seeds. Hash every ragdoll's particles every tick, and count the
+  // external impulses each receives, so the first differing tick can be read
+  // against "did anything from OUTSIDE touch it that tick". A divergence on an
+  // impulse tick indicts the impulse path; one on a quiet tick indicts the
+  // solver's own arithmetic.
+  const rdwatch = [];
+  if (RDWATCH && phys_) {
+    const RD = Object.getPrototypeOf(phys_.ragdolls?.[0] ?? {});
+    // The prototype may not exist yet (no corpse at span start); hook lazily
+    // through the factory instead, counting on the wrapped createRagdoll above.
+    const hookImpulse = (rd) => {
+      if (rd.__impHooked) return;
+      rd.__impHooked = true;
+      rd.__imp = 0;
+      const orig = rd.applyImpulse.bind(rd);
+      rd.applyImpulse = (...a) => { rd.__imp++; return orig(...a); };
+    };
+    rdwatch.hook = hookImpulse;
+    void RD;
+  }
+  const rdRow = () => {
+    const rows = [];
+    for (let r = 0; r < (phys_?.ragdolls?.length ?? 0); r++) {
+      const rd = phys_.ragdolls[r];
+      rdwatch.hook?.(rd);
+      // BITS, not quantised values. The first version hashed `(x * 1e7) | 0`
+      // and reported "births identical, first divergence on a quiet tick 60
+      // later" — both of which a sub-quantum divergence at birth would fake:
+      // a last-bit difference hides inside the quantum until the two values
+      // straddle an integer boundary, and whichever tick that happens on looks
+      // like the entry. The dump compares bit patterns for exactly this
+      // reason; the per-tick probe has to match it or it is a different (and
+      // worse) instrument.
+      let h = 0x811c9dc5 >>> 0;
+      const mixBits = (arr) => {
+        const u = new Uint32Array(arr.buffer, arr.byteOffset, rd.particleCount * 2);
+        for (let i = 0; i < u.length; i++) h = Math.imul(h ^ u[i], 0x01000193) >>> 0;
+      };
+      mixBits(rd.px);
+      mixBits(rd.py);
+      mixBits(rd.pz);
+      const imp = rd.__imp ?? 0;
+      if (rd.__imp !== undefined) rd.__imp = 0;
+      rows.push(`${h.toString(16)}:${imp}${rd.sleeping ? ':s' : ''}`);
+    }
+    return rows.join(' ');
+  };
+
   for (let i = 0; i < TICKS; i++) {
     phaseLog.__armed = i === 0;
     tick1();
     phaseLog.__armed = false;
+    if (RDWATCH) rdwatch.push([ctx.time.tick, rdRow()]);
     if (i < 2) {
       const fa = (ai1?.agents ?? []).find((a) => a.alive);
       const nb = fa?.animator?.bones?.[fa.animator.iNeck];
@@ -752,6 +818,7 @@ const PROBE = async ({ TICKS, INJECT, NOFIRE }) => {
     startTick, warmed, hookedEnd,
     liveTick: ctx.time.tick,
     boot, start, snapshot, trail, rlog, early, mutStack, phaseLog: [...phaseLog],
+    rdwatch: RDWATCH ? rdwatch.map((r) => r) : null,
     stepped: dump(),
     ua: navigator.userAgent,
   };
@@ -799,7 +866,7 @@ for (const label of PLAN) {
       { waitUntil: 'load' }
     );
     await page.waitForFunction('window.__READY__ === true', null, { timeout: 180000 });
-    out = await page.evaluate(PROBE, { TICKS, INJECT: inject, NOFIRE: !!args.nofire });
+    out = await page.evaluate(PROBE, { TICKS, INJECT: inject, NOFIRE: !!args.nofire, RDWATCH: !!args.rdwatch });
     if (!out?.fatal && out?.snapshot) inject = out.snapshot;
   } catch (err) {
     out = { fatal: `${name}: ${String(err?.message ?? err).split('\n')[0]}` };
@@ -945,6 +1012,36 @@ for (const r of results) {
       if (ea.look !== eb.look) { console.log(`        ${base.name.padEnd(16)} ${ea.look}`); console.log(`        ${r.name.padEnd(16)} ${eb.look}`); }
       for (const k of bad.slice(0, 3)) console.log(`      bone ${k}\n        ${base.name.padEnd(16)} ${ba[k]}\n        ${r.name.padEnd(16)} ${bb[k]}`);
       break;
+    }
+  }
+  if (base.out.rdwatch && r.out.rdwatch) {
+    // Per-tick corpse forensics. Each row is `hash:impulsesThisTick[:s]` per
+    // ragdoll; the first tick the hashes part, read against the impulse count
+    // ON that tick, splits "something from outside touched it" from "the
+    // solver's own arithmetic diverged on a quiet fall".
+    const rb = new Map(base.out.rdwatch);
+    let hit = null;
+    for (const [t, row] of r.out.rdwatch) {
+      const b = rb.get(t);
+      if (b === undefined) continue;
+      if (b !== row) { hit = { t, a: b, b: row }; break; }
+    }
+    if (!hit) {
+      console.log(`    rdwatch: every ragdoll hash matches on every tick`);
+    } else {
+      const da = hit.a.split(' ');
+      const db = hit.b.split(' ');
+      const bad = da.map((x, k) => (x !== db[k] ? k : -1)).filter((k) => k >= 0);
+      console.log(`    rdwatch: first differing tick ${hit.t} — ragdoll[${bad.join(',')}]`);
+      for (const k of bad) {
+        const [, impA] = da[k].split(':');
+        const [, impB] = db[k].split(':');
+        console.log(`      ragdoll[${k}]  ${base.name.padEnd(10)} ${da[k]}   ${r.name.padEnd(10)} ${db[k]}`);
+        console.log(`      impulses that tick: ${impA}/${impB} — ${impA !== '0' || impB !== '0' ? 'EXTERNAL TOUCH, indict the impulse path' : 'quiet fall, indict the solver arithmetic'}`);
+      }
+      // context: the surrounding births, to place the tick against a death
+      const births = (base.out.rlog ?? []).map((x) => `t${x.tick}·a${x.actor}`).join(' ');
+      if (births) console.log(`      births: ${births}`);
     }
   }
   if (base.out.rlog?.length || r.out.rlog?.length) {

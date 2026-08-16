@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { datan2, dcos, dexp, dsin, hypot3 } from '../core/dmath.js';
+import { datan2, dcos, dcosh, dexp, dsin, hypot3 } from '../core/dmath.js';
 
 /**
  * WORLD — geometry toolkit.
@@ -816,7 +816,7 @@ export function clothGeometry(w, h, opts = {}) {
       let x = (u - 0.5) * w;
       let y = (v - 0.5) * h;
       // catenary along the top edge, released as it descends
-      const cat = Math.cosh((u - 0.5) * 2.2) - 1;
+      const cat = dcosh((u - 0.5) * 2.2) - 1;
       let z = -cat * sag * (1 - v * 0.35);
       z += dsin(v * 7.1 + u * 3.3 + seed) * wrinkle * (0.4 + u * (1 - u) * 3);
       z += dsin(u * 11.3 + seed * 2) * wrinkle * 0.5 * v;
@@ -992,11 +992,11 @@ export function clothGeometry(w, h, opts = {}) {
 export function catenaryTube(from, to, sagAmt, radius, opts = {}) {
   const { seg = 12, radial = 4, jitter = 0 } = opts;
   const pts = [];
-  const K = Math.cosh(1.5) - 1;
+  const K = dcosh(1.5) - 1;
   for (let i = 0; i <= seg; i++) {
     const t = i / seg;
     // normalised catenary droop: 0 at the ends, 1 at mid-span
-    const droop = (Math.cosh(1.5) - Math.cosh((t - 0.5) * 3)) / K;
+    const droop = (dcosh(1.5) - dcosh((t - 0.5) * 3)) / K;
     pts.push(
       new THREE.Vector3(
         from[0] + (to[0] - from[0]) * t + (jitter ? (fbm3(i * 3.1, 1.2, 4.4, 2) - 0.5) * jitter : 0),

@@ -335,8 +335,9 @@
  *     --ticks=240 (default)   control IDENTICAL · rates IDENTICAL
  *     --ticks=480             control IDENTICAL · rates DIFFER, first at ~+393
  *
- * PERCEPTION IS FRAME-RATE DEPENDENT AND THE DEFAULT SPAN IS TOO SHORT TO SEE
- * IT. The divergence needs roughly 390 ticks to surface, so a 240-tick span
+ * PERCEPTION WAS FRAME-RATE DEPENDENT AND THE DEFAULT SPAN WAS TOO SHORT TO
+ * SEE IT. (Both are fixed: the dependence was `time.elapsed` being frame time,
+ * and the default span is 480 now — see the note at its definition.) The divergence needs roughly 390 ticks to surface, so a 240-tick span
  * stops about 150 ticks before its own subject. The green at the default is
  * real — the control says so — but it is a statement about 2 seconds, not about
  * the simulation, and the gate's tolerance is 1e-12 precisely because the
@@ -409,7 +410,18 @@ const RATES = [30, 60, 100, 120, 144];
  * inside the command ring's 128... which it is not, and does not need to be:
  * this gate does not replay recorded commands, it re-runs a constant one.
  */
-const TICKS = Number(args.ticks ?? 240);
+// 480, raised from 240 — and the history of that number is the tool's own
+// lesson in span selection. At 240 this gate was green while the frame-rate
+// dependence it exists to catch needed ~390 ticks to surface: the default span
+// stopped 150 ticks before its own subject, and the header carried "the green
+// at the default is a statement about 2 seconds, not about the simulation" as
+// an open wound. It stayed at 240 anyway, deliberately, because raising it
+// would have turned the gate red on a defect nobody had located — a red that
+// teaches re-running, not fixing. The defect is located and fixed now
+// (`time.elapsed` was frame time; simulation runs on `time.sim`), 480 is green
+// with a clean control, and the span finally covers the window it was built to
+// watch.
+const TICKS = Number(args.ticks ?? 480);
 /**
  * How far a perception field may vary across rates before it is a defect.
  *

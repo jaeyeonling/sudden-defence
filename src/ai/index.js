@@ -97,15 +97,30 @@ export class AiSystem {
     sqs.length = 0;
     for (const s of this.squads) sqs.push({ id: s.id, s: s.captureState() });
 
-    // Grenades are pooled objects with a live/dead flag; the pool itself is
-    // structure, the flags and trajectories are not.
+    // THE SHAPE THAT ACTUALLY EXISTS. This block used to serialize a pooled
+    // `{live, t, team, position, velocity}` grenade that no grenade has ever
+    // been — live ones are `{body, mesh, fuse, agent}`, pushed on throw and
+    // spliced on explosion, with position and velocity living on the rigid
+    // BODY. The mismatch survived every gate for as long as the file has had
+    // snapshots because a grenade is in flight for 2.35 s and no capture had
+    // ever landed inside that window — until a 3600-tick crossengine dump did,
+    // and `captureState` threw on `g.position.x`. "captureState is safe at
+    // every tick" is part of the contract; that was the tick it was not.
+    //
+    // Position and velocity are the whole of a fused sphere's simulation state
+    // — its flight is a pure function of them — so a restore that recreates the
+    // body from these continues the trajectory exactly. `prevPosition` and
+    // friends are render interpolation, which is presentation.
     const gs = (out._grenades ??= []);
     gs.length = 0;
     for (const g of this._grenades) {
+      const p = g.body?.position ?? g.mesh.position;
+      const v = g.body?.velocity ?? { x: 0, y: 0, z: 0 };
       gs.push({
-        live: g.live, t: g.t, fuse: g.fuse, team: g.team,
-        p: [g.position.x, g.position.y, g.position.z],
-        v: [g.velocity.x, g.velocity.y, g.velocity.z],
+        fuse: g.fuse,
+        agent: g.agent?.id ?? null,
+        p: [p.x, p.y, p.z],
+        v: [v.x, v.y, v.z],
       });
     }
 
@@ -133,12 +148,26 @@ export class AiSystem {
     for (const q of this.squads) squadById.set(q.id, q);
     for (const rec of s.squads) squadById.get(rec.id)?.restoreState(rec.s, agentById);
 
-    for (let i = 0; i < this._grenades.length && i < s._grenades.length; i++) {
+    // REBUILD, do not overwrite. The old loop here wrote pooled fields into
+    // however many live grenades happened to exist, bounded by `min` of the two
+    // lengths — restoring one grenade into a world with none restored NOTHING,
+    // silently, which is precisely the "replay where nobody flinched" the
+    // classification note at the top of this class warns about. Live grenades
+    // own a rigid body and a mesh, so reconciliation is teardown + recreation
+    // through the same spawn path a thrown grenade takes.
+    for (let i = this._grenades.length - 1; i >= 0; i--) {
       const g = this._grenades[i];
-      const r = s._grenades[i];
-      g.live = r.live; g.t = r.t; g.fuse = r.fuse; g.team = r.team;
-      g.position.set(r.p[0], r.p[1], r.p[2]);
-      g.velocity.set(r.v[0], r.v[1], r.v[2]);
+      this.phys?.removeRigidBody(g.body);
+      this.root.remove(g.mesh);
+    }
+    this._grenades.length = 0;
+    for (const r of s._grenades ?? []) {
+      this._spawnGrenade(
+        { x: r.p[0], y: r.p[1], z: r.p[2] },
+        { x: r.v[0], y: r.v[1], z: r.v[2] },
+        r.fuse,
+        agentById.get(r.agent) ?? null
+      );
     }
 
     this._aiAccum = s._aiAccum;
@@ -1029,12 +1058,35 @@ export class AiSystem {
     });
   }
 
-  throwGrenade(agent, from, target) {
-    const phys = this.phys;
-    if (!phys) return;
+  /**
+   * Body + mesh + registry entry for one grenade, at an explicit position and
+   * velocity. Factored out of `throwGrenade` because `restoreState` needs the
+   * SAME creation path: a restored grenade that skipped it would be a different
+   * kind of object from a thrown one, and the capture shape mismatch this fixes
+   * came from exactly that sort of divergence between paths.
+   */
+  _spawnGrenade(position, velocity, fuse, agent) {
     this._ensureGrenade();
     const mesh = new THREE.Mesh(this._grenadeGeo, this._grenadeMat);
     this.root.add(mesh);
+    const body = this.phys.addRigidBody({
+      shape: 'sphere',
+      radius: 0.05,
+      mass: 0.42,
+      position,
+      velocity,
+      restitution: 0.28,
+      friction: 0.7,
+      lifetime: 9,
+      object3D: mesh,
+      surfaceType: 'metal',
+    });
+    this._grenades.push({ body, mesh, fuse, agent });
+  }
+
+  throwGrenade(agent, from, target) {
+    const phys = this.phys;
+    if (!phys) return;
     // lobbed ballistic solve
     const dx = target.x - from.x, dz = target.z - from.z;
     const dist = Math.max(0.5, hypot2(dx, dz));
@@ -1042,19 +1094,7 @@ export class AiSystem {
     const speed = Math.min(18, Math.sqrt(Math.max(4, (dist * g) / 0.95)));
     const vy = speed * 0.62;
     const vh = Math.min(speed, dist / Math.max(0.35, (2 * vy) / g));
-    const body = phys.addRigidBody({
-      shape: 'sphere',
-      radius: 0.05,
-      mass: 0.42,
-      position: from,
-      velocity: { x: (dx / dist) * vh, y: vy, z: (dz / dist) * vh },
-      restitution: 0.28,
-      friction: 0.7,
-      lifetime: 9,
-      object3D: mesh,
-      surfaceType: 'metal',
-    });
-    this._grenades.push({ body, mesh, fuse: 2.35, agent });
+    this._spawnGrenade(from, { x: (dx / dist) * vh, y: vy, z: (dz / dist) * vh }, 2.35, agent);
     agent.animator.fire(0.35);
   }
 

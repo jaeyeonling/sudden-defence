@@ -932,6 +932,12 @@ for (const r of results) {
     } else {
       console.log(`    ragdoll births identical: ${short(la) || '(none)'}`);
     }
+  } else {
+    // Silence is not coverage. A span nobody died in says NOTHING about the
+    // death path — the original home of this tool's control noise — and a
+    // reader who sees "identical" with no death line would credit the span
+    // with more than it measured.
+    console.log(`    no ragdoll births in the span — the death path was NOT exercised`);
   }
   if (s.count && base.out.trail && r.out.trail) {
     for (let i = 0; i < Math.min(base.out.trail.length, r.out.trail.length); i++) {

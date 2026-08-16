@@ -1131,8 +1131,30 @@ if (controlNoise) {
     : 'Engines disagree. Lockstep/rollback across heterogeneous clients is NOT available;\n  a server-authoritative model that replicates STATE is the remaining option.'}`);
 }
 
-// Deliberately exit 0 either way. This is a design measurement, not a defect
-// gate: a red would mean "pick the other architecture", and wiring that into
-// `npm test` would make every future run fail for a fact nobody intends to
-// change. See the header.
-console.log(`\nCROSSENGINE ${verdict} (reported, not gated)`);
+/**
+ * Exit 0 by default; `--gate` turns the verdict into a pass/fail.
+ *
+ * This file used to exit 0 unconditionally, and the reason was right at the
+ * time: the engines DIVERGED. A red would have meant "pick the other
+ * architecture", and a permanent red for a fact nobody intends to change is a
+ * gate everybody learns to skip.
+ *
+ * THAT PREMISE INVERTED, and the header records how. Five generations of
+ * substitution — `hypot` respelt as sqrt-of-squares, fdlibm `atan2`, then
+ * `dsin`/`dcos`/`dexp`/`dlog`/`dpow`/`dtan`, then `dquatFromEuler` over the six
+ * three.js internals that run trig, then the root yaw — bought bit-identity
+ * across V8, SpiderMonkey and JavaScriptCore. IDENTICAL is the state the code
+ * is in now, and it was expensive. The way to lose it is one `Math.sin`
+ * reintroduced on a simulation path, which no other gate in the suite can see:
+ * `determinism` compares a build to itself on one engine, so it stays green
+ * through a change that makes two engines disagree.
+ *
+ * So under `--gate` anything but IDENTICAL is a regression, INCONCLUSIVE
+ * included — a control that is not clean means the number measured noise plus
+ * signal and separated neither, which is not evidence that the engines agree.
+ *
+ * The default stays reported-not-gated so that exploratory runs, new-engine
+ * spikes and `--ticks` sweeps still answer the design question without failing.
+ */
+console.log(`\nCROSSENGINE ${verdict}${args.gate ? '' : ' (reported, not gated)'}`);
+if (args.gate && verdict !== 'IDENTICAL') process.exit(1);

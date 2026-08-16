@@ -913,7 +913,13 @@ export class AiSystem {
     fe.intensity = this._flashGain();
     fe.light = this._flashLight();
     fe.flashScale = 0.8;
-    fe.seed = (agent.id * 2654435761 + ctx.time.frame) >>> 0;
+    // A `seed` field lived here, mixed from `time.frame` — flagged in a frame-
+    // time audit as the last `time.frame` read on an event `ai` emits. Checked
+    // before removal: NO consumer reads it. `fx.onWeaponFire` forwards
+    // origin/dir/weapon/intensity/light/flashScale and draws its variation from
+    // its own rng; `ui`, `audio` and `ai`'s own handler never touch it. A dead
+    // field is harmless until someone starts reading it, at which point this one
+    // would have handed them frame time on a simulation-adjacent payload.
     ctx.events.emit('weapon:fire', fe);
 
     // ejected case

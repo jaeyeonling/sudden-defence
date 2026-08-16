@@ -325,6 +325,15 @@ export class PlayerSystem {
 
   fixedUpdate(h, ctx) {
     if (!this.movement) return;
+    // FRAME dt inside a fixed hook, on purpose — audited, not an oversight.
+    // `_consumeLook` is gated by `_lookFrame` to run once per rendered frame,
+    // and its `dt` scales only the gamepad stick's rate integration; a
+    // once-per-frame integration wants the frame's delta, and handing it `h`
+    // would quarter stick sensitivity whenever one frame holds four steps.
+    // Mouse look never touches `dt` (`input.look` is already the frame's
+    // accumulated radians). Look is frame-sampled by the same decision as
+    // `commands.sample` — the fallback to `h` covers the rewind harnesses,
+    // where one tick per step leaves `time.dt` at zero.
     this._consumeLook(ctx.time.dt > 1e-5 ? ctx.time.dt : h);
     // Freeze time and death both take movement away without taking the camera
     // away — you can still look, which is the difference between "held" and

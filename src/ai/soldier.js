@@ -7,10 +7,30 @@
 import * as THREE from 'three';
 import { RIG, GRIP_R, BORE_DIR } from './rig.js';
 import { CharacterBuilder, Noise } from './geo.js';
-import * as P from './parts.js';
+import * as PCore from './parts.js';
+import * as PBody from './parts-body.js';
+import * as PHead from './parts-head.js';
+import * as PHeadgear from './parts-headgear.js';
+import * as PGear from './parts-gear.js';
+import * as PExtremities from './parts-extremities.js';
+
 import { buildWeapon } from './weapon.js';
 import { GEAR, MATERIALS, TEAM_ACCENT_STRENGTH, VARIANTS, accentTint } from './soldier-palette.js';
 import { MATERIAL_SLOTS, resolveMaterials } from './soldier-slots.js';
+
+/**
+ * The parts library, recomposed.
+ *
+ * `parts.js` was one 1073-line file and is now six, split by body region. The
+ * 39 `P.thing()` call sites below are unchanged on purpose: merging the
+ * namespaces here costs one object at module load and keeps the split a fact
+ * about `ai/parts*`, not a rewrite of the assembly code that reads them.
+ *
+ * A barrel in `parts.js` would do the same job in fewer lines. This repo has no
+ * `export *` anywhere, and the pattern it does use — `materials/glsl/`,
+ * `weapons/models/` — is product files consumed directly. This follows that.
+ */
+const P = { ...PCore, ...PBody, ...PHead, ...PHeadgear, ...PGear, ...PExtremities };
 
 const bp = (name) => {
   const v = RIG.bindPos[RIG.index(name)];

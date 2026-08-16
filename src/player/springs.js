@@ -1,3 +1,4 @@
+import { dcos, dexp } from '../core/dmath.js';
 /**
  * Scalar maths + spring integrators used by the player controller.
  *
@@ -39,7 +40,7 @@ export function easeOutCubic(t) {
 }
 
 export function easeInOutSine(t) {
-  return 0.5 - 0.5 * Math.cos(clamp01(t) * Math.PI);
+  return 0.5 - 0.5 * dcos(clamp01(t) * Math.PI);
 }
 
 /**
@@ -48,7 +49,7 @@ export function easeInOutSine(t) {
  */
 export function approach(current, target, tau, dt) {
   if (tau <= 1e-6) return target;
-  return target + (current - target) * Math.exp(-dt / tau);
+  return target + (current - target) * dexp(-dt / tau);
 }
 
 /** Constant-rate move, for things that must not have an asymptotic tail. */

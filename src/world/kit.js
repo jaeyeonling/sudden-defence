@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { datan2, hypot2 } from '../core/dmath.js';
+import { datan2, dcos, dsin, hypot2 } from '../core/dmath.js';
 import {
   chamferBox,
   plainBox,
@@ -531,8 +531,8 @@ export function doorUnit(A, pm, o, rng, opts = {}) {
     );
     // hinge at the left jamb: rotate about the hinge, not the centre
     const hx = x - leafW / 2;
-    const cs = Math.cos(ang);
-    const sn = Math.sin(ang);
+    const cs = dcos(ang);
+    const sn = dsin(ang);
     A.add(
       key,
       leaf,
@@ -664,7 +664,7 @@ function rollerShutter(w, h) {
   const pa = g.getAttribute('position');
   for (let i = 0; i < pa.count; i++) {
     const y = pa.getY(i);
-    pa.setZ(i, Math.sin(y * 90) * 0.008);
+    pa.setZ(i, dsin(y * 90) * 0.008);
   }
   g.computeVertexNormals();
   const g2 = g.clone();
@@ -1007,7 +1007,7 @@ export function pockGeometry(rng, r = 0.05) {
       // floor does not poke through the wall.
       const rj = k >= 2 ? jr[s] : 1;
       const zj = k === 2 ? jz[s] : 1;
-      pos.push(Math.cos(a) * rf * r * rj, Math.sin(a) * rf * r * rj, zf * r * zj);
+      pos.push(dcos(a) * rf * r * rj, dsin(a) * rf * r * rj, zf * r * zj);
     }
   }
   const ringStart = (k) => 1 + (k - 1) * SEG;
@@ -1049,8 +1049,8 @@ export function spallPatch(rng, w, h, depth = 0.03) {
       const n = 11;
       for (let i = 0; i < n; i++) {
         const t = (i / n) * Math.PI * 2;
-        const rr = 0.5 * (1 + (fbm3(Math.cos(t) * 2 + 9, Math.sin(t) * 2 + 3, 1.7, 2) - 0.5) * 0.9);
-        pts.push([Math.cos(t) * rr * w, Math.sin(t) * rr * h]);
+        const rr = 0.5 * (1 + (fbm3(dcos(t) * 2 + 9, dsin(t) * 2 + 3, 1.7, 2) - 0.5) * 0.9);
+        pts.push([dcos(t) * rr * w, dsin(t) * rr * h]);
       }
       return pts;
     })(),
@@ -1078,9 +1078,9 @@ export function rubbleMound(A, rng, x, y, z, radius, count, opts = {}) {
       g,
       LL(
         IDENT,
-        x + Math.cos(a) * rr,
+        x + dcos(a) * rr,
         y + s * 0.3 + Math.max(0, (1 - rr / radius) * radius * 0.3),
-        z + Math.sin(a) * rr,
+        z + dsin(a) * rr,
         rng.float() * 6.28,
         1,
         1,

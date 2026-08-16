@@ -13,7 +13,7 @@ import {
   appendMesh, computeNormals, displace, transformMesh, warp,
 } from './geo.js';
 import { GRIP_R, BORE_DIR } from './rig.js';
-import { datan2 } from '../core/dmath.js';
+import { datan2, dcos, dsin } from '../core/dmath.js';
 
 const BORE_Y = 0.095;
 
@@ -78,7 +78,7 @@ export function buildWeapon(nz, style = 'carbine', rng) {
     for (let i = 0; i <= 8; i++) {
       const t = i / 8;
       const a = Math.PI * t;
-      pts.push([0, BORE_Y - 0.068 - Math.sin(a) * 0.020, -0.028 + Math.cos(a) * -0.024 + 0.024]);
+      pts.push([0, BORE_Y - 0.068 - dsin(a) * 0.020, -0.028 + dcos(a) * -0.024 + 0.024]);
     }
     const g = ribbon(pts, 0.014, 0.006, { seg: 5, up: [1, 0, 0] });
     computeNormals(g);
@@ -93,7 +93,7 @@ export function buildWeapon(nz, style = 'carbine', rng) {
       pts.push([
         0,
         BORE_Y - 0.052 - t * 0.105,
-        -0.028 - Math.sin(rake) * -t * 0.105 * 0.55 - t * 0.030,
+        -0.028 - dsin(rake) * -t * 0.105 * 0.55 - t * 0.030,
       ]);
     }
     const g = tube(pts, (t) => superEllipse(0.0165 - t * 0.002, 0.020 - t * 0.004, 3.4, 14), {
@@ -103,7 +103,7 @@ export function buildWeapon(nz, style = 'carbine', rng) {
     });
     computeNormals(g);
     // finger grooves
-    displace(g, (x, y, z) => Math.sin((y - BORE_Y) * 150) * 0.0012 + nz.fbm3(x * 90, y * 90, z * 90, 2) * 0.0012);
+    displace(g, (x, y, z) => dsin((y - BORE_Y) * 150) * 0.0012 + nz.fbm3(x * 90, y * 90, z * 90, 2) * 0.0012);
     appendMesh(poly, g);
   }
 
@@ -126,7 +126,7 @@ export function buildWeapon(nz, style = 'carbine', rng) {
     computeNormals(mag);
     displace(mag, (x, y, z, nx, ny, nzz) => {
       // moulded ribs down the sides
-      const rib = Math.sin((y - BORE_Y) * 210) * 0.5 + 0.5;
+      const rib = dsin((y - BORE_Y) * 210) * 0.5 + 0.5;
       return Math.abs(nx) > 0.6 ? rib * 0.0012 : nz.fbm3(x * 80, y * 80, z * 80, 2) * 0.0008;
     });
     appendMesh(poly, mag);
@@ -164,7 +164,7 @@ export function buildWeapon(nz, style = 'carbine', rng) {
     // port slots
     displace(mz, (x, y, z, nx, ny, nzz) => {
       const a = datan2(x, y - BORE_Y);
-      const slot = Math.abs(Math.sin(a * 3)) > 0.92 && z > barrelEnd - 0.035 ? -0.0035 : 0;
+      const slot = Math.abs(dsin(a * 3)) > 0.92 && z > barrelEnd - 0.035 ? -0.0035 : 0;
       return slot;
     });
     appendMesh(steel, mz);
@@ -189,7 +189,7 @@ export function buildWeapon(nz, style = 'carbine', rng) {
     displace(hg, (x, y, z, nx, ny, nzz) => {
       if (long) {
         // ribbed polymer handguard
-        const rib = Math.sin(z * 260) * 0.5 + 0.5;
+        const rib = dsin(z * 260) * 0.5 + 0.5;
         return rib * 0.0016 + nz.fbm3(x * 70, y * 70, z * 70, 2) * 0.001;
       }
       // M-LOK slots on the sides and bottom

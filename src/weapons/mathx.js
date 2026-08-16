@@ -1,3 +1,4 @@
+import { dcos, dexp } from '../core/dmath.js';
 /**
  * Small deterministic math kit for the viewmodel rig.
  *
@@ -48,7 +49,7 @@ export function easeInCubic(t) {
 }
 
 export function easeInOutSine(t) {
-  return 0.5 - 0.5 * Math.cos(Math.PI * clamp01(t));
+  return 0.5 - 0.5 * dcos(Math.PI * clamp01(t));
 }
 
 /**
@@ -56,7 +57,7 @@ export function easeInOutSine(t) {
  * time constant: how many e-folds per second.
  */
 export function damp(current, target, rate, dt) {
-  return target + (current - target) * Math.exp(-rate * dt);
+  return target + (current - target) * dexp(-rate * dt);
 }
 
 /**

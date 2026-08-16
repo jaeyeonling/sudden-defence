@@ -17,7 +17,7 @@
  */
 
 import * as THREE from 'three';
-import { hypot3 } from '../core/dmath.js';
+import { dcos, dsin, hypot3 } from '../core/dmath.js';
 
 const MAX_VERTS = 120000;
 
@@ -185,7 +185,7 @@ export class PhysicsDebugView {
       let prx = 0, pry = 0, prz = 0;
       for (let i = 0; i <= segments; i++) {
         const t = (i / segments) * Math.PI * 2;
-        const s = Math.sin(t) * r, co = Math.cos(t) * r;
+        const s = dsin(t) * r, co = dcos(t) * r;
         const x = cxp + px * co + qx * s;
         const y = cyp + py * co + qy * s;
         const z = czp + pz * co + qz * s;
@@ -205,7 +205,7 @@ export class PhysicsDebugView {
       let prx = 0, pry = 0, prz = 0;
       for (let i = 0; i <= segments / 2; i++) {
         const t = (i / (segments / 2)) * Math.PI;
-        const cc = Math.cos(t) * r, ss = Math.sin(t) * r * s;
+        const cc = dcos(t) * r, ss = dsin(t) * r * s;
         const x = cxp + px * cc + dx * ss;
         const y = cyp + py * cc + dy * ss;
         const z = czp + pz * cc + dz * ss;

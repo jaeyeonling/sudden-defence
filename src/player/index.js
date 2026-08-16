@@ -78,6 +78,7 @@ import { Health } from './health.js';
 import { Spectator } from './spectate.js';
 import { STANCE, CAMERA, HEALTH, FOOTSTEP, JUMP_SPEED } from './tuning.js';
 import { clamp, clamp01, DEG } from './springs.js';
+import { dpow } from '../core/dmath.js';
 
 /**
  * How far ABOVE an authored spawn point the ground probe starts.
@@ -513,7 +514,7 @@ export class PlayerSystem {
     if (d > r * 1.6) return;
     // Occluded blasts still shake you, they just do not wound you.
     const clear = this.physics.lineOfSight(e.position, eye, this.physics.MASK.EXPLOSION);
-    const falloff = Math.pow(clamp01(1 - d / r), 1.6);
+    const falloff = dpow(clamp01(1 - d / r), 1.6);
     this.rig.addTrauma(clamp01(falloff * 1.4));
     if (clear && falloff > 0.02) {
       this.applyDamage((e.damage ?? 90) * falloff, e.position, { type: 'explosion' });

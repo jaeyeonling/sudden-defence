@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { BOX, BOX_FINE, BOX_THIN, IDENT, LL, rubbleMound } from './kit.js';
 import { clothGeometry, patchGeometry, chamferBox, fillMasks } from './util.js';
+import { dcos, dsin } from '../core/dmath.js';
 
 /**
  * WORLD — interior furnishing.
@@ -213,7 +214,7 @@ function dressWalls(A, rng, r) {
       const lt = rng.range(-half, half);
       const lh = rng.range(1.1, 1.8);
       const lw = rng.range(0.5, 1.0);
-      const off = 0.06 + (Math.sin(lean) * lh) / 2;
+      const off = 0.06 + (dsin(lean) * lh) / 2;
       const [lx, lz] = at(s, lt, off);
       const key = rng.pick(['plywood', 'corrugated', 'wood_prop_dark']);
       // Tip the top INTO the wall. After the yaw the sheet's local -Z faces
@@ -224,7 +225,7 @@ function dressWalls(A, rng, r) {
       A.add(
         key,
         BOX_THIN(A),
-        LL(IDENT, lx, y + (Math.cos(lean) * lh) / 2, lz, s.yaw, lw, lh, 0.022, leanSign * lean, 0),
+        LL(IDENT, lx, y + (dcos(lean) * lh) / 2, lz, s.yaw, lw, lh, 0.022, leanSign * lean, 0),
         { masks: [0.7, 0.55, 0.3] }
       );
     }

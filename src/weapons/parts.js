@@ -15,7 +15,7 @@ import {
   mlokSlot,
   mergeAll,
 } from './geometry.js';
-import { datan2 } from '../core/dmath.js';
+import { datan2, dcos, dsin } from '../core/dmath.js';
 
 /**
  * Reusable firearm components.
@@ -448,9 +448,9 @@ export function addHandguard(asm, matAlu, o) {
   const topTo = o.topTo ?? null;
   for (let i = 0; i < sides; i++) {
     const a = (i / sides) * TAU + Math.PI / sides;
-    const isTop = Math.abs(Math.sin(a) - 1) < 0.35;
-    const y = Math.sin(a) * (rOut - slatT * 0.5);
-    const x = Math.cos(a) * (rOut - slatT * 0.5);
+    const isTop = Math.abs(dsin(a) - 1) < 0.35;
+    const y = dsin(a) * (rOut - slatT * 0.5);
+    const x = dcos(a) * (rOut - slatT * 0.5);
     if (isTop) {
       if (topFrom === null) continue;
       const tLen = Math.abs(topFrom - topTo);
@@ -466,7 +466,7 @@ export function addHandguard(asm, matAlu, o) {
     }
     asm.add(slat, matPanel, { x, y: yb + y, z: cz - 0.0095, rz: a - Math.PI / 2 });
     // M-LOK slots on the 3/6/9-o'clock slats only, like the real thing
-    const cardinal = Math.abs(Math.cos(a)) > 0.85 || Math.sin(a) < -0.85;
+    const cardinal = Math.abs(dcos(a)) > 0.85 || dsin(a) < -0.85;
     if (cardinal) {
       for (let s = 0; s < (o.slots ?? 3); s++) {
         const sz = cz + len * 0.5 - 0.045 - s * 0.038;
@@ -738,7 +738,7 @@ export function addLowerReceiver(asm, mat, matSteel, o) {
   });
   asm.add(mouth, mat, {
     y: magBottom + 0.002,
-    z: magZ + Math.sin(magTilt) * wellH * 0.5,
+    z: magZ + dsin(magTilt) * wellH * 0.5,
     rx: Math.PI / 2 + magTilt,
   });
   mouth.dispose();
@@ -935,10 +935,10 @@ export function addPistolGrip(asm, matPoly, matRubber, o) {
     const t = 0.15 + i * 0.2;
     const ridge = blob(w * 0.9, 0.011, 0.007, 0.003, 3);
     const yy = oy - t * len;
-    const zz = oz + zf + 0.001 + Math.sin(t * Math.PI) * 0.001;
+    const zz = oz + zf + 0.001 + dsin(t * Math.PI) * 0.001;
     // Rotate into the raked frame by hand so the ridge hugs the strap.
-    const cs = Math.cos(-angle);
-    const sn = Math.sin(-angle);
+    const cs = dcos(-angle);
+    const sn = dsin(-angle);
     asm.add(ridge, matRubber, {
       y: oy + (yy - oy) * cs - (zz - oz) * sn,
       z: oz + (yy - oy) * sn + (zz - oz) * cs,
@@ -948,8 +948,8 @@ export function addPistolGrip(asm, matPoly, matRubber, o) {
   }
 
   // Grip cap with its screw.
-  const capY = oy - Math.cos(angle) * len;
-  const capZ = oz + Math.sin(angle) * len;
+  const capY = oy - dcos(angle) * len;
+  const capZ = oz + dsin(angle) * len;
   const cap = blob(w * 0.92, 0.007, 0.031, 0.0025, 2);
   asm.add(cap, matPoly, { y: capY + 0.001, z: capZ, rx: -angle });
   cap.dispose();
@@ -1454,7 +1454,7 @@ export function buildOptic(asm, o) {
       const h = long ? 0.0026 : 0.0014;
       const t = box(0.00035, h, 0.0006, 0.00008, 1);
       t.rotateZ(a);
-      t.translate(Math.cos(a) * (0.0075 - h * 0.42), Math.sin(a) * (0.0075 - h * 0.42), 0);
+      t.translate(dcos(a) * (0.0075 - h * 0.42), dsin(a) * (0.0075 - h * 0.42), 0);
       parts.push(t);
     }
     return mergeAll(parts);

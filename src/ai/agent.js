@@ -23,7 +23,7 @@
 import * as THREE from 'three';
 import { RIG } from './rig.js';
 import { Animator } from './animator.js';
-import { datan2, hypot2, hypot3 } from '../core/dmath.js';
+import { datan2, dcos, dsin, hypot2, hypot3 } from '../core/dmath.js';
 
 const STATE = {
   IDLE: 'idle',
@@ -456,7 +456,7 @@ export class Agent {
     /* ---------------- perception ---------------- */
     this.eyeHeight = RIG.eyeHeight * this.scale;
     this.viewRange = 58;
-    this.viewCos = Math.cos((100 * Math.PI) / 180 / 2);
+    this.viewCos = dcos((100 * Math.PI) / 180 / 2);
     this.awareness = 0; // 0..1 build-up before the target is acknowledged
     this.hasTarget = false;
     this.targetVisible = false;
@@ -848,8 +848,8 @@ export class Agent {
     const eye = this.eye;
     // Peripheral vision widens once alerted.
     const cone = this.hasTarget ? -0.2 : this.viewCos - this.alertness * 0.25;
-    const fx = Math.sin(this.yaw);
-    const fz = Math.cos(this.yaw);
+    const fx = dsin(this.yaw);
+    const fz = dcos(this.yaw);
 
     // ---- cheap pass: who is even plausible? ----
     // Flat [combatant, distance] pairs in a reused array: one allocation at
@@ -1862,7 +1862,7 @@ export class Agent {
    */
   _unstick() {
     this.stuckCount = (this.stuckCount ?? 0) + 1;
-    const fwd = this._v.set(Math.sin(this.yaw), 0, Math.cos(this.yaw));
+    const fwd = this._v.set(dsin(this.yaw), 0, dcos(this.yaw));
     const side = this.stuckCount % 2 ? 1 : -1;
     const tries = [
       [-fwd.z * side, fwd.x * side, 3.0],
@@ -1905,7 +1905,7 @@ export class Agent {
 
   _tryVault() {
     const phys = this.phys;
-    const fwd = this._v.set(Math.sin(this.yaw), 0, Math.cos(this.yaw));
+    const fwd = this._v.set(dsin(this.yaw), 0, dcos(this.yaw));
     const low = phys.raycast(
       this.position.x, this.position.y + 0.35, this.position.z,
       fwd.x, 0, fwd.z, 0.85, phys.MASK.WORLD
@@ -2017,12 +2017,12 @@ export class Agent {
       // once, which is what led here.
       const wobbleT = this.ctx.time.sim * 1.7 + this.id;
       const wob = 0.012 + this.suppression * 0.05;
-      this._v.x += Math.sin(wobbleT) * wob * dist * 0.12;
-      this._v.y += Math.sin(wobbleT * 1.7 + 1.1) * wob * dist * 0.08;
-      this._v.z += Math.cos(wobbleT * 0.8) * wob * dist * 0.12;
+      this._v.x += dsin(wobbleT) * wob * dist * 0.12;
+      this._v.y += dsin(wobbleT * 1.7 + 1.1) * wob * dist * 0.08;
+      this._v.z += dcos(wobbleT * 0.8) * wob * dist * 0.12;
       this.aimTarget.lerp(this._v, Math.min(1, dt * 6));
     } else {
-      const fwd = this._v.set(Math.sin(this.yaw), 0, Math.cos(this.yaw));
+      const fwd = this._v.set(dsin(this.yaw), 0, dcos(this.yaw));
       this._v2
         .copy(this.position)
         .addScaledVector(fwd, 12)
@@ -2070,7 +2070,7 @@ export class Agent {
     // the median over 822 aimed samples. What changes is that the ray starts
     // somewhere the simulation knows.
     const o = this._muzzleOrigin;
-    const cy = Math.cos(this.yaw), sy = Math.sin(this.yaw);
+    const cy = dcos(this.yaw), sy = dsin(this.yaw);
     o.set(
       this.position.x + MUZZLE.right * cy + MUZZLE.forward * sy,
       this.position.y + (this.crouch ? MUZZLE.upCrouch : MUZZLE.upStand),
@@ -2151,7 +2151,7 @@ export class Agent {
       return before;
     }
     // hit reaction by region, with the side the round came from
-    const side = dir ? Math.sign(dir.x * Math.cos(this.yaw) - dir.z * Math.sin(this.yaw)) || 1 : 1;
+    const side = dir ? Math.sign(dir.x * dcos(this.yaw) - dir.z * dsin(this.yaw)) || 1 : 1;
     const region =
       part === 'head' ? 'head'
         : part === 'arm' ? (this._sideOf(point) < 0 ? 'armR' : 'armL')
@@ -2166,7 +2166,7 @@ export class Agent {
   _sideOf(p) {
     const dx = p.x - this.position.x;
     const dz = p.z - this.position.z;
-    return dx * Math.cos(this.yaw) - dz * Math.sin(this.yaw);
+    return dx * dcos(this.yaw) - dz * dsin(this.yaw);
   }
 
   die(point, dir, amount = 30) {
@@ -2281,7 +2281,7 @@ export class Agent {
     this.vaultT += dt / 0.8;
     const t = Math.min(1, this.vaultT);
     this.position.lerpVectors(this.vaultFrom, this.vaultTo, t);
-    this.position.y += Math.sin(t * Math.PI) * 0.42;
+    this.position.y += dsin(t * Math.PI) * 0.42;
     this.controller?.teleport(this.position.x, this.position.y, this.position.z);
     if (t >= 1) this.vaultTo = null;
   }

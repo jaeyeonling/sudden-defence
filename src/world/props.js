@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeSimple, pockGeometry } from './kit.js';
-import { datan2, hypot2 } from '../core/dmath.js';
+import { datan2, dcos, dexp, dsin, hypot2 } from '../core/dmath.js';
 import {
   chamferBox,
   clothGeometry,
@@ -358,14 +358,14 @@ function tyre(rng, r = 0.33) {
     // trailing edge. A square pulse over 3 coarse columns made the crown read as
     // a ring of beads; a real tread block has a sloped shoulder into the groove.
     const blk = Math.max(0, Math.min(1, blkT / 0.075, (0.62 - blkT) / 0.075));
-    const centre = Math.exp(-((y / (HW * 0.22)) ** 2) * 3); // circumferential groove
+    const centre = dexp(-((y / (HW * 0.22)) ** 2) * 3); // circumferential groove
     const treadBand = Math.max(0, (rr / r - 0.9) / 0.1) * Math.max(0, 1 - Math.abs(y) / (HW * 0.72));
     // 9 mm of tread relief: enough to read as blocks at 3 m, not a monster truck
     const grow = treadBand * (blk * 0.0062 - 0.0018 - centre * 0.0045) * (r / 0.33);
     const f = 1 + grow / Math.max(1e-4, rr);
     // sidewall lettering / brand ring relief, pushed along the sidewall normal
-    const band = Math.exp(-(((rr / r - 0.76) / 0.11) ** 2));
-    const letter = band * ((Math.sin(a * 23 + stagger * 3) > 0.4 ? 0.006 : 0) + 0.0022) * (r / 0.33);
+    const band = dexp(-(((rr / r - 0.76) / 0.11) ** 2));
+    const letter = band * ((dsin(a * 23 + stagger * 3) > 0.4 ? 0.006 : 0) + 0.0022) * (r / 0.33);
     pa.setXYZ(i, x * f, y * 0.94 + Math.sign(y) * letter, z * f);
   }
   g.computeVertexNormals();
@@ -464,7 +464,7 @@ function mattress(rng) {
     const x = pa.getX(i);
     const y = pa.getY(i);
     const z = pa.getZ(i);
-    if (y > 0) pa.setY(i, y - 0.035 * Math.cos((x / 1.85) * Math.PI) * Math.cos((z / 0.85) * Math.PI));
+    if (y > 0) pa.setY(i, y - 0.035 * dcos((x / 1.85) * Math.PI) * dcos((z / 0.85) * Math.PI));
   }
   g.computeVertexNormals();
   g.translate(0, 0.08, 0);
@@ -568,7 +568,7 @@ function streetLamp(rng, h = 5.4) {
   for (let i = 0; i < segs; i++) {
     const t = i / (segs - 1);
     const a = t * 1.35;
-    p.cyl(0.055, 0.44, Math.sin(a) * 0.62 * (0.4 + t), h - 0.1 + Math.cos(a) * 0.34 * t, 0, {
+    p.cyl(0.055, 0.44, dsin(a) * 0.62 * (0.4 + t), h - 0.1 + dcos(a) * 0.34 * t, 0, {
       radial: 8,
       rz: -a,
       grime: 0.3,
@@ -607,8 +607,8 @@ function slabShard(rng) {
   const n = 7;
   for (let i = 0; i < n; i++) {
     const t = (i / n) * Math.PI * 2;
-    const rr = 0.5 * (0.6 + fbm3(Math.cos(t) * 3 + 2, Math.sin(t) * 3, 5, 2) * 0.8);
-    pts.push([Math.cos(t) * rr * w, Math.sin(t) * rr * d]);
+    const rr = 0.5 * (0.6 + fbm3(dcos(t) * 3 + 2, dsin(t) * 3, 5, 2) * 0.8);
+    pts.push([dcos(t) * rr * w, dsin(t) * rr * d]);
   }
   const g = polyPrism(pts, rng.range(0.07, 0.13));
   autoEdgeWear(g, 0.02, 1);
@@ -617,7 +617,7 @@ function slabShard(rng) {
   const bars = rng.int(2, 4);
   for (let i = 0; i < bars; i++) {
     const a = rng.float() * Math.PI * 2;
-    p.cyl(0.008, rng.range(0.3, 0.7), Math.cos(a) * w * 0.3, 0.06, Math.sin(a) * d * 0.3, {
+    p.cyl(0.008, rng.range(0.3, 0.7), dcos(a) * w * 0.3, 0.06, dsin(a) * d * 0.3, {
       radial: 5,
       rz: rng.range(-1.4, 1.4),
       rx: rng.range(-1.2, 1.2),
@@ -670,7 +670,7 @@ function dustSkirt(rng) {
     const d = Math.min(1, hypot2(x, z));
     const a = datan2(z, x);
     // ragged outline: the rim wanders +/-22%
-    const wob = 0.86 + 0.28 * fbm3(Math.cos(a) * 2.2, Math.sin(a) * 2.2, 3.1, 3);
+    const wob = 0.86 + 0.28 * fbm3(dcos(a) * 2.2, dsin(a) * 2.2, 3.1, 3);
     const dd = d * wob;
     pa.setX(i, x * wob);
     pa.setZ(i, z * wob);
@@ -729,7 +729,7 @@ function palmTree(rng, h = 5.2) {
     const t = i / segs;
     const r = 0.19 * (1 - t * 0.42);
     const y = t * h;
-    const x = Math.sin(t * 2.2 + lean * 4) * lean * h * 0.4;
+    const x = dsin(t * 2.2 + lean * 4) * lean * h * 0.4;
     p.cyl(r, h / segs + 0.02, x, y + h / segs / 2, 0, {
       radial: 9,
       taper: 0.92,
@@ -739,7 +739,7 @@ function palmTree(rng, h = 5.2) {
     // ring scars where old fronds broke off
     p.cyl(r * 1.13, 0.045, x, y + h / segs * 0.75, 0, { radial: 9, wear: 1, grime: 0.4 });
   }
-  const topX = Math.sin(2.2 + lean * 4) * lean * h * 0.4;
+  const topX = dsin(2.2 + lean * 4) * lean * h * 0.4;
   const g = p.build();
   g.userData = { topX, topY: h };
   return g;
@@ -753,7 +753,7 @@ function palmFrond(rng, len = 2.6) {
     const t = (i + 1) / (n + 1);
     const x = t * len;
     const droop = -t * t * len * 0.42;
-    const lw = (0.42 + Math.sin(t * Math.PI) * 0.55) * (1 - t * 0.35);
+    const lw = (0.42 + dsin(t * Math.PI) * 0.55) * (1 - t * 0.35);
     for (const side of [-1, 1]) {
       const q = new THREE.PlaneGeometry(lw, 0.16, 1, 1);
       q.translate(lw / 2, 0, 0);

@@ -138,14 +138,30 @@
  * AVAILABLE on the evidence this tool was built to produce.
  *
  * Scope of that claim, stated so it cannot inflate: one seed, one span, one
- * scenario — and `sin`/`cos`/`exp`/`acos` still run each engine's own libm at
- * every simulation call site. Those did not diverge HERE, which means the
- * inputs this span fed them landed on agreeing bits; it does not mean they
- * always will. The honest posture is the one this file already uses for deaths:
- * the gate stands, and a red on some future seed names its function the way
- * 240 ticks named `hypot` and webkit named `atan2`. `dmath.js` is where such a
- * function goes when it is CONVICTED — porting all of libm on suspicion is the
- * tax the header warns about, and suspicion is not a measurement.
+ * scenario. The 3600-tick span (two deaths, grenades in flight) then named the
+ * rest, one round at a time:
+ *
+ *   round 1   webkit 219 leaves: corpse particles. `dacos` (the ragdoll cone
+ *             angle) collapsed it to 15 — the SAME 15 firefox shows.
+ *   round 2   `dsin`/`dcos`/`dexp`/`dlog`/`dpow`/`dtan` at every simulation
+ *             call site, `gauss()`'s Box–Muller included. THE FIFTEEN LEAVES
+ *             DID NOT MOVE — bit-identical divergence values across all five
+ *             substitution generations, which acquits every one of OUR call
+ *             sites: the door is somewhere none of those substitutions touch.
+ *   round 3   the trail forensics found the door. First divergence: a GRENADE
+ *             IN FLIGHT (`ai._grenades[1].p[0]/p[2]`, tick 1917), and a
+ *             grenade's throw origin is `animator.muzzleWorld` — a POSED BONE.
+ *             The pose runs through three.js internals (`setFromEuler` and
+ *             friends, 15 call sites across the simulation), and INSIDE those
+ *             the library calls the engine's own `Math.sin`/`cos`/`atan2`.
+ *             Substituting our sites never touched them.
+ *
+ * So the residue has a name and an address: transcendentals INSIDE three.js,
+ * reached from simulation state through the pose path. Replacing those call
+ * sites with `dmath` equivalents (an explicit euler-to-quaternion, primarily)
+ * is the remaining work, and it is bounded — 15 sites, one conversion.
+ * `dmath.js` remains the rule: a function is ported when a measurement
+ * CONVICTS it, and every function in it was.
  *
  * The control's noise has a known address: state the snapshot does not carry.
  * `tools/perceive.mjs` established that bot rigs are posed in `ai.lateUpdate`,

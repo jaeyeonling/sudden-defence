@@ -20,7 +20,7 @@
  */
 
 import * as THREE from 'three';
-import { hypot2 } from '../core/dmath.js';
+import { dcos, hypot2 } from '../core/dmath.js';
 
 const SQRT2 = Math.SQRT2;
 
@@ -137,7 +137,7 @@ export class NavGrid {
     this.height = opts.height ?? 1.78;
     this.crouchHeight = opts.crouchHeight ?? 1.15;
     this.maxStep = opts.maxStep ?? 0.45;
-    this.maxSlope = Math.cos((opts.maxSlopeDeg ?? 46) * Math.PI / 180);
+    this.maxSlope = dcos((opts.maxSlopeDeg ?? 46) * Math.PI / 180);
 
     const b = opts.bounds;
     this.minX = Math.floor(b.min.x / this.cell) * this.cell;

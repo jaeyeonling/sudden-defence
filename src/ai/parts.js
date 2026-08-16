@@ -12,7 +12,7 @@ import {
   emptyMesh, loft, tube, ribbon, revolve, ellipsoid, boxRound, superEllipse,
   ellipseProfile, appendMesh, computeNormals, displace, warp, transformMesh, vcount,
 } from './geo.js';
-import { datan2 } from '../core/dmath.js';
+import { datan2, dcos, dexp, dsin } from '../core/dmath.js';
 
 const V = (x, y, z) => [x, y, z];
 
@@ -21,8 +21,8 @@ export function bendY(mesh, radius, centreZ = 0) {
   return warp(mesh, (v) => {
     const r = radius + (v.z - centreZ);
     const a = v.x / radius;
-    v.x = Math.sin(a) * r;
-    v.z = centreZ + Math.cos(a) * r - radius;
+    v.x = dsin(a) * r;
+    v.z = centreZ + dcos(a) * r - radius;
   });
 }
 
@@ -98,9 +98,9 @@ export function jacketTorso(nz, p = {}) {
   // cloth folds: horizontal creases at the waist, vertical pull from the plate
   displace(m, (x, y, z, nx, ny, nz2) => {
     const fold = nz.fbm3(x * 22, y * 15, z * 22, 3);
-    const crease = Math.sin(y * 38 + fold * 3.4) * 0.5 + 0.5;
-    const waist = Math.exp(-((y - 1.06) ** 2) / 0.006);
-    const gather = Math.exp(-((y - 0.93) ** 2) / 0.004);
+    const crease = dsin(y * 38 + fold * 3.4) * 0.5 + 0.5;
+    const waist = dexp(-((y - 1.06) ** 2) / 0.006);
+    const gather = dexp(-((y - 0.93) ** 2) / 0.004);
     return (
       fold * 0.0026 +
       crease * (waist * 0.0022 + gather * 0.0018) +
@@ -213,11 +213,11 @@ export function limbTube(nz, a, b, c, radii, opts = {}) {
       // transverse crease bands: ridged, 5.5 cm, jittered so they are not a
       // corduroy ripple
       const jit = nz.fbm3(x * 6, y * 5, z * 6, 2) - 0.5;
-      const band = Math.abs(Math.sin((s / 0.055 + jit * 0.9) * Math.PI));
+      const band = Math.abs(dsin((s / 0.055 + jit * 0.9) * Math.PI));
       const ridged = 1 - band ** 0.65;
       // where the cloth actually bunches
-      const joint = Math.exp(-((u - 0.5) ** 2) / 0.012);
-      const cuff = Math.exp(-((u - 0.94) ** 2) / 0.004);
+      const joint = dexp(-((u - 0.5) ** 2) / 0.012);
+      const cuff = dexp(-((u - 0.94) ** 2) / 0.004);
       const inner = Math.max(0, bend.x * nx + bend.y * ny + bend.z * nzc);
       const gather = 1 + joint * (0.6 + 1.8 * inner) + cuff * 0.8;
       // broad fold field on top, so the limb is never a clean cylinder
@@ -289,21 +289,21 @@ export function headMesh(nz, base, p = {}) {
     const x = v.x - bx, y = v.y - by, z = v.z - bz;
     const front = Math.max(0, z / 0.09);
     // brow ridge
-    const brow = Math.exp(-((y - 0.113) ** 2) / 0.00016) * front * Math.exp(-(x * x) / 0.006);
+    const brow = dexp(-((y - 0.113) ** 2) / 0.00016) * front * dexp(-(x * x) / 0.006);
     // eye sockets
     const socket =
-      Math.exp(-((Math.abs(x) - 0.033) ** 2) / 0.00035) *
-      Math.exp(-((y - 0.098) ** 2) / 0.00022) * front;
+      dexp(-((Math.abs(x) - 0.033) ** 2) / 0.00035) *
+      dexp(-((y - 0.098) ** 2) / 0.00022) * front;
     // cheekbone
     const cheek =
-      Math.exp(-((Math.abs(x) - 0.055) ** 2) / 0.0009) *
-      Math.exp(-((y - 0.070) ** 2) / 0.0007) * Math.max(0, z / 0.06);
+      dexp(-((Math.abs(x) - 0.055) ** 2) / 0.0009) *
+      dexp(-((y - 0.070) ** 2) / 0.0007) * Math.max(0, z / 0.06);
     // temple flattening
-    const temple = Math.exp(-((y - 0.150) ** 2) / 0.0016) * Math.exp(-((Math.abs(x) - 0.082) ** 2) / 0.0006);
+    const temple = dexp(-((y - 0.150) ** 2) / 0.0016) * dexp(-((Math.abs(x) - 0.082) ** 2) / 0.0006);
     // chin
-    const chin = Math.exp(-(y * y) / 0.00035) * front;
+    const chin = dexp(-(y * y) / 0.00035) * front;
     // occiput
-    const occ = Math.exp(-((y - 0.165) ** 2) / 0.0018) * Math.max(0, -z / 0.09);
+    const occ = dexp(-((y - 0.165) ** 2) / 0.0018) * Math.max(0, -z / 0.09);
     const scale = 1 + 0.05 * brow - 0.10 * socket + 0.05 * cheek - 0.06 * temple;
     v.x = bx + x * (1 - 0.05 * socket - 0.05 * temple);
     v.y = by + y;
@@ -386,7 +386,7 @@ export function faceWrap(nz, base, p = {}) {
   // cut the front open above the eye line by pulling the top ring back
   displace(m, (x, y, z) => {
     const fold = nz.fbm3(x * 30, y * 24, z * 30, 3);
-    const wrap = Math.sin(y * 90 + fold * 4) * 0.5 + 0.5;
+    const wrap = dsin(y * 90 + fold * 4) * 0.5 + 0.5;
     return fold * 0.005 + wrap * 0.0035;
   });
 
@@ -400,9 +400,9 @@ export function faceWrap(nz, base, p = {}) {
   const nHem = 26;
   for (let i = 0; i <= nHem; i++) {
     const a = (i / nHem) * Math.PI * 2;
-    const sx = Math.sin(a), sz = Math.cos(a);
+    const sx = dsin(a), sz = dcos(a);
     // the hem rides higher over the cheeks and dips at the bridge of the nose
-    const y = 0.086 + Math.max(0, sz) * 0.006 - Math.exp(-(sx * sx) / 0.06) * Math.max(0, sz) * 0.010;
+    const y = 0.086 + Math.max(0, sz) * 0.006 - dexp(-(sx * sx) / 0.06) * Math.max(0, sz) * 0.010;
     hem.push([bx + sx * 0.092, by + y, bz + sz * 0.096 - 0.004]);
   }
   const roll = ribbon(hem, 0.015, 0.008, { seg: 6, up: [0, 1, 0], upright: true });
@@ -489,8 +489,8 @@ export function helmet(nz, base, p = {}) {
     const t = r / (rows - 1);
     // t 0 = brim, 1 = crown
     const phi = (0.5 + 0.5 * t) * Math.PI; // 90..180 deg
-    const y = -Math.cos(phi) * ry;
-    const s = Math.sin(phi);
+    const y = -dcos(phi) * ry;
+    const s = dsin(phi);
     const pts = ellipseProfile(rx * Math.max(0.08, s), rz * Math.max(0.08, s), seg);
     rings.push({ pts, o: [bx, cy + y, bz - 0.006], t });
   }
@@ -501,8 +501,8 @@ export function helmet(nz, base, p = {}) {
     const dy = v.y - cy;
     if (dy > 0.012) return;
     const ang = datan2(v.x - bx, v.z - bz);
-    const side = Math.abs(Math.sin(ang));
-    const lift = side ** 2 * 0.042 - Math.max(0, Math.cos(ang)) * 0.010;
+    const side = Math.abs(dsin(ang));
+    const lift = side ** 2 * 0.042 - Math.max(0, dcos(ang)) * 0.010;
     const k = Math.min(1, Math.max(0, (0.012 - dy) / 0.06));
     v.y += lift * k;
   });
@@ -515,7 +515,7 @@ export function helmet(nz, base, p = {}) {
   const nLip = 30;
   for (let i = 0; i <= nLip; i++) {
     const a = (i / nLip) * Math.PI * 2;
-    const sx = Math.sin(a), sz = Math.cos(a);
+    const sx = dsin(a), sz = dcos(a);
     const side = Math.abs(sx);
     const lift = side ** 2 * 0.042 - Math.max(0, sz) * 0.010;
     lipPts.push([bx + sx * rx * 0.955, cy + lift - 0.001, bz - 0.004 + sz * rz * 0.955]);
@@ -548,9 +548,9 @@ export function helmetHardware(nz, base) {
       const t = i / 5;
       const a = (-0.55 + t * 1.1) * side;
       pts.push([
-        bx + side * 0.114 * Math.cos(a * 0.6),
-        cy + 0.052 + Math.sin(t * Math.PI) * 0.016,
-        bz - 0.004 + Math.sin(a) * 0.118,
+        bx + side * 0.114 * dcos(a * 0.6),
+        cy + 0.052 + dsin(t * Math.PI) * 0.016,
+        bz - 0.004 + dsin(a) * 0.118,
       ]);
     }
     const rail = ribbon(pts, 0.016, 0.009, { seg: 6, up: [0, 1, 0], upright: true });
@@ -676,14 +676,14 @@ export function headScarf(nz, base) {
   place(dome, bx, by + 0.104, bz - 0.008);
   displace(dome, (x, y, z) => {
     const f = nz.fbm3(x * 26, y * 22, z * 26, 3);
-    return f * 0.006 + Math.sin(y * 70 + f * 4) * 0.0022;
+    return f * 0.006 + dsin(y * 70 + f * 4) * 0.0022;
   });
   appendMesh(out, dome);
   // rolled brim
   const pts = [];
   for (let i = 0; i <= 24; i++) {
     const a = (i / 24) * Math.PI * 2;
-    pts.push([bx + Math.sin(a) * 0.099, by + 0.118 - Math.max(0, Math.cos(a)) * 0.012, bz - 0.008 + Math.cos(a) * 0.109]);
+    pts.push([bx + dsin(a) * 0.099, by + 0.118 - Math.max(0, dcos(a)) * 0.012, bz - 0.008 + dcos(a) * 0.109]);
   }
   const brim = ribbon(pts, 0.030, 0.016, { seg: 7, up: [0, 1, 0], upright: true });
   computeNormals(brim);
@@ -695,7 +695,7 @@ export function headScarf(nz, base) {
     tail.push([
       bx + 0.028 * t,
       by + 0.115 - t * 0.20,
-      bz - 0.085 - Math.sin(t * 2.2) * 0.03,
+      bz - 0.085 - dsin(t * 2.2) * 0.03,
     ]);
   }
   const tl = tube(tail, (t) => superEllipse(0.052 - t * 0.012, 0.020 + t * 0.006, 3, 12), {
@@ -775,7 +775,7 @@ export function plateCarrier(nz, p = {}) {
   const n = 26;
   for (let i = 0; i <= n; i++) {
     const a = (i / n) * Math.PI * 2;
-    cb.push([Math.sin(a) * 0.168, 1.152 + Math.cos(a * 2) * 0.005, Math.cos(a) * 0.121 - 0.004]);
+    cb.push([dsin(a) * 0.168, 1.152 + dcos(a * 2) * 0.005, dcos(a) * 0.121 - 0.004]);
   }
   const band = ribbon(cb, 0.100, 0.022, { seg: 8, up: [0, 1, 0], upright: true });
   computeNormals(band);
@@ -855,7 +855,7 @@ export function belt(nz) {
   const n = 24;
   for (let i = 0; i <= n; i++) {
     const a = (i / n) * Math.PI * 2;
-    pts.push([Math.sin(a) * 0.158, 0.902, Math.cos(a) * 0.113 - 0.008]);
+    pts.push([dsin(a) * 0.158, 0.902, dcos(a) * 0.113 - 0.008]);
   }
   const b = ribbon(pts, 0.056, 0.018, { seg: 7, up: [0, 1, 0], upright: true });
   computeNormals(b);
@@ -887,7 +887,7 @@ export function kneePad(nz, knee, side) {
     const pts = [];
     for (let i = 0; i <= 14; i++) {
       const a = (i / 14) * Math.PI * 2;
-      pts.push([Math.sin(a) * 0.066, dy, Math.cos(a) * 0.058 + 0.006]);
+      pts.push([dsin(a) * 0.066, dy, dcos(a) * 0.058 + 0.006]);
     }
     const s = ribbon(pts, 0.016, 0.006, { seg: 6, up: [0, 1, 0], upright: true });
     computeNormals(s);
@@ -1025,8 +1025,8 @@ export function glove(nz, wrist, gripAxis, palmNormal, side) {
       const ang = u * 2.2;
       const r = 0.030 - u * 0.004;
       const p = W.clone()
-        .addScaledVector(A, startY - 0.004 + Math.sin(ang) * r * 0.55)
-        .addScaledVector(N, -0.020 - (1 - Math.cos(ang)) * r * 0.9)
+        .addScaledVector(A, startY - 0.004 + dsin(ang) * r * 0.55)
+        .addScaledVector(N, -0.020 - (1 - dcos(ang)) * r * 0.9)
         .addScaledVector(S, side * (0.020 - t * 0.019));
       pts.push([p.x, p.y, p.z]);
     }

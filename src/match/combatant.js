@@ -30,6 +30,7 @@
  */
 
 import * as THREE from 'three';
+import { dcos, dsin } from '../core/dmath.js';
 
 /**
  * The rig, in fractions of the CURRENT stance height, feet at 0.
@@ -345,8 +346,8 @@ export class Combatant {
     // (-sin, 0, -cos), so right = cross(forward, up) = (cos, 0, -sin) — which is
     // also exactly where a THREE rotation of `yaw` about +Y sends local +x, so
     // the box quaternion below and these offsets agree by construction.
-    const rx = Math.cos(yaw);
-    const rz = -Math.sin(yaw);
+    const rx = dcos(yaw);
+    const rz = -dsin(yaw);
     const live = this.alive;
 
     for (const c of this.colliders) {

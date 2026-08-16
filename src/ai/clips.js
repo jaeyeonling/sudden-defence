@@ -1,3 +1,4 @@
+import { dexp, dsin } from '../core/dmath.js';
 /**
  * AI — animation content.
  *
@@ -207,7 +208,7 @@ export function hurtIdle(P, ph) {
 
 /** Pivot on the balls of the feet: the trailing foot lifts and re-plants. */
 export function turnStep(P, t, dir) {
-  const e = Math.sin(Math.PI * Math.min(1, t)); // 0..1..0
+  const e = dsin(Math.PI * Math.min(1, t)); // 0..1..0
   const s = dir > 0 ? 'R' : 'L';
   const o = dir > 0 ? 'L' : 'R';
   P.d(`UpLeg${s}`, 12 * e, dir * 16 * e, 0);
@@ -224,8 +225,8 @@ export function turnStep(P, t, dir) {
  * Root motion (the actual translation) is driven by the agent.
  */
 export function vault(P, t) {
-  const rise = Math.sin(Math.PI * Math.min(1, t * 1.05));
-  const tuck = Math.sin(Math.PI * Math.min(1, Math.max(0, (t - 0.12) * 1.3)));
+  const rise = dsin(Math.PI * Math.min(1, t * 1.05));
+  const tuck = dsin(Math.PI * Math.min(1, Math.max(0, (t - 0.12) * 1.3)));
   const land = Math.max(0, (t - 0.7) / 0.3);
   P.hip(0, 0.10 * rise, 0.02 * rise);
   P.d('Hips', 26 * rise - 16 * land, 0, 0);
@@ -254,8 +255,8 @@ export function vault(P, t) {
  */
 export function recoilAdd(P, t, strength = 1) {
   if (t > 0.26) return;
-  const e = Math.exp(-t * 16);
-  const osc = Math.sin(t * 92);
+  const e = dexp(-t * 16);
+  const osc = dsin(t * 92);
   const k = strength * e;
   P.d('ClavicleR', -7 * k, 0, 3 * k);
   P.d('UpperArmR', -9 * k + 2 * osc * k, 0, 5 * k);
@@ -271,7 +272,7 @@ export function recoilAdd(P, t, strength = 1) {
 /** Region-specific hit reaction; `t` seconds since impact, 0.45 s long. */
 export function hitAdd(P, region, t, dirSide = 0, strength = 1) {
   if (t > 0.5) return;
-  const e = Math.exp(-t * 7.5) * Math.min(1, t * 22);
+  const e = dexp(-t * 7.5) * Math.min(1, t * 22);
   const k = strength * e;
   const side = dirSide >= 0 ? 1 : -1;
   switch (region) {

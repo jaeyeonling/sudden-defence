@@ -60,6 +60,7 @@ import { CAMERA, MOVE, STANCE } from './tuning.js';
 import {
   Spring, RecoilAxis, clamp, clamp01, approach, hashNoise, DEG,
 } from './springs.js';
+import { dcos, dpow, dsin } from '../core/dmath.js';
 
 export class CameraRig {
   /**
@@ -236,7 +237,7 @@ export class CameraRig {
     const t = clamp01((speed - L.minSpeed) / (L.fullSpeed - L.minSpeed));
     if (t <= 0) return 0;
     // Perceptual curve: a 3 m/s landing should still be felt a little.
-    const mag = Math.pow(t, 0.72);
+    const mag = dpow(t, 0.72);
     this.dip.impulse(-L.dipImpulse * mag);
     this.recoilPitch.kick(L.pitch * mag);
     this.recoilRoll.kick(L.roll * mag);
@@ -302,11 +303,11 @@ export class CameraRig {
 
     // Forward for a YXZ euler with roll dropped. Written out rather than routed
     // through a quaternion because this runs every tick and allocates nothing.
-    const cp = Math.cos(this.aimPitch);
+    const cp = dcos(this.aimPitch);
     this.aimForward.set(
-      -Math.sin(this.aimYaw) * cp,
-      Math.sin(this.aimPitch),
-      -Math.cos(this.aimYaw) * cp
+      -dsin(this.aimYaw) * cp,
+      dsin(this.aimPitch),
+      -dcos(this.aimYaw) * cp
     );
   }
 
@@ -327,7 +328,7 @@ export class CameraRig {
     // they belong to `stepAim` and the tick. See the header.
 
     // ---- yaw basis -------------------------------------------------------
-    const sy = Math.sin(m.yaw), cy = Math.cos(m.yaw);
+    const sy = dsin(m.yaw), cy = dcos(m.yaw);
     this._fwd.set(-sy, 0, -cy);
     this._right.set(cy, 0, -sy);
 
@@ -375,8 +376,8 @@ export class CameraRig {
     let amp = B.amp;
     amp *= 1 - B.moveDamp * moveFactor;
     this.breathPhase += dt;
-    const bA = Math.sin(this.breathPhase * Math.PI * 2 * B.freqA);
-    const bB = Math.sin(this.breathPhase * Math.PI * 2 * B.freqB + 1.7);
+    const bA = dsin(this.breathPhase * Math.PI * 2 * B.freqA);
+    const bB = dsin(this.breathPhase * Math.PI * 2 * B.freqB + 1.7);
     const breathPitch = (bA * 0.7 + bB * 0.3) * amp;
     const breathYaw = (bB * 0.75 - bA * 0.25) * amp * 1.15;
     const breathPos = (bA * 0.6 + bB * 0.4) * B.posAmp * (1 - 0.8 * moveFactor);
@@ -447,19 +448,19 @@ export class CameraRig {
 
     // Weight: speed-scaled but sub-linear, faded out entirely in the air.
     // Normalised against base run speed so a full-speed run is weight 1.
-    let w = Math.min(B.speedCap, Math.pow(speed / STANCE.stand.speed, B.speedExp));
+    let w = Math.min(B.speedCap, dpow(speed / STANCE.stand.speed, B.speedExp));
     if (!m.grounded) w = 0;
     this.bobWeight = approach(this.bobWeight, w, B.airFade, dt);
 
     const th = this.bobPhase;
     const wt = this.bobWeight;
     this.bobOffset.set(
-      Math.sin(th) * B.ampX * wt,
-      Math.sin(th * 2) * B.ampY * wt,
-      Math.cos(th * 2) * B.ampZ * wt
+      dsin(th) * B.ampX * wt,
+      dsin(th * 2) * B.ampY * wt,
+      dcos(th * 2) * B.ampZ * wt
     );
-    this.bobRoll = -Math.sin(th) * B.roll * wt;
-    this.bobPitch = Math.cos(th * 2) * B.pitch * wt;
+    this.bobRoll = -dsin(th) * B.roll * wt;
+    this.bobPitch = dcos(th * 2) * B.pitch * wt;
   }
 
   /** Write the composed transform onto the engine camera. */

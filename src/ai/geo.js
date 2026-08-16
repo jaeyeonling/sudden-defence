@@ -17,7 +17,7 @@
  */
 
 import * as THREE from 'three';
-import { hypot3 } from '../core/dmath.js';
+import { dcos, dsin, hypot3 } from '../core/dmath.js';
 
 /* ------------------------------------------------------------------ */
 /* Deterministic gradient noise                                        */
@@ -120,7 +120,7 @@ export function superEllipse(rx, rz, n = 2, seg = 16, rot = 0) {
   const e = 2 / n;
   for (let i = 0; i < seg; i++) {
     const t = (i / seg) * Math.PI * 2 + rot;
-    const c = Math.cos(t), s = Math.sin(t);
+    const c = dcos(t), s = dsin(t);
     pts[i] = [
       rx * Math.sign(c) * Math.abs(c) ** e,
       rz * Math.sign(s) * Math.abs(s) ** e,
@@ -229,7 +229,7 @@ export function loft(rings, opts = {}) {
       P.push(arr[j * 3], arr[j * 3 + 1], arr[j * 3 + 2]);
       N.push(0, 0, 0);
       const ang = (j / k) * Math.PI * 2;
-      UV.push(uArr[k] * 0.5 + Math.cos(ang) * 0.02, pos[ringIndex].v + Math.sin(ang) * 0.02);
+      UV.push(uArr[k] * 0.5 + dcos(ang) * 0.02, pos[ringIndex].v + dsin(ang) * 0.02);
     }
     for (let j = 0; j < k; j++) {
       const a = start + j;
@@ -328,8 +328,8 @@ export function ellipsoid(rx, ry, rz, opts = {}) {
   for (let r = 0; r < rows; r++) {
     const t = v0 + (v1 - v0) * (r / (rows - 1));
     const phi = t * Math.PI;
-    const y = -Math.cos(phi) * ry;
-    const s = Math.sin(phi);
+    const y = -dcos(phi) * ry;
+    const s = dsin(phi);
     rings.push({ pts: ellipseProfile(Math.max(1e-4, rx * s), Math.max(1e-4, rz * s), seg), o: [0, y, 0] });
   }
   return loft(rings, opts);

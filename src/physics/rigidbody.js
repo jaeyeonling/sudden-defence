@@ -17,7 +17,7 @@
 import * as THREE from 'three';
 import { makeHitRecord, closestPtPointTriangle } from './math.js';
 import { MASK, SURFACE_PROPS } from './surfaces.js';
-import { hypot3, hypot4 } from '../core/dmath.js';
+import { dexp, hypot3, hypot4 } from '../core/dmath.js';
 
 const _m3 = new THREE.Matrix3();
 const _m3b = new THREE.Matrix3();
@@ -316,8 +316,8 @@ export class RigidBodyWorld {
 
     // --- integrate velocity ---
     b.linearVelocity.y += this.gravity * b.gravityScale * dt;
-    const ld = Math.exp(-b.linearDamping * dt);
-    const ad = Math.exp(-b.angularDamping * dt);
+    const ld = dexp(-b.linearDamping * dt);
+    const ad = dexp(-b.angularDamping * dt);
     b.linearVelocity.multiplyScalar(ld);
     b.angularVelocity.multiplyScalar(ad);
 

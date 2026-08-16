@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { dtan } from '../core/dmath.js';
 import { Rng } from '../core/rng.js';
 import { WeaponMaterials, ENV_OCCLUSION } from './materials.js';
 import { Viewmodel } from './viewmodel.js';
@@ -528,8 +529,8 @@ export class WeaponSystem {
       this._right.set(1, 0, 0).applyQuaternion(this._aimQuat);
       this._up.set(0, 1, 0).applyQuaternion(this._aimQuat);
       this._dir
-        .addScaledVector(this._right, Math.tan(spreadRad) * d.x)
-        .addScaledVector(this._up, Math.tan(spreadRad) * d.y)
+        .addScaledVector(this._right, dtan(spreadRad) * d.x)
+        .addScaledVector(this._up, dtan(spreadRad) * d.y)
         .normalize();
     }
 

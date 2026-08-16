@@ -43,6 +43,7 @@ import * as THREE from 'three';
 import { Rng } from '../core/rng.js';
 import { chamferBox, wallPanel, newTrs } from './util.js';
 import { BOX, BOX_FINE, slab } from './kit.js';
+import { dcos, dsin } from '../core/dmath.js';
 
 /** Interior extents. Walls sit outside these, so this is standable floor. */
 // 6 m, not 8. A depot ceiling you can read the underside of makes the space feel
@@ -316,7 +317,7 @@ function container(A, rng, x, z, ry) {
     const ox = i * 0.44;
     for (const sd of [-1, 1]) {
       A.addBox(key, BOX_FINE(A),
-        x + Math.cos(ry) * ox, H * 0.5, z - Math.sin(ry) * ox + sd * (D * 0.5 + 0.02),
+        x + dcos(ry) * ox, H * 0.5, z - dsin(ry) * ox + sd * (D * 0.5 + 0.02),
         ry, 0.09, H - 0.24, 0.05);
     }
   }

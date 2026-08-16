@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { dcos, dsin } from '../core/dmath.js';
 
 /**
  * Procedural hard-surface geometry kit for the weapons.
@@ -198,7 +199,7 @@ export function roundRect(w, h, r, seg = 3) {
   for (const [cx, cy, a0] of corners) {
     for (let i = 0; i <= seg; i++) {
       const a = a0 + (i / seg) * (Math.PI / 2);
-      pts.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]);
+      pts.push([cx + dcos(a) * r, cy + dsin(a) * r]);
     }
   }
   return pts;
@@ -256,7 +257,7 @@ export function knurlBand(radius, len, count = 28, depth = 0.0004, rows = 3) {
       const a = (i / count) * Math.PI * 2 + (r % 2) * (Math.PI / count);
       const g = cell.clone();
       g.rotateZ(a);
-      g.translate(Math.cos(a) * radius, Math.sin(a) * radius, z);
+      g.translate(dcos(a) * radius, dsin(a) * radius, z);
       parts.push(normalizeAttributes(g));
     }
   }

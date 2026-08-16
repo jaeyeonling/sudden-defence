@@ -1,3 +1,4 @@
+import { dcos, dlog, dsin } from './dmath.js';
 /**
  * Deterministic PRNG (xoshiro128**). Gameplay randomness — recoil patterns,
  * spread, particle jitter, AI timing — must run through this so capture mode
@@ -117,10 +118,17 @@ export class Rng {
     }
     let u = 0;
     while (u === 0) u = this.float();
-    const r = Math.sqrt(-2 * Math.log(u));
+    // `dlog`, and this line is why the fifteen-leaf residue survived every
+    // other substitution: the rng's INTEGER stream is pinned arithmetic and
+    // rewinds perfectly, but Box–Muller runs the uniform through `log` — so a
+    // bot's aim spread was deterministic in WHICH random number it drew and
+    // engine-dependent in WHERE that number sent the round. The convicted
+    // consumer is `agent._shoot` (aim scatter), with `penetration`'s exit
+    // scatter on the same seam.
+    const r = Math.sqrt(-2 * dlog(u));
     const th = 2 * Math.PI * this.float();
-    this._spare = r * Math.sin(th);
-    return r * Math.cos(th);
+    this._spare = r * dsin(th);
+    return r * dcos(th);
   }
 
   pick(arr) {
@@ -131,8 +139,8 @@ export class Rng {
   disc(out = { x: 0, y: 0 }) {
     const r = Math.sqrt(this.float());
     const a = this.float() * Math.PI * 2;
-    out.x = Math.cos(a) * r;
-    out.y = Math.sin(a) * r;
+    out.x = dcos(a) * r;
+    out.y = dsin(a) * r;
     return out;
   }
 

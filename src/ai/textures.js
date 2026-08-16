@@ -22,7 +22,7 @@
  */
 
 import * as THREE from 'three';
-import { hypot3 } from '../core/dmath.js';
+import { dsin, hypot3 } from '../core/dmath.js';
 
 /* ------------------------------------------------------------------ */
 /* Tileable value noise                                                */
@@ -298,7 +298,7 @@ function garmentRelief(nz, u, v) {
   h += -ridgeLine(sb, 0.009) * 0.46 + (ridgeLine(sb, 0.022) - ridgeLine(sb, 0.011)) * 0.22;
   // stitch beads, only on the seams themselves, 9 mm apart
   const onSeam = Math.max(ridgeLine(sa, 0.020), ridgeLine(sb, 0.014));
-  h += onSeam * (0.5 + 0.5 * Math.sin((u + v) * 520)) * 0.26;
+  h += onSeam * (0.5 + 0.5 * dsin((u + v) * 520)) * 0.26;
   // pocket-edge creases: a coarse rectangular lattice, only sometimes present
   const gate = smooth(0.55, 0.72, nz.fbm(u + 1.7, v + 2.3, 3, 2));
   const pu = cellDist(u * 3.5 + 0.31);
@@ -590,7 +590,7 @@ export class SoldierMaterials {
         // 1000D cordura at 0.26 m/tile: the basket weave is 1 mm, the binding
         // tape and bar-tacks are the things this tile actually has to carry
         const tu = u * 26, tv = v * 26;
-        const cell = Math.sin(tu * Math.PI) * Math.sin(tv * Math.PI);
+        const cell = dsin(tu * Math.PI) * dsin(tv * Math.PI);
         let h = cell * 0.34;
         h += (nz.fbm(u, v, 120, 2) - 0.5) * 0.30;
         // PALS ribbing: 6 mm ribs, but only across the patches of the tile that
@@ -602,7 +602,7 @@ export class SoldierMaterials {
         const st = cellDist(v * 3);
         const tape = ridgeLine(st, 0.045);
         h += tape * 0.14;
-        h += ridgeLine(st, 0.020) * (0.5 + 0.5 * Math.sin(u * 300)) * 0.30;
+        h += ridgeLine(st, 0.020) * (0.5 + 0.5 * dsin(u * 300)) * 0.30;
         out.h = h;
         const shade = 0.84 + 0.16 * nz.fbm(u, v, 7, 3);
         const base = 0.300 * KIT_CAL * shade;
@@ -610,7 +610,7 @@ export class SoldierMaterials {
         out.g = base * 1.0;
         out.b = base * 0.90;
         // thread is paler and shinier than the webbing
-        const thr = ridgeLine(st, 0.020) * (0.25 + 0.25 * Math.sin(u * 300));
+        const thr = ridgeLine(st, 0.020) * (0.25 + 0.25 * dsin(u * 300));
         out.r = mix(out.r, 0.335 * KIT_CAL, thr);
         out.g = mix(out.g, 0.320 * KIT_CAL, thr);
         out.b = mix(out.b, 0.278 * KIT_CAL, thr);
@@ -771,9 +771,9 @@ export class SoldierMaterials {
       (u, v, out) => {
         const threads = 33; // 50 mm / 1.5 mm
         const tu = u * threads, tv = v * threads;
-        const wu = Math.sin(tu * Math.PI * 2);
-        const wv = Math.sin(tv * Math.PI * 2);
-        const over = Math.sin((tu + tv) * Math.PI) > 0;
+        const wu = dsin(tu * Math.PI * 2);
+        const wv = dsin(tv * Math.PI * 2);
+        const over = dsin((tu + tv) * Math.PI) > 0;
         let h = (over ? wu * 0.62 + wv * 0.22 : wv * 0.62 + wu * 0.22) * 0.5;
         // ripstop reinforcement lattice: a doubled thread every 8 mm
         h += (ridgeLine(cellDist(u * 6), 0.055) + ridgeLine(cellDist(v * 6), 0.055)) * 0.30;
@@ -794,7 +794,7 @@ export class SoldierMaterials {
         const cellsU = 25, cellsV = 25; // 2 mm basket
         const cu = Math.abs((((u * cellsU) % 1) + 1) % 1 - 0.5);
         const cv = Math.abs((((v * cellsV) % 1) + 1) % 1 - 0.5);
-        const over = Math.sin((u * cellsU + v * cellsV) * Math.PI) > 0;
+        const over = dsin((u * cellsU + v * cellsV) * Math.PI) > 0;
         let h = (over ? smooth(0.5, 0.1, cu) : smooth(0.5, 0.1, cv)) * 0.7 - 0.25;
         h += (nz.fbm(u, v, 140, 2) - 0.5) * 0.22;
         out.h = h;

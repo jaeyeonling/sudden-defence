@@ -21,6 +21,7 @@
  */
 
 import * as THREE from 'three';
+import { dcos, dexp, dsin } from '../core/dmath.js';
 
 /** Metres behind the followed fighter's head. */
 const BACK = 2.55;
@@ -124,8 +125,8 @@ export class Spectator {
     const head = this._head.copy(t.head);
     const yaw = t.viewYaw;
     // World convention: forward is (-sin, 0, -cos), so BEHIND is (+sin, +cos).
-    const bx = Math.sin(yaw);
-    const bz = Math.cos(yaw);
+    const bx = dsin(yaw);
+    const bz = dcos(yaw);
     const want = this._want.set(head.x + bx * BACK, head.y + RISE, head.z + bz * BACK);
 
     // ---- do not put the camera inside a wall -----------------------------
@@ -140,7 +141,7 @@ export class Spectator {
       this._look.copy(head);
       this._settled = true;
     } else {
-      const a = 1 - Math.exp(-FOLLOW * Math.max(dt, 1e-4));
+      const a = 1 - dexp(-FOLLOW * Math.max(dt, 1e-4));
       this._pos.lerp(want, a);
       this._look.lerp(head, a);
     }

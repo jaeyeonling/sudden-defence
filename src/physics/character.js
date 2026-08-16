@@ -24,7 +24,7 @@
 
 import { makeHitRecord } from './math.js';
 import { MASK, SURFACE_PROPS, surfaceName } from './surfaces.js';
-import { hypot3 } from '../core/dmath.js';
+import { dcos, hypot3 } from '../core/dmath.js';
 
 const MAX_PLANES = 5;
 const SKIN = 0.008;
@@ -153,7 +153,7 @@ export class CharacterController {
   }
 
   get cosSlope() {
-    return Math.cos(this.slopeLimit);
+    return dcos(this.slopeLimit);
   }
 
   /** Lower sphere centre of the capsule. */

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { datan2, hypot3 } from '../core/dmath.js';
+import { datan2, dcos, dexp, dsin, hypot3 } from '../core/dmath.js';
 
 /**
  * WORLD — geometry toolkit.
@@ -408,8 +408,8 @@ export function holePath(o, rng) {
       const rx = (x1 - x0) / 2;
       const ry = (y1 - y0) / 2;
       // square-ish superellipse so it still reads as a window hole
-      const c = Math.cos(t);
-      const s = Math.sin(t);
+      const c = dcos(t);
+      const s = dsin(t);
       const k = 1 / Math.max(Math.abs(c), Math.abs(s)) ** 0.85;
       const j = 1 + (rng ? rng.range(-R, R) : 0);
       pts.push([cx + c * k * rx * j, cy + s * k * ry * j]);
@@ -558,7 +558,7 @@ export function runoffStreak(rng, width, len, opts = {}) {
       nrm.push(0, 0, 1);
       uv.push(u, v);
       // Feathered on all four edges: a hard-edged strip is a painted stripe.
-      const side = Math.sin(Math.PI * u) ** 0.8;
+      const side = dsin(Math.PI * u) ** 0.8;
       const head = Math.min(1, v / 0.10);
       const tail = 1 - v * v;
       const broken = 0.55 + 0.75 * fbm3(seed + u * 4.3, v * 5.7, 3.3, 2);
@@ -654,9 +654,9 @@ export function patchGeometry(rng, radius, opts = {}) {
   for (let i = 0; i < lobes; i++) {
     const t = (i / lobes) * Math.PI * 2;
     const r = rs[i];
-    pos.push(Math.cos(t) * r, -sag, Math.sin(t) * r);
+    pos.push(dcos(t) * r, -sag, dsin(t) * r);
     nrm.push(0, 1, 0);
-    uv.push(Math.cos(t), Math.sin(t));
+    uv.push(dcos(t), dsin(t));
   }
   for (let i = 0; i < lobes; i++) idx.push(0, 1 + i, 1 + ((i + 1) % lobes));
   const g = new THREE.BufferGeometry();
@@ -698,7 +698,7 @@ export function driftBerm(rng, len, w, h, opts = {}) {
     for (let j = 0; j <= nz; j++) {
       const v = j / nz;
       // cosine section: steep at the wall, long feathered toe out into the road
-      const y = ch * Math.cos((v * Math.PI) / 2) ** 1.7;
+      const y = ch * dcos((v * Math.PI) / 2) ** 1.7;
       const rip = fbm3(x * 2.3 + seed, v * 3.1, 8.4, 2) - 0.5;
       pos.push(x, Math.max(0, y + rip * h * 0.22 * (1 - v)), v * cw);
       nrm.push(0, 1, 0);
@@ -818,19 +818,19 @@ export function clothGeometry(w, h, opts = {}) {
       // catenary along the top edge, released as it descends
       const cat = Math.cosh((u - 0.5) * 2.2) - 1;
       let z = -cat * sag * (1 - v * 0.35);
-      z += Math.sin(v * 7.1 + u * 3.3 + seed) * wrinkle * (0.4 + u * (1 - u) * 3);
-      z += Math.sin(u * 11.3 + seed * 2) * wrinkle * 0.5 * v;
+      z += dsin(v * 7.1 + u * 3.3 + seed) * wrinkle * (0.4 + u * (1 - u) * 3);
+      z += dsin(u * 11.3 + seed * 2) * wrinkle * 0.5 * v;
       // folds: sharp, and deepest where the cloth hangs loose at the bottom
       const cr = tri(u * 2.6 + v * 1.15 + seed * 0.37);
       z += cr * wrinkle * 0.85 * (0.4 + 0.6 * (1 - v));
-      z -= bulge * Math.sin(u * Math.PI) * Math.sin(v * Math.PI);
+      z -= bulge * dsin(u * Math.PI) * dsin(v * Math.PI);
       z *= bow;
       y -= cat * sag * 0.5;
-      x += twist * (v - 0.5) * Math.sin(u * 4 + seed);
+      x += twist * (v - 0.5) * dsin(u * 4 + seed);
       if (j === 0 && fray > 0) {
         // scalloped / frayed hem: the bottom edge is never a ruled line
-        y -= fray * (0.3 + 0.7 * Math.abs(Math.sin(u * 8.7 + seed * 1.7)));
-        x += fray * 0.35 * Math.sin(u * 15.3 + seed);
+        y -= fray * (0.3 + 0.7 * Math.abs(dsin(u * 8.7 + seed * 1.7)));
+        x += fray * 0.35 * dsin(u * 15.3 + seed);
       }
       P[k * 3] = x;
       P[k * 3 + 1] = y;
@@ -1064,19 +1064,19 @@ export function sackGeometry(rng, w = 0.5, h = 0.17, d = 0.3, opts = {}) {
     // the sewn end seam stands out as a small flat lip
     if (neck > 0.55) y += Math.sign(uy) * h * 0.02 * (neck - 0.55) * 2;
     // the sewn seam runs the length of the crown on every bag
-    if (uy > 0.15) y += h * 0.05 * Math.exp(-((z / (d * 0.42)) ** 2) * 6) * (1 - neck * 0.8);
+    if (uy > 0.15) y += h * 0.05 * dexp(-((z / (d * 0.42)) ** 2) * 6) * (1 - neck * 0.8);
     if (variant === 0) {
-      z *= 1 + 0.06 * Math.cos(t * 2.6);
+      z *= 1 + 0.06 * dcos(t * 2.6);
     } else if (variant === 1) {
       // slumped: fat at -x, sagging waist, dished top
       x += w * 0.04 * t;
       const fatter = 1 + 0.13 * (0.5 - t);
       z *= fatter;
-      y *= fatter * (1 - 0.16 * Math.exp(-((t / 0.32) ** 2)));
-      if (uy > 0.3) y -= h * 0.05 * Math.exp(-((t / 0.45) ** 2));
+      y *= fatter * (1 - 0.16 * dexp(-((t / 0.32) ** 2)));
+      if (uy > 0.3) y -= h * 0.05 * dexp(-((t / 0.45) ** 2));
     } else {
       // half-empty: crease across the waist, flat folded end at +x
-      const crease = Math.exp(-(((t - 0.1) / 0.16) ** 2));
+      const crease = dexp(-(((t - 0.1) / 0.16) ** 2));
       z *= 1 - crease * 0.2;
       y *= 1 - crease * 0.26;
       if (t > 0.5) {

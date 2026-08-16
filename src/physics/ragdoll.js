@@ -22,7 +22,7 @@
 import * as THREE from 'three';
 import { MASK, SURFACE_PROPS } from './surfaces.js';
 import { closestPtSegSeg, makeClosest } from './math.js';
-import { hypot3 } from '../core/dmath.js';
+import { dacos, dcos, dsin, hypot3 } from '../core/dmath.js';
 
 const DEG = Math.PI / 180;
 
@@ -439,7 +439,7 @@ export class Ragdoll {
 
       let dot = ax * bx + ay * by + az * bz;
       if (dot > 1) dot = 1; else if (dot < -1) dot = -1;
-      const angle = Math.acos(dot);
+      const angle = dacos(dot);
       if (angle <= cone) continue;
 
       // axis = a x b (fall back to any perpendicular when anti-parallel)
@@ -455,7 +455,7 @@ export class Ragdoll {
       kx /= kl; ky /= kl; kz /= kl;
 
       // Rodrigues: rotate the parent direction by `cone` about k -> target dir
-      const ca = Math.cos(cone), sa = Math.sin(cone);
+      const ca = dcos(cone), sa = dsin(cone);
       const cross_x = ky * az - kz * ay;
       const cross_y = kz * ax - kx * az;
       const cross_z = kx * ay - ky * ax;
@@ -634,7 +634,7 @@ export class Ragdoll {
           rx /= rl; ry /= rl; rz /= rl;
           let cs = ux * rx + uy * ry + uz * rz;
           if (cs > 1) cs = 1; else if (cs < -1) cs = -1;
-          const ang = Math.acos(cs);
+          const ang = dacos(cs);
           if (ang > lim) {
             // rotate u back towards r by (ang - lim)
             const t = (ang - lim) / ang;

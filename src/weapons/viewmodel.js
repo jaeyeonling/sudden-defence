@@ -14,6 +14,7 @@ import {
   wrapPi,
   TAU,
 } from './mathx.js';
+import { dcos, dpow, dsin } from '../core/dmath.js';
 
 /**
  * THE VIEWMODEL RIG.
@@ -77,7 +78,7 @@ function shapeMasks(geo, o) {
   for (let i = 0; i < a.length; i += 3) {
     for (let k = 0; k < 3; k++) {
       const v = a[i + k];
-      a[i + k] = v <= 0 ? 0 : amp[k] * Math.pow(v > 1 ? 1 : v, exp[k]);
+      a[i + k] = v <= 0 ? 0 : amp[k] * dpow(v > 1 ? 1 : v, exp[k]);
     }
   }
   col.needsUpdate = true;
@@ -615,7 +616,7 @@ export class Viewmodel {
     const swayY = n[1].fbm(t * nr[1], 3) * 0.55 + n[4].fbm(t * nr[4] * 2.1, 2) * 0.45;
     const swayZ = n[2].fbm(t * nr[2], 2) * 0.6 + n[5].fbm(t * nr[5] * 1.7, 2) * 0.4;
     // Breathing: a slow 0.22 Hz cycle under the noise.
-    const breath = Math.sin(t * 1.38) * 0.5 + Math.sin(t * 0.61 + 1.1) * 0.25;
+    const breath = dsin(t * 1.38) * 0.5 + dsin(t * 0.61 + 1.1) * 0.25;
 
     let px = swayX * 0.0075 * swayScale;
     let py = (swayY * 0.006 + breath * 0.0022) * swayScale;
@@ -634,12 +635,12 @@ export class Viewmodel {
       if (this.bobPhase > TAU * 64) this.bobPhase -= TAU * 64;
     }
     const bp = this.bobPhase;
-    px += Math.sin(bp) * 0.0165 * bobAmt;
-    py += (Math.abs(Math.cos(bp)) - 0.6) * 0.0125 * bobAmt;
-    pz += Math.sin(bp * 2) * 0.0055 * bobAmt;
-    rz += Math.sin(bp) * 0.031 * bobAmt;
-    rx += Math.cos(bp * 2) * 0.014 * bobAmt;
-    ry += Math.sin(bp + 0.6) * 0.019 * bobAmt;
+    px += dsin(bp) * 0.0165 * bobAmt;
+    py += (Math.abs(dcos(bp)) - 0.6) * 0.0125 * bobAmt;
+    pz += dsin(bp * 2) * 0.0055 * bobAmt;
+    rz += dsin(bp) * 0.031 * bobAmt;
+    rx += dcos(bp * 2) * 0.014 * bobAmt;
+    ry += dsin(bp + 0.6) * 0.019 * bobAmt;
 
     /* -------- weapon lag ---------------------------------------------- */
     const lagScale = 1;

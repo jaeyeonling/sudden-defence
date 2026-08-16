@@ -14,7 +14,7 @@
 import * as THREE from 'three';
 import { HEALTH } from './tuning.js';
 import { clamp01, approach, DEG } from './springs.js';
-import { datan2 } from '../core/dmath.js';
+import { datan2, dcos, dsin } from '../core/dmath.js';
 
 export class Health {
   /**
@@ -118,8 +118,8 @@ export class Health {
       const dx = from.x - this.ctx.camera.position.x;
       const dz = from.z - this.ctx.camera.position.z;
       // Forward at yaw is (-sin, -cos); right is (cos, -sin).
-      const f = -Math.sin(yaw) * dx - Math.cos(yaw) * dz;
-      const r = Math.cos(yaw) * dx - Math.sin(yaw) * dz;
+      const f = -dsin(yaw) * dx - dcos(yaw) * dz;
+      const r = dcos(yaw) * dx - dsin(yaw) * dz;
       angle = datan2(r, f);
       this._pushIndicator(angle, dealt, from);
     }
@@ -135,8 +135,8 @@ export class Health {
       const s = 0.6 + severity * 1.9;
       this.rig.addRecoil(
         (1.1 + severity) * DEG * s * 0.7,
-        -Math.sin(angle) * (1.4 * DEG) * s,
-        -Math.sin(angle) * (2.2 * DEG) * s,
+        -dsin(angle) * (1.4 * DEG) * s,
+        -dsin(angle) * (2.2 * DEG) * s,
         0.008 * s
       );
       this.rig.addTrauma(0.22 * s);

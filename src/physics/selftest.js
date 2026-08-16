@@ -14,7 +14,7 @@ import { EventBus } from '../core/registry.js';
 import { Rng } from '../core/rng.js';
 import { PhysicsSystem } from './index.js';
 import { MASK, LAYER, SURFACE } from './surfaces.js';
-import { hypot3 } from '../core/dmath.js';
+import { dcos, dsin, hypot3 } from '../core/dmath.js';
 
 let failures = 0;
 let checks = 0;
@@ -261,7 +261,7 @@ section('Character controller');
     const a = r.float() * Math.PI * 2;
     c.velocity.y += phys.gravity / 120;
     if (c.grounded) c.velocity.y = r.float() < 0.01 ? 6 : 0;
-    c.move(Math.cos(a) * sp, c.velocity.y / 120, Math.sin(a) * sp);
+    c.move(dcos(a) * sp, c.velocity.y / 120, dsin(a) * sp);
     if (!Number.isFinite(c.position.x + c.position.y + c.position.z)) { nan++; break; }
     if (c.position.y > maxY) maxY = c.position.y;
     if (i % 37 === 0) {

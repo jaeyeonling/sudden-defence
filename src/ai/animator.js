@@ -26,6 +26,7 @@
 import * as THREE from 'three';
 import * as C from './clips.js';
 import { BORE_DIR } from './rig.js';
+import { dacos } from '../core/dmath.js';
 
 const DEG = Math.PI / 180;
 
@@ -436,7 +437,7 @@ export class Animator {
       if (want.lengthSq() < 1e-6) return;
       want.normalize();
       const dot = Math.min(1, Math.max(-1, bore.dot(want)));
-      let ang = Math.acos(dot) * weight;
+      let ang = dacos(dot) * weight;
       if (ang < 0.0015) return;
       // clamp how far the spine will twist before the body has to turn
       const maxThisIter = iter === 0 ? 0.9 : 0.35;
@@ -466,7 +467,7 @@ export class Animator {
       if (want.lengthSq() < 1e-6) return;
       want.normalize();
       const dot = Math.min(1, Math.max(-1, fwd.dot(want)));
-      let ang = Math.acos(dot) * weight * f;
+      let ang = dacos(dot) * weight * f;
       if (ang < 0.002) continue;
       if (ang > 0.5) ang = 0.5; // ~29 deg per bone per frame cap
       const axis = this._v4.crossVectors(fwd, want);
@@ -546,7 +547,7 @@ export class Animator {
         const foot = leg[2];
         const up = this._v2.set(0, 0, 1).applyQuaternion(this._wq(foot, this._q2));
         const dot = Math.min(1, Math.max(-1, up.dot(n)));
-        let ang = Math.acos(dot);
+        let ang = dacos(dot);
         if (ang > 0.35) ang = 0.35;
         const axis = this._v4.crossVectors(up, n);
         if (axis.lengthSq() > 1e-10) {

@@ -18,7 +18,7 @@ import * as THREE from 'three';
 import { BTN } from '../core/command.js';
 import { STANCE, MOVE, GRAVITY, JUMP_SPEED, FOOTSTEP } from './tuning.js';
 import { clamp, clamp01 } from './springs.js';
-import { hypot2, hypot3 } from '../core/dmath.js';
+import { dcos, dsin, hypot2, hypot3 } from '../core/dmath.js';
 
 export const STATES = ['stand', 'crouch', 'jump', 'fall'];
 
@@ -235,7 +235,7 @@ export class Movement {
     this._tickTimers(h);
 
     // Basis for this step.
-    const sy = Math.sin(this.yaw), cy = Math.cos(this.yaw);
+    const sy = dsin(this.yaw), cy = dcos(this.yaw);
     this._fwd.set(-sy, 0, -cy);
     this._right.set(cy, 0, -sy);
 

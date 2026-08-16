@@ -46,7 +46,7 @@ import { NavGrid, CoverMap } from './nav.js';
 import { Agent, STATE, aiYaw } from './agent.js';
 import { Squad } from './squad.js';
 import { GroundShadows } from './grounding.js';
-import { hypot2, hypot3 } from '../core/dmath.js';
+import { dcos, dsin, hypot2, hypot3 } from '../core/dmath.js';
 
 /** Shared empty result for enemiesOf() before `match` exists. Never mutated. */
 const EMPTY = Object.freeze([]);
@@ -868,9 +868,9 @@ export class AiSystem {
     const ang = this.rng.range(0, Math.PI * 2);
     const rad = this.rng.range(0.6, 2.4);
     const p = new THREE.Vector3(
-      anchor.position.x + Math.cos(ang) * rad,
+      anchor.position.x + dcos(ang) * rad,
       anchor.position.y,
-      anchor.position.z + Math.sin(ang) * rad
+      anchor.position.z + dsin(ang) * rad
     );
     const ci = this.grid.nearest(p.x, p.z, anchor.position.y, 6, 1.4);
     if (ci >= 0) {
@@ -901,7 +901,7 @@ export class AiSystem {
   _daylight() {
     const sky = this._sky ?? (this._sky = this.ctx.peek('sky'));
     const alt = sky?.sunAltitude ?? 0.6; // radians above the horizon
-    return Math.min(1, Math.max(0, Math.sin(Math.max(0, alt)) * 4));
+    return Math.min(1, Math.max(0, dsin(Math.max(0, alt)) * 4));
   }
 
   /**

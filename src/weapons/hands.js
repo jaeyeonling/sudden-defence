@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { box, blob, latheZ, rodZ, dome, extrude, roundRect, ring, mergeAll } from './geometry.js';
+import { dsin } from '../core/dmath.js';
 
 /**
  * First-person arms.
@@ -398,7 +399,7 @@ function buildSleeve(material, len, r0, r1, opts = {}) {
   for (let i = 0; i < folds; i++) {
     const t = 0.14 + (i / Math.max(1, folds - 1)) * 0.7;
     // deterministic wobble, so captures stay byte-identical
-    const j = Math.sin(i * 2.399 + 0.7) * 0.5 + Math.sin(i * 5.13) * 0.25;
+    const j = dsin(i * 2.399 + 0.7) * 0.5 + dsin(i * 5.13) * 0.25;
     const r = (r0 + (r1 - r0) * t) * (1 + j * 0.06);
     const f = ring(r * 0.985, r * (0.085 + j * 0.03), 24, 6);
     f.rotateX(Math.PI / 2);

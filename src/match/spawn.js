@@ -26,6 +26,7 @@
  */
 
 import * as THREE from 'three';
+import { dcos, dsin } from '../core/dmath.js';
 
 /** ~137.5 degrees. Consecutive slots never line up, at any count. */
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
@@ -141,8 +142,8 @@ export class SpawnAssigner {
     // failed to find floor is a fighter dropped through the world, so the last
     // fallback is always the anchor itself — which physics already validated.
     const angle = seatIndex * GOLDEN_ANGLE;
-    const dx = Math.cos(angle);
-    const dz = Math.sin(angle);
+    const dx = dcos(angle);
+    const dz = dsin(angle);
     for (let r = ring * RING_STEP; r > 0.2; r -= 0.35) {
       const x = a.x + dx * r;
       const z = a.z + dz * r;

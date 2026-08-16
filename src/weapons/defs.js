@@ -1,4 +1,5 @@
 import { DEG } from './mathx.js';
+import { dsin } from '../core/dmath.js';
 
 /**
  * Weapon data.
@@ -582,7 +583,7 @@ export function buildRecoilPattern(def, Rng) {
     // `driftShape` so a weapon can climb straight before it starts to wander.
     const t = i / Math.max(1, n - 1);
     const snake =
-      Math.sin(phase + t * Math.PI * 2.6) * 0.75 + Math.sin(phase2 + t * Math.PI * 5.1) * 0.35;
+      dsin(phase + t * Math.PI * 2.6) * 0.75 + dsin(phase2 + t * Math.PI * 5.1) * 0.35;
     const gate = r.driftShape
       ? r.driftShape[Math.min(shot, r.driftShape.length - 1)]
       : 1;

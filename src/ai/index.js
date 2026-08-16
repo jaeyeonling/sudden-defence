@@ -40,7 +40,9 @@
 
 import * as THREE from 'three';
 import { SoldierMaterials } from './textures.js';
-import { buildSoldier, resolveMaterials, MATERIAL_SLOTS, VARIANTS } from './soldier.js';
+import { buildSoldier } from './soldier.js';
+import { resolveMaterials, MATERIAL_SLOTS } from './soldier-slots.js';
+import { VARIANTS } from './soldier-palette.js';
 import { RIG } from './rig.js';
 import { NavGrid, CoverMap } from './nav.js';
 import { Agent, STATE, aiYaw } from './agent.js';

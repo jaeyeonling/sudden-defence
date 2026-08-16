@@ -34,9 +34,9 @@ import { Mixer } from './mixer.js';
 import { SpatialField } from './spatial.js';
 import { Ambience, ambientOneShot, ONE_SHOTS } from './ambience.js';
 import { WEAPON_PROFILES, resolveProfile, weaponShot, bulletWhizz, dryFire } from './weapons.js';
+import { footstep, surfaceImpact } from './foley-impacts.js';
 import {
-  surfaceImpact, footstep, shellCasing, reloadPhase, explosion, bodyFall, uiSound,
-  heartbeat, cloth,
+  shellCasing, reloadPhase, explosion, bodyFall, uiSound, heartbeat, cloth,
 } from './foley.js';
 import { bark as voxBark, barkFor } from './vox.js';
 import { classifySpace } from './ir.js';

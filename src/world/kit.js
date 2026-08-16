@@ -1,5 +1,7 @@
 import { datan2, hypot2 } from '../core/dmath.js';
-import { wallPanel, solidSlabs, clothGeometry, tubeY, fbm3 } from './util.js';
+import { clothGeometry, tubeY } from './util-cloth.js';
+import { fbm3 } from './util-noise.js';
+import { solidSlabs, wallPanel } from './util.js';
 import { IDENT, LL, BOX, BOX_FINE, BOX_SOFT, BOX_THIN, worldOf, ryOf } from './kit-base.js';
 
 /**

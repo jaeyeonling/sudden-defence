@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { dcos, dsin, hypot2 } from '../core/dmath.js';
-import { polyPrism, rockGeometry, fbm3, paintMasks } from './util.js';
+import { paintMasks } from './util-accum.js';
+import { fbm3 } from './util-noise.js';
+import { polyPrism, rockGeometry } from './util.js';
 import { IDENT, LL } from './kit-base.js';
 
 // ================================================================== damage ==

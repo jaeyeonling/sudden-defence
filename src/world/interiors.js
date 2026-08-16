@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import { BOX, BOX_FINE, BOX_THIN, IDENT, LL } from './kit-base.js';
 import { rubbleMound } from './kit-damage.js';
-import { clothGeometry, patchGeometry, chamferBox, fillMasks } from './util.js';
+import { fillMasks } from './util-accum.js';
+import { clothGeometry } from './util-cloth.js';
+import { chamferBox, patchGeometry } from './util.js';
 import { dcos, dsin } from '../core/dmath.js';
 
 /**

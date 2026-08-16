@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { dcos, dsin } from '../core/dmath.js';
-import { chamferBox, plainBox, clothGeometry } from './util.js';
+import { clothGeometry } from './util-cloth.js';
+import { chamferBox, plainBox } from './util.js';
 import { _e, _q, _p, _s, LL, BOX, BOX_FINE, BOX_SOFT, BOX_THIN, PANE } from './kit-base.js';
 
 /** Windows, doors and shopfronts — every hole in a facade and what fills it. */

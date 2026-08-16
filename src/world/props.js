@@ -2,16 +2,10 @@ import * as THREE from 'three';
 import { mergeSimple } from './kit-openings.js';
 import { pockGeometry } from './kit-damage.js';
 import { datan2, dcos, dexp, dsin, hypot2 } from '../core/dmath.js';
-import {
-  chamferBox,
-  rockGeometry,
-  sackGeometry,
-  polyPrism,
-  paintMasks,
-  fillMasks,
-  fbm3,
-  warpGeometry,
-} from './util.js';
+import { fillMasks, paintMasks } from './util-accum.js';
+import { sackGeometry } from './util-cloth.js';
+import { fbm3 } from './util-noise.js';
+import { chamferBox, polyPrism, rockGeometry, warpGeometry } from './util.js';
 
 /**
  * WORLD — the prop library.

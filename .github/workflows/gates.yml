@@ -1,0 +1,130 @@
+# The 25 gates, split by what each one actually depends on.
+#
+# The split is not by speed. It is by whether a gate's verdict is a property of
+# the CODE or a property of the MACHINE, because those two need different
+# runners and mixing them produces a suite that is red for reasons nobody can
+# act on — which is how a gate stops being read.
+#
+#   logic    16 gates that read engine state through page.evaluate and never
+#            look at a pixel. The simulation is CPU-side JS, so SwiftShader on a
+#            shared runner answers the same as Metal does. Cheap, parallel,
+#            always available: this is the one that should block a PR fastest.
+#
+#   render    the four that sample the framebuffer (legibility x2, markings,
+#            friendfoe) plus the three that compare pixels or engine bits
+#            byte-for-byte (pixelgate, crossengine, determinism). Their
+#            thresholds were derived on ANGLE-over-Metal and pixelgate's hashes
+#            are literally hashes of that renderer's output. On a shared runner
+#            they would measure the runner. Self-hosted macOS.
+#
+#   perf      converge (hard-fails under 90 fps) and profile (frame time, stall
+#            ceiling). profile's own header records this gate "spent a day
+#            catching a security agent rather than a regression — p50 57 fps and
+#            p50 13 fps within an hour" on the SAME build. A gate that reads
+#            machine load cannot run beside other jobs, so it runs at night on
+#            an idle machine, plus on demand.
+#
+# The gate lists live in package.json (`test:logic`, `test:render`, `test:perf`,
+# whose union is `npm test`) and not in this file. Two copies of that list would
+# drift, and the copy in CI is the one nobody runs locally.
+
+name: gates
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # 04:17 UTC. Not :00 — every scheduler on the planet fires there.
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: gates-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  logic:
+    name: logic (16 gates)
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: pw-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - run: npx playwright install --with-deps chromium
+
+      # One server for all sixteen. Every harness checks the port first and only
+      # spawns when nothing answers, so starting it here means none of them do —
+      # worth 2-5 s per gate, and it removes sixteen spawn/kill races from the
+      # run. --strictPort so a silent rebind cannot serve a different tree.
+      - name: Start vite
+        env:
+          OW_NO_HMR: '1'
+        run: |
+          # nohup, because this has to outlive the shell this step runs in.
+          # A bare `&` leaves it a child of that shell and it can take the
+          # SIGHUP when the step ends — which would look like every following
+          # gate spawning its own server, i.e. exactly the overhead this exists
+          # to remove, silently.
+          nohup node_modules/.bin/vite --port 5173 --strictPort > /tmp/vite.log 2>&1 &
+          for i in $(seq 1 80); do
+            curl -sf http://127.0.0.1:5173/ >/dev/null && exit 0
+            sleep 0.25
+          done
+          echo "vite did not come up:"; cat /tmp/vite.log; exit 1
+
+      - name: npm run test:logic
+        env:
+          OW_NO_HMR: '1'
+        run: npm run test:logic
+
+  render:
+    name: render + determinism
+    if: github.event_name != 'schedule'
+    # Adjust the labels to match your runner. It must be macOS: baseline.mjs and
+    # profile.mjs launch chromium with --use-angle=metal, and pixelgate.json
+    # records `"angle": "metal"` so the gate SKIPS rather than lying if it ever
+    # runs somewhere else.
+    runs-on: [self-hosted, macOS]
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # crossengine drives all three, and it is the only gate that needs the
+      # other two.
+      - run: npx playwright install chromium firefox webkit
+      - name: npm run test:render
+        env:
+          OW_NO_HMR: '1'
+        run: npm run test:render
+
+  perf:
+    name: perf (nightly)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: [self-hosted, macOS]
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install chromium
+      - name: npm run test:perf
+        run: npm run test:perf

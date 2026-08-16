@@ -502,7 +502,13 @@ const out = await page.evaluate(
 if (out?.fatal) {
   console.log(`\nBALLISTICS FAILED — harness precondition: ${out.fatal}`);
   await browser.close();
-  if (vite) process.kill(-vite.pid);
+  if (vite) {
+    try {
+      process.kill(-vite.pid);
+    } catch {
+      /* already gone */
+    }
+  }
   process.exit(1);
 }
 
@@ -703,5 +709,11 @@ console.log(
 );
 
 await browser.close();
-if (vite) process.kill(-vite.pid);
+if (vite) {
+  try {
+    process.kill(-vite.pid);
+  } catch {
+    /* already gone */
+  }
+}
 process.exit(fail.length === 0 ? 0 : 1);

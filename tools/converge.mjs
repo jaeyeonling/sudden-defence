@@ -178,7 +178,13 @@ const setup = await page.evaluate(() => {
 if (!setup.ok) {
   console.error(`setup failed: ${setup.why}`);
   await browser.close();
-  if (vite) process.kill(-vite.pid);
+  if (vite) {
+    try {
+      process.kill(-vite.pid);
+    } catch {
+      /* already gone */
+    }
+  }
   process.exit(2);
 }
 
@@ -371,7 +377,13 @@ if (slow && degraded.length) {
     `attributed to the AI at this rate. Re-run on an idle machine.`
   );
   await browser.close();
-  if (vite) process.kill(-vite.pid);
+  if (vite) {
+    try {
+      process.kill(-vite.pid);
+    } catch {
+      /* already gone */
+    }
+  }
   process.exit(1);
 }
 console.log(
@@ -382,5 +394,11 @@ console.log(
 );
 
 await browser.close();
-if (vite) process.kill(-vite.pid);
+if (vite) {
+  try {
+    process.kill(-vite.pid);
+  } catch {
+    /* already gone */
+  }
+}
 process.exit(fail.length === 0 ? 0 : 1);

@@ -47,5 +47,11 @@ console.log(JSON.stringify(state, null, 2));
 console.log('--- logs ---');
 console.log(logs.filter(l => /render|world|physics|error|warn/i.test(l)).join('\n'));
 await browser.close();
-if (vite) process.kill(-vite.pid);
+if (vite) {
+  try {
+    process.kill(-vite.pid);
+  } catch {
+    /* already gone */
+  }
+}
 process.exit(0);

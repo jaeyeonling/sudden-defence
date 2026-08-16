@@ -1017,5 +1017,11 @@ if (out.range && out.weapons) {
 }
 
 await browser.close();
-if (vite) process.kill(-vite.pid);
+if (vite) {
+  try {
+    process.kill(-vite.pid);
+  } catch {
+    /* already gone */
+  }
+}
 process.exit(fail.length === 0 ? 0 : 1);

@@ -281,5 +281,11 @@ console.log(JSON.stringify({ ...move, ...result }, null, 2));
 console.log(fail.length === 0 ? '\nPLAYTEST OK' : `\nPLAYTEST FAILED (${fail.length}):\n  ${fail.join('\n  ')}`);
 
 await browser.close();
-if (vite) process.kill(-vite.pid);
+if (vite) {
+  try {
+    process.kill(-vite.pid);
+  } catch {
+    /* already gone */
+  }
+}
 process.exit(fail.length === 0 ? 0 : 1);

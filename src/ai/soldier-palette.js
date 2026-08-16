@@ -1,4 +1,4 @@
-import { CLOTH_TILE } from './textures.js';
+import { CLOTH_TILE } from './textures-bake.js';
 
 /**
  * Soldier palette — the tuned vocabulary every variant is assembled from:

@@ -23,6 +23,7 @@
 import * as THREE from 'three';
 import { RIG } from './rig.js';
 import { Animator } from './animator.js';
+import { hypot2, hypot3 } from '../core/dmath.js';
 
 const STATE = {
   IDLE: 'idle',
@@ -861,7 +862,7 @@ export class Agent {
       const dx = h.x - eye.x;
       const dy = h.y - eye.y;
       const dz = h.z - eye.z;
-      const dist = Math.hypot(dx, dy, dz);
+      const dist = hypot3(dx, dy, dz);
       if (dist > this.viewRange) continue;
       // Inside 4.5 m you notice someone regardless of where you were looking.
       if (dist >= 4.5) {
@@ -1091,7 +1092,7 @@ export class Agent {
                 if (sent) break;
                 const dx = this.position.x - best.position.x;
                 const dz = this.position.z - best.position.z;
-                const len = Math.hypot(dx, dz) || 1;
+                const len = hypot2(dx, dz) || 1;
                 if (len <= back) break;
                 this._v2.set(
                   best.position.x + (dx / len) * back,

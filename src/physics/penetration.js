@@ -17,6 +17,7 @@
  */
 
 import { SURFACE_PROPS, surfaceName, MASK } from './surfaces.js';
+import { hypot3 } from '../core/dmath.js';
 
 const MAX_LAYERS = 6;
 /** How far past an entry point we look for the exit face. */
@@ -73,7 +74,7 @@ export class Ballistics {
     const rng = o.rng ?? this.rng;
     let ox = o.origin.x, oy = o.origin.y, oz = o.origin.z;
     let dx = o.dir.x, dy = o.dir.y, dz = o.dir.z;
-    const dl = Math.hypot(dx, dy, dz) || 1;
+    const dl = hypot3(dx, dy, dz) || 1;
     dx /= dl; dy /= dl; dz /= dl;
 
     let remaining = o.maxDist ?? 400;
@@ -91,7 +92,7 @@ export class Ballistics {
       const hit = phys.raycast(ox, oy, oz, dx, dy, dz, remaining, mask);
       if (!hit.hit) break;
 
-      const travelled = Math.hypot(hit.point.x - startX, hit.point.y - startY, hit.point.z - startZ);
+      const travelled = hypot3(hit.point.x - startX, hit.point.y - startY, hit.point.z - startZ);
       // Muzzle-to-target energy loss.
       const range01 = Math.min(1, travelled / falloffRange);
       const rangeMul = 1 - (1 - dropoff) * range01 * range01;
@@ -157,7 +158,7 @@ export class Ballistics {
         let ux = 0, uy = 1, uz = 0;
         if (Math.abs(dy) > 0.9) { ux = 1; uy = 0; }
         let rx = uy * dz - uz * dy, ry = uz * dx - ux * dz, rz = ux * dy - uy * dx;
-        const rl = Math.hypot(rx, ry, rz) || 1;
+        const rl = hypot3(rx, ry, rz) || 1;
         rx /= rl; ry /= rl; rz /= rl;
         const sx = dy * rz - dz * ry, sy = dz * rx - dx * rz, sz = dx * ry - dy * rx;
         const a = rng.gauss() * spread;
@@ -165,7 +166,7 @@ export class Ballistics {
         dx += rx * a + sx * b;
         dy += ry * a + sy * b;
         dz += rz * a + sz * b;
-        const nl = Math.hypot(dx, dy, dz) || 1;
+        const nl = hypot3(dx, dy, dz) || 1;
         dx /= nl; dy /= nl; dz /= nl;
       }
 

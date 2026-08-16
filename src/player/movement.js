@@ -18,6 +18,7 @@ import * as THREE from 'three';
 import { BTN } from '../core/command.js';
 import { STANCE, MOVE, GRAVITY, JUMP_SPEED, FOOTSTEP } from './tuning.js';
 import { clamp, clamp01 } from './springs.js';
+import { hypot2, hypot3 } from '../core/dmath.js';
 
 export const STATES = ['stand', 'crouch', 'jump', 'fall'];
 
@@ -241,10 +242,10 @@ export class Movement {
     // ---- wish direction, with directional speed weighting ---------------
     let mx = cmd.moveX;
     let my = cmd.moveY;
-    const rawInput = Math.hypot(mx, my);
+    const rawInput = hypot2(mx, my);
     const sx = mx * MOVE.strafeScale;
     const sz = my >= 0 ? my : my * MOVE.backScale;
-    let wishLen = Math.hypot(sx, sz);
+    let wishLen = hypot2(sx, sz);
     const wish = this._wish;
     if (wishLen > 1e-5) {
       wish.set(
@@ -252,7 +253,7 @@ export class Movement {
         0,
         this._fwd.z * sz + this._right.z * sx
       );
-      const l = Math.hypot(wish.x, wish.z);
+      const l = hypot2(wish.x, wish.z);
       wish.x /= l; wish.z /= l;
       if (wishLen > 1) wishLen = 1;
     } else {
@@ -397,9 +398,9 @@ export class Movement {
       const d = tx * gn.x + tz * gn.z;
       const px = tx - gn.x * d;
       const pz = tz - gn.z * d;
-      const l = Math.hypot(px, pz);
+      const l = hypot2(px, pz);
       if (l > 1e-5) {
-        const want = Math.hypot(tx, tz);
+        const want = hypot2(tx, tz);
         tx = (px / l) * want;
         tz = (pz / l) * want;
       }
@@ -407,10 +408,10 @@ export class Movement {
 
     const dx = tx - v.x;
     const dz = tz - v.z;
-    const dl = Math.hypot(dx, dz);
+    const dl = hypot2(dx, dz);
     if (dl < 1e-6) return;
 
-    const cur = Math.hypot(v.x, v.z);
+    const cur = hypot2(v.x, v.z);
     let rate;
     if (rawInput < 0.02) rate = MOVE.stopDecel;
     else if (speed < cur * 0.92) rate = MOVE.groundDecel;
@@ -453,8 +454,8 @@ export class Movement {
   _postMove(h, travelled) {
     const c = this.character;
     const v = this.velocity;
-    this.speed = Math.hypot(v.x, v.y, v.z);
-    this.horizontalSpeed = Math.hypot(v.x, v.z);
+    this.speed = hypot3(v.x, v.y, v.z);
+    this.horizontalSpeed = hypot2(v.x, v.z);
 
     // ---- landing ---------------------------------------------------------
     if (this.grounded && !this.wasGrounded) {
@@ -469,7 +470,7 @@ export class Movement {
     // ---- footstep cadence -------------------------------------------------
     const dx = this.position.x - this.prevPosition.x;
     const dz = this.position.z - this.prevPosition.z;
-    const moved = Math.hypot(dx, dz);
+    const moved = hypot2(dx, dz);
     if (this.grounded) {
       this._stepDistance += moved;
       this._bobDistance += moved;
@@ -539,8 +540,8 @@ export class Movement {
     const c = this.character;
     this.position.set(c.position.x, c.position.y, c.position.z);
     const v = this.velocity;
-    this.speed = Math.hypot(v.x, v.y, v.z);
-    this.horizontalSpeed = Math.hypot(v.x, v.z);
+    this.speed = hypot3(v.x, v.y, v.z);
+    this.horizontalSpeed = hypot2(v.x, v.z);
   }
 
   /** Interpolated feet position for rendering. */

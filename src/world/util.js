@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { hypot3 } from '../core/dmath.js';
 
 /**
  * WORLD — geometry toolkit.
@@ -866,7 +867,7 @@ export function clothGeometry(w, h, opts = {}) {
       let nxv = tu[1] * tv[2] - tu[2] * tv[1];
       let nyv = tu[2] * tv[0] - tu[0] * tv[2];
       let nzv = tu[0] * tv[1] - tu[1] * tv[0];
-      const l = Math.hypot(nxv, nyv, nzv) || 1;
+      const l = hypot3(nxv, nyv, nzv) || 1;
       N[k * 3] = nxv / l;
       N[k * 3 + 1] = nyv / l;
       N[k * 3 + 2] = nzv / l;
@@ -945,7 +946,7 @@ export function clothGeometry(w, h, opts = {}) {
     let ox = ey * mnz - ez * mny;
     let oy = ez * mnx - ex * mnz;
     let oz = ex * mny - ey * mnx;
-    const ol = Math.hypot(ox, oy, oz) || 1;
+    const ol = hypot3(ox, oy, oz) || 1;
     ox /= ol;
     oy /= ol;
     oz /= ol;

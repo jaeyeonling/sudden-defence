@@ -17,6 +17,7 @@
  */
 
 import * as THREE from 'three';
+import { hypot3 } from '../core/dmath.js';
 
 /* ------------------------------------------------------------------ */
 /* Deterministic gradient noise                                        */
@@ -178,7 +179,7 @@ export function loft(rings, opts = {}) {
     cx /= k; cy /= k; cz /= k;
     centres.push([cx, cy, cz]);
     if (prevCentre) {
-      vLen += Math.hypot(cx - prevCentre[0], cy - prevCentre[1], cz - prevCentre[2]);
+      vLen += hypot3(cx - prevCentre[0], cy - prevCentre[1], cz - prevCentre[2]);
     }
     prevCentre = [cx, cy, cz];
     pos.push({ arr, v: vLen });
@@ -190,7 +191,7 @@ export function loft(rings, opts = {}) {
     uArr[0] = 0;
     for (let j = 1; j <= k; j++) {
       const j0 = ((j - 1) % k) * 3, j1 = (j % k) * 3;
-      uArr[j] = uArr[j - 1] + Math.hypot(a[j1] - a[j0], a[j1 + 1] - a[j0 + 1], a[j1 + 2] - a[j0 + 2]);
+      uArr[j] = uArr[j - 1] + hypot3(a[j1] - a[j0], a[j1 + 1] - a[j0 + 1], a[j1 + 2] - a[j0 + 2]);
     }
   }
 
@@ -372,7 +373,7 @@ export function computeNormals(m, from = 0) {
     N[c] += nx; N[c + 1] += ny; N[c + 2] += nz;
   }
   for (let i = from * 3; i < N.length; i += 3) {
-    const l = Math.hypot(N[i], N[i + 1], N[i + 2]) || 1;
+    const l = hypot3(N[i], N[i + 1], N[i + 2]) || 1;
     N[i] /= l; N[i + 1] /= l; N[i + 2] /= l;
   }
   return m;
@@ -397,7 +398,7 @@ export function weldNormals(m, eps = 1e-4) {
     for (const i of list) {
       nx += N[i * 3]; ny += N[i * 3 + 1]; nz += N[i * 3 + 2];
     }
-    const l = Math.hypot(nx, ny, nz) || 1;
+    const l = hypot3(nx, ny, nz) || 1;
     nx /= l; ny /= l; nz /= l;
     for (const i of list) {
       N[i * 3] = nx; N[i * 3 + 1] = ny; N[i * 3 + 2] = nz;
@@ -670,7 +671,7 @@ export class CharacterBuilder {
           // facing term: surfaces pointing into the occluder darken most
           const cx = closestX, cy = closestY, cz = closestZ;
           let dx = cx - x, dy = cy - y, dz = cz - z;
-          const dl = Math.hypot(dx, dy, dz) || 1;
+          const dl = hypot3(dx, dy, dz) || 1;
           dx /= dl; dy /= dl; dz /= dl;
           const face = Math.max(0, nx * dx + ny * dy + nz3 * dz);
           const w = (1 - Math.min(1, Math.max(0, t) / 0.09)) * face * c.k;
@@ -748,7 +749,7 @@ function segDist(px, py, pz, a, b) {
   closestX = ax + dx * t;
   closestY = ay + dy * t;
   closestZ = az + dz * t;
-  return Math.hypot(px - closestX, py - closestY, pz - closestZ);
+  return hypot3(px - closestX, py - closestY, pz - closestZ);
 }
 
 export { segDist };

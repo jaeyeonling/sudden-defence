@@ -29,6 +29,7 @@ import {
   EPS,
 } from './math.js';
 import { surfaceIndex, guessSurface, LAYER } from './surfaces.js';
+import { hypot3 } from '../core/dmath.js';
 
 const BINS = 12;
 const LEAF_SIZE = 6;
@@ -219,7 +220,7 @@ export class StaticWorld {
       let nx = e1y * e2z - e1z * e2y;
       let ny = e1z * e2x - e1x * e2z;
       let nz = e1x * e2y - e1y * e2x;
-      const l = Math.hypot(nx, ny, nz);
+      const l = hypot3(nx, ny, nz);
       if (l > EPS) { nx /= l; ny /= l; nz /= l; } else { nx = 0; ny = 1; nz = 0; }
       nrm[i * 3] = nx; nrm[i * 3 + 1] = ny; nrm[i * 3 + 2] = nz;
 
@@ -693,7 +694,7 @@ export class StaticWorld {
         const dist = Math.sqrt(cl.d2) - radius;
         // separating axis: capsule axis point -> triangle point
         let sx = cl.bx - cl.ax, sy = cl.by - cl.ay, sz = cl.bz - cl.az;
-        const sl = Math.hypot(sx, sy, sz);
+        const sl = hypot3(sx, sy, sz);
         if (sl < 1e-12) { hitT = t; break; } // axis passes through the face
         sx /= sl; sy /= sl; sz /= sl;
         const closing = dx * sx + dy * sy + dz * sz;
@@ -720,7 +721,7 @@ export class StaticWorld {
         cl
       );
       let nx = cl.ax - cl.bx, ny = cl.ay - cl.by, nz = cl.az - cl.bz;
-      const nl = Math.hypot(nx, ny, nz);
+      const nl = hypot3(nx, ny, nz);
       if (nl > 1e-7) { nx /= nl; ny /= nl; nz /= nl; }
       else { nx = tnx; ny = tny; nz = tnz; }
       // Never return a normal we are travelling away from.

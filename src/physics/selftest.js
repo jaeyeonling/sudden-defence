@@ -14,6 +14,7 @@ import { EventBus } from '../core/registry.js';
 import { Rng } from '../core/rng.js';
 import { PhysicsSystem } from './index.js';
 import { MASK, LAYER, SURFACE } from './surfaces.js';
+import { hypot3 } from '../core/dmath.js';
 
 let failures = 0;
 let checks = 0;
@@ -150,7 +151,7 @@ section('Raycasts');
   for (let i = 0; i < 2000; i++) {
     const ox = r2.range(-20, 20), oy = r2.range(0.2, 6), oz = r2.range(-20, 20);
     let dx = r2.signed(), dy = r2.signed(), dz = r2.signed();
-    const l = Math.hypot(dx, dy, dz) || 1;
+    const l = hypot3(dx, dy, dz) || 1;
     dx /= l; dy /= l; dz /= l;
     const bvh = phys.raycast(ox, oy, oz, dx, dy, dz, 60, MASK.ALL);
     const ref = bruteRay(W, ox, oy, oz, dx, dy, dz, 60);
@@ -168,7 +169,7 @@ section('Raycasts');
     rays[i * 6 + 1] = r3.range(0.2, 8);
     rays[i * 6 + 2] = r3.range(-30, 30);
     let dx = r3.signed(), dy = r3.signed(), dz = r3.signed();
-    const l = Math.hypot(dx, dy, dz) || 1;
+    const l = hypot3(dx, dy, dz) || 1;
     rays[i * 6 + 3] = dx / l; rays[i * 6 + 4] = dy / l; rays[i * 6 + 5] = dz / l;
   }
   const rec = phys._raw;
@@ -408,7 +409,7 @@ section('Ragdolls');
   let bad = 0, maxStretch = 0, lowest = Infinity, highest = -Infinity;
   for (let i = 0; i < rd.boneCount; i++) {
     const a = rd.boneHead[i], c = rd.boneTail[i];
-    const l = Math.hypot(rd.px[c] - rd.px[a], rd.py[c] - rd.py[a], rd.pz[c] - rd.pz[a]);
+    const l = hypot3(rd.px[c] - rd.px[a], rd.py[c] - rd.py[a], rd.pz[c] - rd.pz[a]);
     if (!Number.isFinite(l)) bad++;
     maxStretch = Math.max(maxStretch, Math.abs(l - restLen[i]) / restLen[i]);
   }
@@ -420,7 +421,7 @@ section('Ragdolls');
   // residual motion after settling
   let motion = 0;
   for (let i = 0; i < rd.particleCount; i++) {
-    motion += Math.hypot(rd.px[i] - rd.qx[i], rd.py[i] - rd.qy[i], rd.pz[i] - rd.qz[i]);
+    motion += hypot3(rd.px[i] - rd.qx[i], rd.py[i] - rd.qy[i], rd.pz[i] - rd.qz[i]);
   }
   motion /= rd.particleCount;
 
@@ -502,7 +503,7 @@ section('Debug view');
   for (let i = 0; i < view._v; i += 2) {
     const a = i * 3, b = (i + 1) * 3;
     const p = view.positions;
-    const len = Math.hypot(p[b] - p[a], p[b + 1] - p[a + 1], p[b + 2] - p[a + 2]);
+    const len = hypot3(p[b] - p[a], p[b + 1] - p[a + 1], p[b + 2] - p[a + 2]);
     if (Math.abs(len - 1.0) < 1e-4 || Math.abs(len - 0.5) < 1e-4 || Math.abs(len - 1.5) < 1e-4) good++;
   }
   ok(good === 12, 'obb edge lengths match the half-extents', `${good}/12`);

@@ -6,6 +6,7 @@
  * the transition happened — read them in update(), not fixedUpdate().
  */
 
+import { hypot2 } from './dmath.js';
 /**
  * Default bindings. No sprint, prone or lean — those movements do not exist.
  *
@@ -243,7 +244,7 @@ export class Input {
     let y = (this.action('forward') ? 1 : 0) - (this.action('back') ? 1 : 0);
     x += this.stick.moveX;
     y -= this.stick.moveY;
-    const len = Math.hypot(x, y);
+    const len = hypot2(x, y);
     if (len > 1) {
       x /= len;
       y /= len;

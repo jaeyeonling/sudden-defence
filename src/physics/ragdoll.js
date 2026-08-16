@@ -22,6 +22,7 @@
 import * as THREE from 'three';
 import { MASK, SURFACE_PROPS } from './surfaces.js';
 import { closestPtSegSeg, makeClosest } from './math.js';
+import { hypot3 } from '../core/dmath.js';
 
 const DEG = Math.PI / 180;
 
@@ -231,7 +232,7 @@ export class Ragdoll {
 
     for (let i = 0; i < nb; i++) {
       const a = this.boneHead[i], c = this.boneTail[i];
-      this.boneLen[i] = Math.hypot(this.px[c] - this.px[a], this.py[c] - this.py[a], this.pz[c] - this.pz[a]);
+      this.boneLen[i] = hypot3(this.px[c] - this.px[a], this.py[c] - this.py[a], this.pz[c] - this.pz[a]);
       if (this.boneLen[i] < 1e-4) this.boneLen[i] = 1e-4;
       this._initUp(i);
     }
@@ -283,14 +284,14 @@ export class Ragdoll {
   _initUp(i) {
     const a = this.boneHead[i], c = this.boneTail[i];
     let dx = this.px[c] - this.px[a], dy = this.py[c] - this.py[a], dz = this.pz[c] - this.pz[a];
-    const l = Math.hypot(dx, dy, dz) || 1;
+    const l = hypot3(dx, dy, dz) || 1;
     dx /= l; dy /= l; dz /= l;
     // pick any axis not parallel to the bone
     let ux = 0, uy = 0, uz = 1;
     if (Math.abs(dz) > 0.9) { ux = 1; uy = 0; uz = 0; }
     const d = ux * dx + uy * dy + uz * dz;
     ux -= dx * d; uy -= dy * d; uz -= dz * d;
-    const ul = Math.hypot(ux, uy, uz) || 1;
+    const ul = hypot3(ux, uy, uz) || 1;
     this.boneUp[i * 3] = ux / ul;
     this.boneUp[i * 3 + 1] = uy / ul;
     this.boneUp[i * 3 + 2] = uz / ul;
@@ -343,7 +344,7 @@ export class Ragdoll {
       let vx = (this.px[i] - this.qx[i]) * damp;
       let vy = (this.py[i] - this.qy[i]) * damp;
       let vz = (this.pz[i] - this.qz[i]) * damp;
-      const vl = Math.hypot(vx, vy, vz);
+      const vl = hypot3(vx, vy, vz);
       if (vl > MAX_PARTICLE_STEP) {
         const s = MAX_PARTICLE_STEP / vl;
         vx *= s; vy *= s; vz *= s;
@@ -396,7 +397,7 @@ export class Ragdoll {
       const dx = this.px[c] - this.px[a];
       const dy = this.py[c] - this.py[a];
       const dz = this.pz[c] - this.pz[a];
-      const d = Math.hypot(dx, dy, dz);
+      const d = hypot3(dx, dy, dz);
       if (d < 1e-9) continue;
       const diff = (d - this.boneLen[i]) / d / w;
       this.px[a] += dx * diff * wa;
@@ -424,7 +425,7 @@ export class Ragdoll {
       let ax = this.px[pc] - this.px[pa];
       let ay = this.py[pc] - this.py[pa];
       let az = this.pz[pc] - this.pz[pa];
-      const al = Math.hypot(ax, ay, az);
+      const al = hypot3(ax, ay, az);
       if (al < 1e-9) continue;
       ax /= al; ay /= al; az /= al;
 
@@ -432,7 +433,7 @@ export class Ragdoll {
       let bx = this.px[c] - this.px[a];
       let by = this.py[c] - this.py[a];
       let bz = this.pz[c] - this.pz[a];
-      const bl = Math.hypot(bx, by, bz);
+      const bl = hypot3(bx, by, bz);
       if (bl < 1e-9) continue;
       bx /= bl; by /= bl; bz /= bl;
 
@@ -445,10 +446,10 @@ export class Ragdoll {
       let kx = ay * bz - az * by;
       let ky = az * bx - ax * bz;
       let kz = ax * by - ay * bx;
-      let kl = Math.hypot(kx, ky, kz);
+      let kl = hypot3(kx, ky, kz);
       if (kl < 1e-7) {
         kx = -ay; ky = ax; kz = 0;
-        kl = Math.hypot(kx, ky, kz);
+        kl = hypot3(kx, ky, kz);
         if (kl < 1e-7) { kx = 1; ky = 0; kz = 0; kl = 1; }
       }
       kx /= kl; ky /= kl; kz /= kl;
@@ -519,7 +520,7 @@ export class Ragdoll {
         const sp = SURFACE_PROPS[w.surface[cts.tri[k]]];
         if (sp) fric = sp.friction;
       }
-      const pl = Math.hypot(pushx, pushy, pushz);
+      const pl = hypot3(pushx, pushy, pushz);
       if (pl < 1e-6) continue;
       const cap = 0.2;
       if (pl > cap) {
@@ -583,7 +584,7 @@ export class Ragdoll {
   }
 
   _frictionAt(i, nx, ny, nz, mu) {
-    const nl = Math.hypot(nx, ny, nz);
+    const nl = hypot3(nx, ny, nz);
     if (nl < 1e-9) return;
     nx /= nl; ny /= nl; nz /= nl;
     let vx = this.px[i] - this.qx[i];
@@ -608,13 +609,13 @@ export class Ragdoll {
       let dx = this.px[c] - this.px[a];
       let dy = this.py[c] - this.py[a];
       let dz = this.pz[c] - this.pz[a];
-      const l = Math.hypot(dx, dy, dz);
+      const l = hypot3(dx, dy, dz);
       if (l < 1e-9) continue;
       dx /= l; dy /= l; dz /= l;
       let ux = this.boneUp[i * 3], uy = this.boneUp[i * 3 + 1], uz = this.boneUp[i * 3 + 2];
       const d = ux * dx + uy * dy + uz * dz;
       ux -= dx * d; uy -= dy * d; uz -= dz * d;
-      let ul = Math.hypot(ux, uy, uz);
+      let ul = hypot3(ux, uy, uz);
       if (ul < 1e-5) {
         this._initUp(i);
         continue;
@@ -628,7 +629,7 @@ export class Ragdoll {
         let rx = this.boneUp[p * 3], ry = this.boneUp[p * 3 + 1], rz = this.boneUp[p * 3 + 2];
         const rd = rx * dx + ry * dy + rz * dz;
         rx -= dx * rd; ry -= dy * rd; rz -= dz * rd;
-        const rl = Math.hypot(rx, ry, rz);
+        const rl = hypot3(rx, ry, rz);
         if (rl > 1e-5) {
           rx /= rl; ry /= rl; rz /= rl;
           let cs = ux * rx + uy * ry + uz * rz;
@@ -638,7 +639,7 @@ export class Ragdoll {
             // rotate u back towards r by (ang - lim)
             const t = (ang - lim) / ang;
             ux += (rx - ux) * t; uy += (ry - uy) * t; uz += (rz - uz) * t;
-            const nl2 = Math.hypot(ux, uy, uz) || 1;
+            const nl2 = hypot3(ux, uy, uz) || 1;
             ux /= nl2; uy /= nl2; uz /= nl2;
           }
         }
@@ -688,14 +689,14 @@ export class Ragdoll {
     let dx = this.px[c] - this.px[a];
     let dy = this.py[c] - this.py[a];
     let dz = this.pz[c] - this.pz[a];
-    const l = Math.hypot(dx, dy, dz) || 1;
+    const l = hypot3(dx, dy, dz) || 1;
     dx /= l; dy /= l; dz /= l;
     const ux = this.boneUp[i * 3], uy = this.boneUp[i * 3 + 1], uz = this.boneUp[i * 3 + 2];
     // basis: Y = bone dir, Z = up-ish, X = Y x Z
     let xx = dy * uz - dz * uy;
     let xy = dz * ux - dx * uz;
     let xz = dx * uy - dy * ux;
-    const xl = Math.hypot(xx, xy, xz) || 1;
+    const xl = hypot3(xx, xy, xz) || 1;
     xx /= xl; xy /= xl; xz /= xl;
     const zx = xy * dz - xz * dy;
     const zy = xz * dx - xx * dz;
@@ -817,7 +818,7 @@ export function specFromSkeleton(skeleton, opts = {}) {
   // distribute mass by bone volume
   let vol = 0;
   for (const s of spec) {
-    const l = Math.hypot(s.tail[0] - s.head[0], s.tail[1] - s.head[1], s.tail[2] - s.head[2]);
+    const l = hypot3(s.tail[0] - s.head[0], s.tail[1] - s.head[1], s.tail[2] - s.head[2]);
     s.mass = Math.PI * s.radius * s.radius * l;
     vol += s.mass;
   }

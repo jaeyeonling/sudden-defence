@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { hypot2 } from '../core/dmath.js';
 
 /**
  * The weapon material set.
@@ -1080,7 +1081,7 @@ export class WeaponMaterials {
       for (let x = 0; x < N; x++) {
         const u = (x + 0.5) / N - 0.5;
         const v = (y + 0.5) / N - 0.5;
-        const r = Math.min(1, Math.hypot(u, v) * 2);
+        const r = Math.min(1, hypot2(u, v) * 2);
         // flat centre, then a smooth ramp over the outer third of the aperture
         const t = Math.max(0, (r - 0.8) / 0.2);
         const a = t * t * (3 - 2 * t);

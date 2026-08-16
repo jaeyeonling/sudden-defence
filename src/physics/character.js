@@ -24,6 +24,7 @@
 
 import { makeHitRecord } from './math.js';
 import { MASK, SURFACE_PROPS, surfaceName } from './surfaces.js';
+import { hypot3 } from '../core/dmath.js';
 
 const MAX_PLANES = 5;
 const SKIN = 0.008;
@@ -263,7 +264,7 @@ export class CharacterController {
       this.landingSpeed = -Math.min(0, this.velocity.y);
     }
 
-    return Math.hypot(this.position.x - st.x, this.position.y - st.y, this.position.z - st.z);
+    return hypot3(this.position.x - st.x, this.position.y - st.y, this.position.z - st.z);
   }
 
   /** Collide-and-slide core. Returns true if any plane stopped us. */
@@ -273,7 +274,7 @@ export class CharacterController {
     let blocked = false;
 
     for (let iter = 0; iter < this.maxIterations; iter++) {
-      const dist = Math.hypot(dx, dy, dz);
+      const dist = hypot3(dx, dy, dz);
       if (dist < 1e-6) break;
       const inv = 1 / dist;
       const ux = dx * inv, uy = dy * inv, uz = dz * inv;
@@ -343,7 +344,7 @@ export class CharacterController {
           let ex = py * qz - pz * qy;
           let ey = pz * qx - px * qz;
           let ez = px * qy - py * qx;
-          const el = Math.hypot(ex, ey, ez);
+          const el = hypot3(ex, ey, ez);
           if (el < 1e-6) { cx = cy = cz = 0; resolved = true; break; }
           ex /= el; ey /= el; ez /= el;
           const along = dx * ex + dy * ey + dz * ez;
@@ -399,7 +400,7 @@ export class CharacterController {
 
   /** Single swept translation with no sliding. Returns distance travelled. */
   _sweepMove(dx, dy, dz) {
-    const dist = Math.hypot(dx, dy, dz);
+    const dist = hypot3(dx, dy, dz);
     if (dist < 1e-7) return 0;
     const inv = 1 / dist;
     const ux = dx * inv, uy = dy * inv, uz = dz * inv;
@@ -464,7 +465,7 @@ export class CharacterController {
           pz += nz * extra;
         }
       }
-      const l = Math.hypot(px, py, pz);
+      const l = hypot3(px, py, pz);
       if (l < 1e-5) break;
       // Damp so a bad contact set can never fling the character.
       const maxPush = 0.25;

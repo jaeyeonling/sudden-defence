@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { hypot2 } from '../core/dmath.js';
 import {
   chamferBox,
   plainBox,
@@ -801,7 +802,7 @@ export function stairRun(A, pm, x, y, z, w, steps, rise, run, opts = {}) {
   if (opts.railing) {
     const bar = BOX_THIN(A);
     const ang = Math.atan2(H, D);
-    const len = Math.hypot(H, D);
+    const len = hypot2(H, D);
     for (const sx of [-1, 1]) {
       if (opts.railing === 'right' && sx < 0) continue;
       if (opts.railing === 'left' && sx > 0) continue;
@@ -1030,7 +1031,7 @@ export function pockGeometry(rng, r = 0.05) {
   paintMasks(g, (x, y, z, nx, ny, nz, out) => {
     // Wear (exposed substrate) and AO are strongest in the crater floor; the
     // raised rim is cleaner and catches light, which is what sells the depth.
-    const t = Math.min(1, Math.hypot(x, y) / (r * 0.8));
+    const t = Math.min(1, hypot2(x, y) / (r * 0.8));
     out[0] = 0.9 - 0.35 * t;
     out[1] = 0.62 - 0.3 * t;
     out[2] = 0.9 - 0.55 * t;

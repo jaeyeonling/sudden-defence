@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { hypot2 } from '../core/dmath.js';
 
 /**
  * AI — grounding occlusion under every actor.
@@ -35,7 +36,7 @@ function buildTexture(size = 64, power = 3.4) {
     for (let x = 0; x < size; x++) {
       const u = ((x + 0.5) / size) * 2 - 1;
       const v = ((y + 0.5) / size) * 2 - 1;
-      const r = Math.min(1, Math.hypot(u, v));
+      const r = Math.min(1, hypot2(u, v));
       let a = Math.exp(-r * r * power);
       a *= 1 - r * r * r; // hard zero at the rim: no visible disc edge
       const i = (y * size + x) * 4;

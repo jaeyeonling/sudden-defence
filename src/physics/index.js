@@ -78,6 +78,7 @@ import {
   LAYER, MASK, SURFACE, SURFACE_NAMES, SURFACE_PROPS,
   surfaceIndex, surfaceName,
 } from './surfaces.js';
+import { hypot3 } from '../core/dmath.js';
 import {
   makeHitRecord, raySphere, rayCapsule, rayObb, closestPtSegSeg, makeClosest,
 } from './math.js';
@@ -577,7 +578,7 @@ export class PhysicsSystem {
     if (maxDist === undefined) maxDist = 1000;
     if (mask === undefined) mask = MASK.ALL;
     const out = this._nextHit();
-    const l = Math.hypot(dx, dy, dz);
+    const l = hypot3(dx, dy, dz);
     if (l < 1e-9) {
       out.point.set(ox, oy, oz);
       out.distance = 0;
@@ -760,7 +761,7 @@ export class PhysicsSystem {
       dx = b.x; dy = b.y; dz = b.z;
       maxDist = c; mask = d;
     }
-    const l = Math.hypot(dx, dy, dz);
+    const l = hypot3(dx, dy, dz);
     if (l < 1e-9) return false;
     this._rayCount++;
     return this.staticWorld.raycastAny(
@@ -772,7 +773,7 @@ export class PhysicsSystem {
   /** True when nothing blocks the straight line between two points. */
   lineOfSight(from, to, mask = MASK.SIGHT) {
     const dx = to.x - from.x, dy = to.y - from.y, dz = to.z - from.z;
-    const d = Math.hypot(dx, dy, dz);
+    const d = hypot3(dx, dy, dz);
     if (d < 1e-6) return true;
     return !this.staticWorld.raycastAny(
       from.x, from.y, from.z, dx / d, dy / d, dz / d, d - 1e-3, mask
@@ -786,7 +787,7 @@ export class PhysicsSystem {
   capsuleCast(p0, p1, radius, dir, maxDist = 100, mask = MASK.CHARACTER) {
     const out = this._nextHit();
     let dx = dir.x, dy = dir.y, dz = dir.z;
-    const l = Math.hypot(dx, dy, dz);
+    const l = hypot3(dx, dy, dz);
     if (l < 1e-9) return out;
     dx /= l; dy /= l; dz /= l;
     this._rayCount++;
@@ -976,7 +977,7 @@ export class PhysicsSystem {
       const cy = (rd.aabb.miny + rd.aabb.maxy) * 0.5;
       const cz = (rd.aabb.minz + rd.aabb.maxz) * 0.5;
       const dx = cx - pos.x, dy = cy - pos.y, dz = cz - pos.z;
-      const d = Math.hypot(dx, dy, dz);
+      const d = hypot3(dx, dy, dz);
       if (d > radius) continue;
       _v.set(cx, cy, cz);
       if (!this.lineOfSight(pos, _v, MASK.EXPLOSION)) continue;

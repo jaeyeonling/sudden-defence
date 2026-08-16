@@ -110,9 +110,25 @@
  * `acos`, and the divergence measured here traces back through `speed` to
  * distances — i.e. to the cheap half.
  *
- * That substitution is a separate change with its own gates (75 sites, and
- * `profile.mjs` should see it), and it is the obvious next move on the netcode
- * question rather than something to fold into a tool commit.
+ * THE SUBSTITUTION IS DONE AND MEASURED. `src/core/dmath.js` spells `hypot` as
+ * sqrt-of-squares for the simulation subsystems (84 call sites; presentation
+ * keeps `Math.hypot`), and the run that used to leave one leaf now reads:
+ *
+ *     chromium vs chromium#control   identical          (1200 ticks)
+ *     chromium vs firefox            IDENTICAL          (1200 ticks)
+ *     chromium vs webkit             2/2324 — targetYaw on two agents
+ *
+ * V8 and SpiderMonkey now agree BIT-FOR-BIT over ten seconds of driven combat,
+ * boot included. That is the strongest statement this tool has ever been able to
+ * make, and it was not available at any earlier point in the project.
+ *
+ * The webkit residue is the hard half arriving on schedule: `targetYaw` is
+ * `Math.atan2(dx, dz)` (agent.js ~1762), and `atan2` is genuinely
+ * implementation-approximated with no cheap respelling. The remaining decision
+ * is therefore clean: adopt a fixed-implementation `atan2`/`sin`/`cos` for the
+ * few SIMULATION call sites that feed captured state, or scope the deterministic
+ * architecture to engines that agree and let JSC clients be served differently.
+ * That is a decision about scope, not a hunt — the hunting is done.
  *
  * The control's noise has a known address: state the snapshot does not carry.
  * `tools/perceive.mjs` established that bot rigs are posed in `ai.lateUpdate`,

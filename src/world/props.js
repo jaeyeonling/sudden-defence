@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { mergeSimple, pockGeometry } from './kit.js';
+import { hypot2 } from '../core/dmath.js';
 import {
   chamferBox,
   clothGeometry,
@@ -349,7 +350,7 @@ function tyre(rng, r = 0.33) {
     const y = pa.getY(i);
     const z = pa.getZ(i);
     const a = Math.atan2(z, x);
-    const rr = Math.hypot(x, z);
+    const rr = hypot2(x, z);
     // tread blocks: a square wave round the crown, split by a centre groove
     const ph = (a * BLOCKS) / (Math.PI * 2) + stagger;
     const blkT = ((ph % 1) + 1) % 1;
@@ -369,7 +370,7 @@ function tyre(rng, r = 0.33) {
   }
   g.computeVertexNormals();
   paintMasks(g, (x, y, z, nx, ny, nz, out) => {
-    const rr = Math.hypot(x, z);
+    const rr = hypot2(x, z);
     const crown = Math.min(1, Math.max(0, (rr / r - 0.88) / 0.12));
     const hole = Math.max(0, 1 - (rr / r - 0.5) / 0.12); // inside the bead
     const n = fbm3(x * 9, y * 9, z * 9, 2);
@@ -666,7 +667,7 @@ function dustSkirt(rng) {
   for (let i = 0; i < pa.count; i++) {
     const x = pa.getX(i);
     const z = pa.getZ(i);
-    const d = Math.min(1, Math.hypot(x, z));
+    const d = Math.min(1, hypot2(x, z));
     const a = Math.atan2(z, x);
     // ragged outline: the rim wanders +/-22%
     const wob = 0.86 + 0.28 * fbm3(Math.cos(a) * 2.2, Math.sin(a) * 2.2, 3.1, 3);

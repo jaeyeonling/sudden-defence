@@ -46,6 +46,7 @@ import { NavGrid, CoverMap } from './nav.js';
 import { Agent, STATE, aiYaw } from './agent.js';
 import { Squad } from './squad.js';
 import { GroundShadows } from './grounding.js';
+import { hypot2, hypot3 } from '../core/dmath.js';
 
 /** Shared empty result for enemiesOf() before `match` exists. Never mutated. */
 const EMPTY = Object.freeze([]);
@@ -606,7 +607,7 @@ export class AiSystem {
     const py = point.y + eyeH * 0.7 - origin.y;
     const pz = point.z - origin.z;
     const t = Math.max(0, px * dir.x + py * dir.y + pz * dir.z);
-    return Math.hypot(px - dir.x * t, py - dir.y * t, pz - dir.z * t);
+    return hypot3(px - dir.x * t, py - dir.y * t, pz - dir.z * t);
   }
 
   /* ================================================================== */
@@ -1030,7 +1031,7 @@ export class AiSystem {
     this.root.add(mesh);
     // lobbed ballistic solve
     const dx = target.x - from.x, dz = target.z - from.z;
-    const dist = Math.max(0.5, Math.hypot(dx, dz));
+    const dist = Math.max(0.5, hypot2(dx, dz));
     const g = Math.abs(phys.gravity);
     const speed = Math.min(18, Math.sqrt(Math.max(4, (dist * g) / 0.95)));
     const vy = speed * 0.62;

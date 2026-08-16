@@ -18,6 +18,7 @@
  */
 
 import * as THREE from 'three';
+import { hypot3 } from '../core/dmath.js';
 
 const H = 1.8; // reference height the proportions are authored at (8 heads)
 
@@ -236,7 +237,7 @@ export class Rig {
     let t = l2 > 1e-12 ? ((x - a.x) * dx + (y - a.y) * dy + (z - a.z) * dz) / l2 : 0;
     if (t < 0) t = 0;
     else if (t > 1) t = 1;
-    return Math.hypot(x - (a.x + dx * t), y - (a.y + dy * t), z - (a.z + dz * t));
+    return hypot3(x - (a.x + dx * t), y - (a.y + dy * t), z - (a.z + dz * t));
   }
 
   /** Fresh THREE.Bone hierarchy + Skeleton for one actor instance. */

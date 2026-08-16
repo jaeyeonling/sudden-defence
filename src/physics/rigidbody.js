@@ -17,6 +17,7 @@
 import * as THREE from 'three';
 import { makeHitRecord, closestPtPointTriangle } from './math.js';
 import { MASK, SURFACE_PROPS } from './surfaces.js';
+import { hypot3, hypot4 } from '../core/dmath.js';
 
 const _m3 = new THREE.Matrix3();
 const _m3b = new THREE.Matrix3();
@@ -93,7 +94,7 @@ export class RigidBody {
       if (this.probes[i * 4 + 3] < this.probeRadius) this.probeRadius = this.probes[i * 4 + 3];
     }
     /** Bounding radius used for broadphase and CCD substep sizing. */
-    this.boundRadius = Math.hypot(hx, hy, hz);
+    this.boundRadius = hypot3(hx, hy, hz);
     this.minExtent = Math.min(hx, hy, hz);
 
     if (opts.position) this.position.copy(opts.position);
@@ -559,7 +560,7 @@ export class RigidBodyWorld {
         vz = b.linearVelocity.z + (b.angularVelocity.x * ry - b.angularVelocity.y * rx);
         const vnn = vx * nx + vy * ny + vz * nz;
         let tx = vx - nx * vnn, ty = vy - ny * vnn, tz = vz - nz * vnn;
-        const tl = Math.hypot(tx, ty, tz);
+        const tl = hypot3(tx, ty, tz);
         if (tl > 1e-6) {
           tx /= tl; ty /= tl; tz /= tl;
           const rtx = ry * tz - rz * ty;
@@ -630,7 +631,7 @@ function integrateQuaternion(q, w, dt) {
   q.y = y + (wy * s + wz * x - wx * z);
   q.z = z + (wz * s + wx * y - wy * x);
   q.w = s - (wx * x + wy * y + wz * z);
-  const l = Math.hypot(q.x, q.y, q.z, q.w);
+  const l = hypot4(q.x, q.y, q.z, q.w);
   if (l > 1e-9) {
     const i = 1 / l;
     q.x *= i; q.y *= i; q.z *= i; q.w *= i;

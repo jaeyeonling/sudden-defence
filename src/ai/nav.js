@@ -20,6 +20,7 @@
  */
 
 import * as THREE from 'three';
+import { hypot2 } from '../core/dmath.js';
 
 const SQRT2 = Math.SQRT2;
 
@@ -768,7 +769,7 @@ export class NavGrid {
   /** Is the straight segment walkable end to end? */
   lineOfWalk(a, b) {
     const dx = b.x - a.x, dz = b.z - a.z;
-    const dist = Math.hypot(dx, dz);
+    const dist = hypot2(dx, dz);
     const steps = Math.max(1, Math.ceil(dist / (this.cell * 0.65)));
     let prevY = a.y;
     for (let s = 1; s <= steps; s++) {
@@ -906,9 +907,9 @@ export class CoverMap {
       const p = this.points[i];
       if (p.claimed >= 0 && p.claimed !== claimId) continue;
       const toThreatX = tx - p.x, toThreatZ = tz - p.z;
-      const dT = Math.hypot(toThreatX, toThreatZ);
+      const dT = hypot2(toThreatX, toThreatZ);
       if (dT < 2.5 || dT > 40) continue;
-      const travel = Math.hypot(p.x - pos.x, p.z - pos.z);
+      const travel = hypot2(p.x - pos.x, p.z - pos.z);
       if (travel > maxTravel) continue;
       if (yRef !== null && Math.abs(p.y - yRef) > yTol) continue;
       // protection: the blocker must be on the threat side
@@ -923,7 +924,7 @@ export class CoverMap {
       if (squad) {
         for (const other of squad) {
           if (!other || other.id === claimId || !other.alive) continue;
-          const d = Math.hypot(other.position.x - p.x, other.position.z - p.z);
+          const d = hypot2(other.position.x - p.x, other.position.z - p.z);
           if (d < 3.2) score -= (3.2 - d) * 1.4;
         }
       }

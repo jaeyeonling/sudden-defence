@@ -22,6 +22,7 @@
  */
 
 import * as THREE from 'three';
+import { hypot3 } from '../core/dmath.js';
 
 /* ------------------------------------------------------------------ */
 /* Tileable value noise                                                */
@@ -152,7 +153,7 @@ function bake(size, fn, aniso, normalScale = 1) {
         at(x - 1, y + 1) + 2 * at(x, y + 1) + at(x + 1, y + 1) -
         at(x - 1, y - 1) - 2 * at(x, y - 1) - at(x + 1, y - 1);
       let nx = -dx * k, ny = -dy * k, nz = 1;
-      const l = Math.hypot(nx, ny, nz);
+      const l = hypot3(nx, ny, nz);
       nx /= l; ny /= l; nz /= l;
       const i = y * size + x;
       nrm[i * 4] = (nx * 0.5 + 0.5) * 255;
@@ -200,7 +201,7 @@ function bakeDetail(size, fn, aniso, normalScale = 1) {
         at(x - 1, y + 1) + 2 * at(x, y + 1) + at(x + 1, y + 1) -
         at(x - 1, y - 1) - 2 * at(x, y - 1) - at(x + 1, y - 1);
       let nx = -dx * k, ny = -dy * k, nz = 1;
-      const l = Math.hypot(nx, ny, nz);
+      const l = hypot3(nx, ny, nz);
       const i = y * size + x;
       buf[i * 4] = (nx / l * 0.5 + 0.5) * 255;
       buf[i * 4 + 1] = (ny / l * 0.5 + 0.5) * 255;

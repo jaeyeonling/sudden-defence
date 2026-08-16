@@ -1105,7 +1105,7 @@ export class PhysicsSystem {
   /* Frame                                                              */
   /* ================================================================== */
 
-  fixedUpdate(h, ctx) {
+  fixedUpdate(h, _ctx) {
     const t0 = performance.now();
 
     if (this._explicitStatics === 0) {

@@ -770,7 +770,7 @@ const med = q(0.5);
 
 const hitches = warm
   .filter((s) => s.dt > Math.max(2 * med, med + 8))
-  .map((s, n, arr) => {
+  .map((s, _n, _arr) => {
     const prev = warm[warm.indexOf(s) - 1];
     return {
       frame: s.i, ms: +s.dt.toFixed(1),

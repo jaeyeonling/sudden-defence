@@ -320,7 +320,7 @@ export class CameraRig {
    * @param {import('./movement.js').Movement} m
    * @param {object} health  { fraction, low }
    */
-  update(dt, m, health) {
+  update(dt, m, _health) {
     const C = CAMERA;
     const cfg = this.ctx.config;
 

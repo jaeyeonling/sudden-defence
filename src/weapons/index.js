@@ -7,7 +7,7 @@ import { WEAPON_DEFS, buildRecoilPattern, SPREAD_MODS } from './defs.js';
 import { buildRifle } from './models/rifle.js';
 import { buildSmg } from './models/smg.js';
 import { buildPistol } from './models/pistol.js';
-import { clamp, clamp01, lerp, damp, DEG } from './mathx.js';
+import { DEG } from './mathx.js';
 
 /**
  * WEAPONS — weapon meshes, the first-person viewmodel rig, recoil, spread,
@@ -1252,7 +1252,7 @@ export class WeaponSystem {
     return true;
   }
 
-  _runDebug(ctx) {
+  _runDebug(_ctx) {
     this._debugFrame = (this._debugFrame ?? 0) + 1;
     const frames = this._scriptFrames;
     if (!frames) return;

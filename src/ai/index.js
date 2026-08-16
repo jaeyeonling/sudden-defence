@@ -864,7 +864,7 @@ export class AiSystem {
    * tile. Snapped to the nav grid, because a spawn the pathfinder does not
    * believe in is a bot that never takes a step.
    */
-  _scatter(anchor, seed) {
+  _scatter(anchor, _seed) {
     const ang = this.rng.range(0, Math.PI * 2);
     const rad = this.rng.range(0.6, 2.4);
     const p = new THREE.Vector3(

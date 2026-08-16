@@ -347,7 +347,7 @@ function dressCeiling(A, rng, r) {
 }
 
 /** Bare bulb on a twisted flex — the only light source in most of these rooms. */
-export function hangingBulb(A, rng, x, yCeil, z, rngIn) {
+export function hangingBulb(A, rng, x, yCeil, z, _rngIn) {
   const drop = rng.range(0.35, 0.95);
   const wire = A.cache('bulbwire', () => {
     const g = new THREE.CylinderGeometry(0.006, 0.006, 1, 5, 1);
@@ -372,7 +372,7 @@ export function hangingBulb(A, rng, x, yCeil, z, rngIn) {
 }
 
 // ------------------------------------------------------------------- shop --
-function furnishShop(A, rng, r, cx, cz, w, d, m) {
+function furnishShop(A, rng, r, cx, cz, w, d, _m) {
   const { x0, z0, x1, z1, y } = r;
   const frontZ = r.street === 0 ? -1 : r.street === 2 ? 1 : 0;
   // rug on the floor
@@ -486,7 +486,7 @@ function furnishShop(A, rng, r, cx, cz, w, d, m) {
 }
 
 // ----------------------------------------------------------------- living --
-function furnishLiving(A, rng, r, cx, cz, w, d, m) {
+function furnishLiving(A, rng, r, cx, cz, _w, _d, _m) {
   const { x0, z0, x1, z1, y, h } = r;
   addRug(A, rng, cx, y, cz, rng.range(2.0, 2.8));
   A.put('mattress', x0 + 1.1, y, z1 - 0.9, rng.range(-0.1, 0.1), 1, [1, 1.1, 1]);
@@ -523,7 +523,7 @@ function furnishLiving(A, rng, r, cx, cz, w, d, m) {
 }
 
 // ---------------------------------------------------------------- storage --
-function furnishStorage(A, rng, r, cx, cz, w, d, m) {
+function furnishStorage(A, rng, r, _cx, _cz, _w, _d, _m) {
   const { x0, z0, x1, z1, y } = r;
   const spots = rng.int(4, 7);
   for (let i = 0; i < spots; i++) {
@@ -571,7 +571,7 @@ function furnishStorage(A, rng, r, cx, cz, w, d, m) {
 }
 
 // ------------------------------------------------------------------- ruin --
-function furnishRuin(A, rng, r, cx, cz, w, d, m) {
+function furnishRuin(A, rng, r, cx, cz, _w, _d, _m) {
   const { x0, z0, x1, z1, y } = r;
   rubbleMound(A, rng, cx + rng.range(-1, 1), y, cz + rng.range(-1, 1), rng.range(1.4, 2.2), 22);
   for (let i = 0; i < rng.int(3, 6); i++) {

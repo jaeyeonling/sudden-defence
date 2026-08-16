@@ -927,7 +927,7 @@ export class RenderSystem {
   //  sizing
   // ==========================================================================
 
-  resize(w, h, ctx) {
+  resize(w, h, _ctx) {
     const pr = Math.min(globalThis.devicePixelRatio || 1, 1.5);
     this.renderer.setPixelRatio(pr);
     this.renderer.setSize(w, h, false);

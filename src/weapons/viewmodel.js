@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import { Arm, HAND_POSES } from './hands.js';
+import { Arm } from './hands.js';
 import { buildClips, makeSampleResult } from './clips.js';
-import { triCount, mergeAll } from './geometry.js';
+import { triCount } from './geometry.js';
 import {
   Spring,
   Spring3,
@@ -10,7 +10,6 @@ import {
   clamp01,
   lerp,
   damp,
-  smootherstep,
   wrapPi,
   TAU,
 } from './mathx.js';

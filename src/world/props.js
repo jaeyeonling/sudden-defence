@@ -3,12 +3,9 @@ import { mergeSimple, pockGeometry } from './kit.js';
 import { datan2, dcos, dexp, dsin, hypot2 } from '../core/dmath.js';
 import {
   chamferBox,
-  clothGeometry,
-  tubeY,
   rockGeometry,
   sackGeometry,
   polyPrism,
-  patchGeometry,
   paintMasks,
   fillMasks,
   fbm3,
@@ -185,7 +182,7 @@ function barrel(rng, r = 0.29, h = 0.88, ribs = 3) {
   return g;
 }
 
-function gasBottle(rng) {
+function gasBottle(_rng) {
   const p = new PB();
   const h = 0.58;
   p.cyl(0.155, h, 0, 0, 0, { radial: 14, grime: 0.2 });
@@ -198,7 +195,7 @@ function gasBottle(rng) {
   return g;
 }
 
-function bucket(rng) {
+function bucket(_rng) {
   const p = new PB();
   p.cyl(0.145, 0.28, 0, 0, 0, { radial: 14, taper: 1.24, grime: 0.4, open: true });
   p.cyl(0.145, 0.02, 0, -0.13, 0, { radial: 14, grime: 0.6 });
@@ -208,7 +205,7 @@ function bucket(rng) {
   return g;
 }
 
-function jerryCan(rng) {
+function jerryCan(_rng) {
   const p = new PB();
   p.box(0.34, 0.44, 0.17, 0, 0, 0, { bevel: 0.02, grime: 0.2 });
   p.box(0.3, 0.06, 0.05, 0, 0.24, 0, { bevel: 0.01, wear: 1 });
@@ -255,7 +252,7 @@ function sandbag(rng, i = 0) {
   return g;
 }
 
-function jerseyBarrier(rng) {
+function jerseyBarrier(_rng) {
   // Proper jersey profile: wide splayed foot, sloped face, narrow top.
   const prof = [
     [-0.3, 0],
@@ -450,7 +447,7 @@ function shelfUnit(rng, w = 1.1, h = 1.9, d = 0.35) {
   return p.build();
 }
 
-function mattress(rng) {
+function mattress(_rng) {
   const g = chamferBox(1.85, 0.16, 0.85, 0.05);
   paintMasks(g, (x, y, z, nx, ny, nz, out) => {
     const n = fbm3(x * 3 + 4, y * 3, z * 3, 2);
@@ -471,7 +468,7 @@ function mattress(rng) {
   return g;
 }
 
-function chair(rng) {
+function chair(_rng) {
   const p = new PB();
   const sh = 0.46;
   p.box(0.42, 0.04, 0.4, 0, sh, 0, { bevel: 0.006, wear: 1 });
@@ -495,7 +492,7 @@ function cabinet(rng, w = 0.9, h = 1.15, d = 0.44) {
 }
 
 // ================================================================ services ==
-function acUnit(rng) {
+function acUnit(_rng) {
   const p = new PB();
   const w = 0.78;
   const h = 0.55;
@@ -522,7 +519,7 @@ function acUnit(rng) {
   return g;
 }
 
-function satDish(rng) {
+function satDish(_rng) {
   const p = new PB();
   const dish = new THREE.SphereGeometry(0.42, 16, 10, 0, Math.PI * 2, 0, 0.55);
   dish.scale(1, 0.42, 1);
@@ -536,7 +533,7 @@ function satDish(rng) {
   return p.build();
 }
 
-function waterTank(rng) {
+function waterTank(_rng) {
   const p = new PB();
   p.cyl(0.55, 1.0, 0, 0.5, 0, { radial: 18, grime: 0.3 });
   p.cyl(0.56, 0.05, 0, 0.99, 0, { radial: 18, wear: 1 });
@@ -547,7 +544,7 @@ function waterTank(rng) {
   return p.build();
 }
 
-function roofVent(rng) {
+function roofVent(_rng) {
   const p = new PB();
   p.box(0.5, 0.3, 0.5, 0, 0.15, 0, { bevel: 0.01, grime: 0.4 });
   p.cyl(0.17, 0.36, 0, 0.48, 0, { radial: 12, grime: 0.3 });
@@ -658,7 +655,7 @@ function plank(rng) {
  * a disc. Grime mask driven hard at the centre so the material's own cavity
  * grime darkens the contact line.
  */
-function dustSkirt(rng) {
+function dustSkirt(_rng) {
   const RAD = 4;
   const SEG = 26;
   const g = new THREE.CylinderGeometry(1, 1, 0, SEG, RAD);
@@ -698,14 +695,14 @@ function litterPaper(rng) {
   return g;
 }
 
-function bottle(rng) {
+function bottle(_rng) {
   const p = new PB();
   p.cyl(0.038, 0.17, 0, 0.085, 0, { radial: 10, grime: 0.3 });
   p.cyl(0.02, 0.08, 0, 0.2, 0, { radial: 8, taper: 0.8 });
   return p.build();
 }
 
-function can(rng) {
+function can(_rng) {
   const g = new THREE.CylinderGeometry(0.033, 0.033, 0.115, 10, 1);
   autoEdgeWear(g, 0.01, 1);
   // crushed
@@ -820,7 +817,7 @@ function weedTuft(rng) {
   return g;
 }
 
-function planter(rng) {
+function planter(_rng) {
   const p = new PB();
   p.cyl(0.34, 0.42, 0, 0.21, 0, { radial: 14, taper: 0.78, grime: 0.4 });
   p.cyl(0.36, 0.05, 0, 0.42, 0, { radial: 14, wear: 1 });
@@ -853,7 +850,7 @@ function signHanging(rng, w = 0.9, h = 0.62) {
  * returned so the caller can place one or two — silhouette first: sagging roof,
  * blown glass, missing wheels, doors hanging.
  */
-export function burntCar(rng) {
+export function burntCar(_rng) {
   const body = new PB();
   const L = 4.35;
   const W = 1.78;

@@ -1,4 +1,4 @@
-import { Assembly, box, blob, dome, extrude, roundRect, latheZ, rodZ, mergeAll } from '../geometry.js';
+import { Assembly, blob, extrude, latheZ } from '../geometry.js';
 import {
   addBarrel,
   addGasBlock,

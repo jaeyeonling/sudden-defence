@@ -341,7 +341,7 @@ export class Movement {
   /* jump                                                                 */
   /* ==================================================================== */
 
-  _updateJump(cmd) {
+  _updateJump(_cmd) {
     if (this._jumpBuffer <= 0) return false;
     if (this._jumpCooldown > 0) return false;
     const c = this.character;
@@ -451,7 +451,7 @@ export class Movement {
   /* post-move                                                            */
   /* ==================================================================== */
 
-  _postMove(h, travelled) {
+  _postMove(_h, _travelled) {
     const c = this.character;
     const v = this.velocity;
     this.speed = hypot3(v.x, v.y, v.z);

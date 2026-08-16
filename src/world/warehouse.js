@@ -41,8 +41,7 @@
 
 import * as THREE from 'three';
 import { Rng } from '../core/rng.js';
-import { chamferBox, wallPanel, newTrs } from './util.js';
-import { BOX, BOX_FINE, slab } from './kit.js';
+import { BOX, BOX_FINE } from './kit.js';
 import { dcos, dsin } from '../core/dmath.js';
 
 /** Interior extents. Walls sit outside these, so this is standable floor. */
@@ -171,7 +170,7 @@ function shell(A, rng, hw, hd) {
  *      perimeter is banded, so the three routes are legible from the floor
  *      rather than only from the walls.
  */
-function floorMarkings(A, hw, hd) {
+function floorMarkings(A, _hw, _hd) {
   const Y = 0.01;
   const T = 0.02;
 
@@ -216,7 +215,7 @@ function floorMarkings(A, hw, hd) {
 /* one half of the map, mirrored by `s`                                       */
 /* ========================================================================== */
 
-function half(A, rng, s, hw, hd) {
+function half(A, rng, s, _hw, _hd) {
   // ---- partition walls that carve out the centre hall ----
   //
   // A CONTINUOUS wall with two door openings, not a row of stubs. The first

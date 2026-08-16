@@ -37,7 +37,15 @@
     "test:pixelgate": "node tools/pixelgate.mjs",
     "test:pixelgate:accept": "node tools/pixelgate.mjs --accept",
     "test:profile": "npm run build && node tools/profile.mjs --gate",
-    "test:determinism": "npm run build && node tools/determinism.mjs"
+    "test:determinism": "npm run build && node tools/determinism.mjs",
+    "tool:abperf": "node tools/abperf.mjs",
+    "tool:baseline": "node tools/baseline.mjs",
+    "tool:contract": "node tools/contract.mjs",
+    "tool:cropcmp": "node tools/cropcmp.mjs",
+    "tool:imagediff": "node tools/imagediff.mjs",
+    "tool:observe": "node tools/observe.mjs",
+    "tool:sight": "node tools/sight.mjs",
+    "tool:zoom": "node tools/zoom.mjs"
   },
   "dependencies": {
     "three": "^0.180.0"

@@ -1,3 +1,23 @@
+#!/usr/bin/env node
+/**
+ * CONTRACT — boot the game and print what the subsystems say they built.
+ *
+ *   npm run tool:contract
+ *
+ * NOT A GATE, and the distinction matters enough to write down: every other
+ * tool in here asserts something and exits non-zero when it fails. This one
+ * asserts nothing. It dumps render's uniforms, world's bounds and spawn table,
+ * physics' triangle and node counts, and the boot console — and always exits 0.
+ *
+ * It is the first thing to run when a gate goes red for a reason that does not
+ * name a subsystem, because it answers "what did the engine actually come up
+ * as this time" without a harness in the way. The boot log it prints is where
+ * the `MATERIAL_SLOTS` assert was visible for the whole span it shipped broken
+ * (b1cdcc0 -> a1508a2); nothing consumed that output, so nothing noticed.
+ *
+ * If you want the picture rather than the numbers, that is `tools/capture.mjs`
+ * for one shot or `tools/baseline.mjs` for the comparable set.
+ */
 import { chromium } from 'playwright';
 import { spawn } from 'node:child_process';
 import net from 'node:net';

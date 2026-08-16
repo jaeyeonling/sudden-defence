@@ -15,6 +15,7 @@ import {
   mlokSlot,
   mergeAll,
 } from './geometry.js';
+import { datan2 } from '../core/dmath.js';
 
 /**
  * Reusable firearm components.
@@ -1093,7 +1094,7 @@ export function buildMagazine(asm, mats, o) {
   const at = (t) => ({
     y: -t * len,
     z: -curve * t * t,
-    tilt: Math.atan2(2 * curve * t, len),
+    tilt: datan2(2 * curve * t, len),
   });
 
   const bodyParts = [];

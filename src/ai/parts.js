@@ -12,6 +12,7 @@ import {
   emptyMesh, loft, tube, ribbon, revolve, ellipsoid, boxRound, superEllipse,
   ellipseProfile, appendMesh, computeNormals, displace, warp, transformMesh, vcount,
 } from './geo.js';
+import { datan2 } from '../core/dmath.js';
 
 const V = (x, y, z) => [x, y, z];
 
@@ -499,7 +500,7 @@ export function helmet(nz, base, p = {}) {
   warp(shell, (v) => {
     const dy = v.y - cy;
     if (dy > 0.012) return;
-    const ang = Math.atan2(v.x - bx, v.z - bz);
+    const ang = datan2(v.x - bx, v.z - bz);
     const side = Math.abs(Math.sin(ang));
     const lift = side ** 2 * 0.042 - Math.max(0, Math.cos(ang)) * 0.010;
     const k = Math.min(1, Math.max(0, (0.012 - dy) / 0.06));

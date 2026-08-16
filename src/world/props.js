@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeSimple, pockGeometry } from './kit.js';
-import { hypot2 } from '../core/dmath.js';
+import { datan2, hypot2 } from '../core/dmath.js';
 import {
   chamferBox,
   clothGeometry,
@@ -349,7 +349,7 @@ function tyre(rng, r = 0.33) {
     const x = pa.getX(i);
     const y = pa.getY(i);
     const z = pa.getZ(i);
-    const a = Math.atan2(z, x);
+    const a = datan2(z, x);
     const rr = hypot2(x, z);
     // tread blocks: a square wave round the crown, split by a centre groove
     const ph = (a * BLOCKS) / (Math.PI * 2) + stagger;
@@ -668,7 +668,7 @@ function dustSkirt(rng) {
     const x = pa.getX(i);
     const z = pa.getZ(i);
     const d = Math.min(1, hypot2(x, z));
-    const a = Math.atan2(z, x);
+    const a = datan2(z, x);
     // ragged outline: the rim wanders +/-22%
     const wob = 0.86 + 0.28 * fbm3(Math.cos(a) * 2.2, Math.sin(a) * 2.2, 3.1, 3);
     const dd = d * wob;

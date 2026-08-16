@@ -13,6 +13,7 @@ import {
   appendMesh, computeNormals, displace, transformMesh, warp,
 } from './geo.js';
 import { GRIP_R, BORE_DIR } from './rig.js';
+import { datan2 } from '../core/dmath.js';
 
 const BORE_Y = 0.095;
 
@@ -162,7 +163,7 @@ export function buildWeapon(nz, style = 'carbine', rng) {
     const mz = cyl(0.0145, 0.0135, barrelEnd - 0.045, barrelEnd, 0, BORE_Y, 14, true);
     // port slots
     displace(mz, (x, y, z, nx, ny, nzz) => {
-      const a = Math.atan2(x, y - BORE_Y);
+      const a = datan2(x, y - BORE_Y);
       const slot = Math.abs(Math.sin(a * 3)) > 0.92 && z > barrelEnd - 0.035 ? -0.0035 : 0;
       return slot;
     });

@@ -23,7 +23,7 @@
 import * as THREE from 'three';
 import { RIG } from './rig.js';
 import { Animator } from './animator.js';
-import { hypot2, hypot3 } from '../core/dmath.js';
+import { datan2, hypot2, hypot3 } from '../core/dmath.js';
 
 const STATE = {
   IDLE: 'idle',
@@ -1759,9 +1759,9 @@ export class Agent {
     const engaged =
       this.state === STATE.COMBAT || this.state === STATE.SUPPRESSED || this.hasTarget;
     if (engaged && this.lastKnownAge < 8) {
-      this.targetYaw = Math.atan2(this.lastKnown.x - this.position.x, this.lastKnown.z - this.position.z);
+      this.targetYaw = datan2(this.lastKnown.x - this.position.x, this.lastKnown.z - this.position.z);
     } else if (this.speed > 0.2) {
-      this.targetYaw = Math.atan2(this._steer.x, this._steer.z);
+      this.targetYaw = datan2(this._steer.x, this._steer.z);
     } else if (this.hunting) {
       // A hunting bot that has stopped still has to look somewhere.
       //
@@ -1776,7 +1776,7 @@ export class Agent {
       // This is the same information the hunt already acts on by walking there,
       // so it grants nothing new: perception still needs line of sight and the
       // reaction delay before any of it becomes a target.
-      this.targetYaw = Math.atan2(this.huntAt.x - this.position.x, this.huntAt.z - this.position.z);
+      this.targetYaw = datan2(this.huntAt.x - this.position.x, this.huntAt.z - this.position.z);
     }
     let dy = this.targetYaw - this.yaw;
     while (dy > Math.PI) dy -= Math.PI * 2;

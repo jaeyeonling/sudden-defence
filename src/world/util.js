@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { hypot3 } from '../core/dmath.js';
+import { datan2, hypot3 } from '../core/dmath.js';
 
 /**
  * WORLD — geometry toolkit.
@@ -329,8 +329,8 @@ export function chamferBox(sx, sy, sz, bevel = 0.012) {
       const a1 = (axis + 1) % 3;
       const a2 = (axis + 2) % 3;
       corners.sort((p, q) => {
-        const ap = Math.atan2(signs[p][a2], signs[p][a1]);
-        const aq = Math.atan2(signs[q][a2], signs[q][a1]);
+        const ap = datan2(signs[p][a2], signs[p][a1]);
+        const aq = datan2(signs[q][a2], signs[q][a1]);
         return ap - aq;
       });
       addPoly(corners.map((ci) => vert(ci, axis)), 0.06, 0.0);

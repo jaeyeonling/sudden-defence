@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { hypot2 } from '../core/dmath.js';
+import { datan2, hypot2 } from '../core/dmath.js';
 import {
   chamferBox,
   plainBox,
@@ -801,7 +801,7 @@ export function stairRun(A, pm, x, y, z, w, steps, rise, run, opts = {}) {
   }
   if (opts.railing) {
     const bar = BOX_THIN(A);
-    const ang = Math.atan2(H, D);
+    const ang = datan2(H, D);
     const len = hypot2(H, D);
     for (const sx of [-1, 1]) {
       if (opts.railing === 'right' && sx < 0) continue;
@@ -901,7 +901,7 @@ export function awning(A, pm, x, y, w, rng, opts = {}) {
   // frame
   const bar = BOX_THIN(A);
   for (const sx of [-1, 1]) {
-    A.add('metal_rust', bar, LL(pm, x + sx * (w / 2 - 0.05), y - slope * 0.5, -d / 2, 0, 0.04, 0.04, d, -Math.atan2(slope, d)), {
+    A.add('metal_rust', bar, LL(pm, x + sx * (w / 2 - 0.05), y - slope * 0.5, -d / 2, 0, 0.04, 0.04, d, -datan2(slope, d)), {
       masks: [0.9, 0.5, 0],
     });
     if (opts.legs) {
@@ -1108,7 +1108,7 @@ export function worldOf(pm, x, y, z) {
 /** Extract the Y rotation baked into a panel matrix. */
 export function ryOf(pm) {
   const e = pm.elements;
-  return Math.atan2(e[8], e[10]);
+  return datan2(e[8], e[10]);
 }
 
 export { L, LL };

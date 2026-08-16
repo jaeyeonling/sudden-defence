@@ -14,6 +14,7 @@
 import * as THREE from 'three';
 import { HEALTH } from './tuning.js';
 import { clamp01, approach, DEG } from './springs.js';
+import { datan2 } from '../core/dmath.js';
 
 export class Health {
   /**
@@ -119,7 +120,7 @@ export class Health {
       // Forward at yaw is (-sin, -cos); right is (cos, -sin).
       const f = -Math.sin(yaw) * dx - Math.cos(yaw) * dz;
       const r = Math.cos(yaw) * dx - Math.sin(yaw) * dz;
-      angle = Math.atan2(r, f);
+      angle = datan2(r, f);
       this._pushIndicator(angle, dealt, from);
     }
 

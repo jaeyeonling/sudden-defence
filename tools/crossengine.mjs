@@ -122,13 +122,30 @@
  * boot included. That is the strongest statement this tool has ever been able to
  * make, and it was not available at any earlier point in the project.
  *
- * The webkit residue is the hard half arriving on schedule: `targetYaw` is
- * `Math.atan2(dx, dz)` (agent.js ~1762), and `atan2` is genuinely
- * implementation-approximated with no cheap respelling. The remaining decision
- * is therefore clean: adopt a fixed-implementation `atan2`/`sin`/`cos` for the
- * few SIMULATION call sites that feed captured state, or scope the deterministic
- * architecture to engines that agree and let JSC clients be served differently.
- * That is a decision about scope, not a hunt — the hunting is done.
+ * The webkit residue was the hard half arriving on schedule: `targetYaw` is
+ * `atan2`, genuinely implementation-approximated with no cheap respelling. The
+ * scope decision came out at "fix the measured site": `src/core/dmath.js` now
+ * carries a port of fdlibm's `atan`/`atan2` — every operation pinned arithmetic,
+ * so the result is bit-identical by construction and within ~1 ulp of true —
+ * substituted across the simulation directories. With that:
+ *
+ *     chromium vs chromium#control   identical        (1200 ticks)
+ *     chromium vs firefox            IDENTICAL        (1200 ticks)
+ *     chromium vs webkit             IDENTICAL        (1200 ticks)
+ *
+ * V8, SPIDERMONKEY AND JAVASCRIPTCORE SIMULATE THE SAME WORLD, bit for bit,
+ * over ten seconds of driven combat. The deterministic architecture is
+ * AVAILABLE on the evidence this tool was built to produce.
+ *
+ * Scope of that claim, stated so it cannot inflate: one seed, one span, one
+ * scenario — and `sin`/`cos`/`exp`/`acos` still run each engine's own libm at
+ * every simulation call site. Those did not diverge HERE, which means the
+ * inputs this span fed them landed on agreeing bits; it does not mean they
+ * always will. The honest posture is the one this file already uses for deaths:
+ * the gate stands, and a red on some future seed names its function the way
+ * 240 ticks named `hypot` and webkit named `atan2`. `dmath.js` is where such a
+ * function goes when it is CONVICTED — porting all of libm on suspicion is the
+ * tax the header warns about, and suspicion is not a measurement.
  *
  * The control's noise has a known address: state the snapshot does not carry.
  * `tools/perceive.mjs` established that bot rigs are posed in `ai.lateUpdate`,

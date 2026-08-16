@@ -115,6 +115,8 @@
 import { chromium } from 'playwright';
 import { PNG } from 'pngjs';
 import { writeFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import net from 'node:net';
 
 const PORT = process.env.PORT || 5173;
 const args = Object.fromEntries(
@@ -174,6 +176,32 @@ const MIN_CHROMA = +(args.min ?? 0.05);
  */
 const MASK_EPS = 0.02;
 
+// THE SERVER THIS TOOL USED TO ASSUME. Every sibling harness spawns vite when
+// port 5173 is closed and kills it on exit; this one just navigated, and it
+// PASSED for as long as it did by riding servers LEAKED by earlier harness
+// crashes — an uncaught exception skips the `process.kill(-vite.pid)` cleanup,
+// the orphan keeps listening, and the next tool in the chain finds the port
+// open. Kill the orphan and this gate fails with ERR_CONNECTION_REFUSED on a
+// perfectly healthy build, which is how the dependency was finally noticed.
+// Same block as `botfight.mjs`, `OW_NO_HMR` included — see the note there.
+const portOpen = (port) =>
+  new Promise((res) => {
+    const s = net.connect({ port, host: '127.0.0.1' }, () => (s.destroy(), res(true)));
+    s.on('error', () => res(false));
+    s.setTimeout(400, () => (s.destroy(), res(false)));
+  });
+
+let vite = null;
+if (!(await portOpen(PORT))) {
+  vite = spawn('npx', ['vite', '--port', String(PORT)], {
+    stdio: 'ignore',
+    detached: true,
+    env: { ...process.env, OW_NO_HMR: '1' },
+  });
+  for (let i = 0; i < 80 && !(await portOpen(PORT)); i++) {
+    await new Promise((r) => setTimeout(r, 250));
+  }
+}
 
 const browser = await chromium.launch({
   args: ['--use-gl=angle', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
@@ -343,6 +371,7 @@ for (const team of ['alpha', 'bravo']) {
   if (!lit.rect) {
     console.error(`FRIENDFOE FAIL — no live ${team} fighter to stage`);
     await browser.close();
+    if (vite) try { process.kill(-vite.pid); } catch { /* already gone */ }
     process.exit(1);
   }
   const bg = await shoot(team, { hidden: true });
@@ -384,6 +413,7 @@ for (const team of ['alpha', 'bravo']) {
         `the staging did not put a man on camera`
     );
     await browser.close();
+    if (vite) try { process.kill(-vite.pid); } catch { /* already gone */ }
     process.exit(1);
   }
   results[team] = { body, mark };
@@ -398,6 +428,7 @@ const detail =
   `whole-body separation ${whole.toFixed(4)} (L ${a.body.L}/${b.body.L})`;
 
 await browser.close();
+if (vite) try { process.kill(-vite.pid); } catch { /* already gone */ }
 
 if (dist < MIN_CHROMA) {
   console.error(

@@ -1,22 +1,10 @@
 import { Assembly, box, blob, extrude, roundRect, latheZ, rodZ, tubeZ, dome, mergeAll } from '../geometry.js';
-import {
-  addBarrel,
-  addMuzzleDevice,
-  addHandguard,
-  addRail,
-  addPistolGrip,
-  addFrontSight,
-  addRearSight,
-  addQdSocket,
-  addSlingLoop,
-  addPin,
-  addForeGrip,
-  buildMagazine,
-  buildOptic,
-  selectorPart,
-  triggerPart,
-  cartridge,
-} from '../parts.js';
+import { addBarrel, addHandguard, addMuzzleDevice } from '../parts-barrel.js';
+import { addForeGrip, addPistolGrip } from '../parts-furniture.js';
+import { buildMagazine } from '../parts-magazine.js';
+import { addFrontSight, addRearSight, buildOptic } from '../parts-optics.js';
+import { selectorPart, triggerPart } from '../parts-receiver.js';
+import { addPin, addQdSocket, addRail, addSlingLoop, cartridge } from '../parts.js';
 
 /**
  * The submachine gun — an MPX/MP5-flavoured 9 mm roller: slim tubular

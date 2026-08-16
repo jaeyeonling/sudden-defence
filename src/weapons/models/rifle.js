@@ -1,28 +1,10 @@
 import { Assembly, blob, extrude, latheZ } from '../geometry.js';
-import {
-  addBarrel,
-  addGasBlock,
-  addMuzzleDevice,
-  addHandguard,
-  addUpperReceiver,
-  addLowerReceiver,
-  addBoltCarrier,
-  addRail,
-  addPistolGrip,
-  addCarbineStock,
-  addFrontSight,
-  addRearSight,
-  addRollmark,
-  addQdSocket,
-  addSlingLoop,
-  addPin,
-  buildMagazine,
-  buildOptic,
-  chargingHandlePart,
-  selectorPart,
-  triggerPart,
-  cartridge,
-} from '../parts.js';
+import { addBarrel, addGasBlock, addHandguard, addMuzzleDevice } from '../parts-barrel.js';
+import { addCarbineStock, addPistolGrip } from '../parts-furniture.js';
+import { buildMagazine } from '../parts-magazine.js';
+import { addFrontSight, addRearSight, buildOptic } from '../parts-optics.js';
+import { addBoltCarrier, addLowerReceiver, addRollmark, addUpperReceiver, chargingHandlePart, selectorPart, triggerPart } from '../parts-receiver.js';
+import { addPin, addQdSocket, addRail, addSlingLoop, cartridge } from '../parts.js';
 
 /**
  * The assault rifle — an AR-15/M4 pattern carbine with a free-float handguard,

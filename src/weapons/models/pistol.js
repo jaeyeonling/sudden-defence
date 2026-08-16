@@ -1,12 +1,9 @@
 import { Assembly, box, blob, extrude, latheZ, tubeZ, mergeAll } from '../geometry.js';
-import {
-  addRail,
-  addPistolGrip,
-  buildMagazine,
-  buildMiniReflex,
-  buildSlide,
-  triggerPart,
-} from '../parts.js';
+import { addPistolGrip, buildSlide } from '../parts-furniture.js';
+import { buildMagazine } from '../parts-magazine.js';
+import { buildMiniReflex } from '../parts-optics.js';
+import { triggerPart } from '../parts-receiver.js';
+import { addRail } from '../parts.js';
 
 /**
  * The sidearm — a striker-fired polymer-framed 9 mm, slide-mounted mini reflex.

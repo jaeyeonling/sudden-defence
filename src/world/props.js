@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { mergeSimple, pockGeometry } from './kit.js';
+import { mergeSimple } from './kit-openings.js';
+import { pockGeometry } from './kit-damage.js';
 import { datan2, dcos, dexp, dsin, hypot2 } from '../core/dmath.js';
 import {
   chamferBox,

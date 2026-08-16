@@ -41,7 +41,7 @@
 
 import * as THREE from 'three';
 import { Rng } from '../core/rng.js';
-import { BOX, BOX_FINE } from './kit.js';
+import { BOX, BOX_FINE } from './kit-base.js';
 import { dcos, dsin } from '../core/dmath.js';
 
 /** Interior extents. Walls sit outside these, so this is standable floor. */

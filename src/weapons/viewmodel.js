@@ -507,9 +507,9 @@ export class Viewmodel {
     const scale = first ? 1.18 : 1;
     const jitter = 0.86 + this.rng.float() * 0.3;
     this.recPos.f = r.freq;
-    this.recPos.z = r.damping;
+    this.recPos.damping = r.damping;
     this.recRot.f = r.freq * 0.92;
-    this.recRot.z = r.damping;
+    this.recRot.damping = r.damping;
     // A velocity impulse of v0 on a spring of angular frequency w peaks at
     // roughly v0/w, so the kick amplitudes below are in real metres/radians.
     const wp = TAU * this.recPos.f;

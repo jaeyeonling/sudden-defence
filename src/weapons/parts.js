@@ -250,7 +250,7 @@ export function addGasBlock(asm, matSteel, o) {
  */
 export function addMuzzleDevice(asm, matSteel, matCavity, kind, zBarrelEnd, rBarrel, y = 0) {
   const parts = [];
-  let len = MUZZLE_LEN[kind] ?? 0.05;
+  const len = MUZZLE_LEN[kind] ?? 0.05;
   const rOut = rBarrel + 0.0038;
   // The device threads onto the barrel, so its rear face sits at the barrel end
   // and the crown ends up `len` further forward.

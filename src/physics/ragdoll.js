@@ -587,11 +587,11 @@ export class Ragdoll {
     const nl = hypot3(nx, ny, nz);
     if (nl < 1e-9) return;
     nx /= nl; ny /= nl; nz /= nl;
-    let vx = this.px[i] - this.qx[i];
-    let vy = this.py[i] - this.qy[i];
-    let vz = this.pz[i] - this.qz[i];
+    const vx = this.px[i] - this.qx[i];
+    const vy = this.py[i] - this.qy[i];
+    const vz = this.pz[i] - this.qz[i];
     const vn = vx * nx + vy * ny + vz * nz;
-    let tx = vx - nx * vn, ty = vy - ny * vn, tz = vz - nz * vn;
+    const tx = vx - nx * vn, ty = vy - ny * vn, tz = vz - nz * vn;
     // Kill the tangential component; PBD friction is applied by moving the
     // previous position towards the current one.
     this.qx[i] += tx * mu;
@@ -615,7 +615,7 @@ export class Ragdoll {
       let ux = this.boneUp[i * 3], uy = this.boneUp[i * 3 + 1], uz = this.boneUp[i * 3 + 2];
       const d = ux * dx + uy * dy + uz * dz;
       ux -= dx * d; uy -= dy * d; uz -= dz * d;
-      let ul = hypot3(ux, uy, uz);
+      const ul = hypot3(ux, uy, uz);
       if (ul < 1e-5) {
         this._initUp(i);
         continue;

@@ -211,7 +211,7 @@ export class DecalSystem {
       uz = 0;
     }
     // tangent = normalize(up - n * dot(n,up)) then rolled about n
-    let d = ux * nx + uy * ny + uz * nzz;
+    const d = ux * nx + uy * ny + uz * nzz;
     let tx = ux - nx * d;
     let ty = uy - ny * d;
     let tz = uz - nzz * d;

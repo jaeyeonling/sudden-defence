@@ -240,8 +240,8 @@ export class Movement {
     this._right.set(cy, 0, -sy);
 
     // ---- wish direction, with directional speed weighting ---------------
-    let mx = cmd.moveX;
-    let my = cmd.moveY;
+    const mx = cmd.moveX;
+    const my = cmd.moveY;
     const rawInput = hypot2(mx, my);
     const sx = mx * MOVE.strafeScale;
     const sz = my >= 0 ? my : my * MOVE.backScale;

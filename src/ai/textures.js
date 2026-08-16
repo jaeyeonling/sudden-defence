@@ -200,7 +200,7 @@ function bakeDetail(size, fn, aniso, normalScale = 1) {
       const dy =
         at(x - 1, y + 1) + 2 * at(x, y + 1) + at(x + 1, y + 1) -
         at(x - 1, y - 1) - 2 * at(x, y - 1) - at(x + 1, y - 1);
-      let nx = -dx * k, ny = -dy * k, nz = 1;
+      const nx = -dx * k, ny = -dy * k, nz = 1;
       const l = hypot3(nx, ny, nz);
       const i = y * size + x;
       buf[i * 4] = (nx / l * 0.5 + 0.5) * 255;

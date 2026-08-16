@@ -19,7 +19,7 @@ export function reflect(out, dx, dy, dz, nx, ny, nz) {
 export function basis(out, nx, ny, nz) {
   let ax = 0;
   let ay = 1;
-  let az = 0;
+  const az = 0;
   if (Math.abs(ny) > 0.9) {
     ax = 1;
     ay = 0;
@@ -105,9 +105,9 @@ export function towardHemi(out, ax, ay, az, bias = 0.08) {
 export function clampCone(out, ax, ay, az, cosMax) {
   const d = out.x * ax + out.y * ay + out.z * az;
   if (d >= cosMax) return out;
-  let tx = out.x - ax * d;
-  let ty = out.y - ay * d;
-  let tz = out.z - az * d;
+  const tx = out.x - ax * d;
+  const ty = out.y - ay * d;
+  const tz = out.z - az * d;
   const tl = Math.hypot(tx, ty, tz);
   if (tl < 1e-5) {
     out.x = ax;

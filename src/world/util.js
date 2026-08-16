@@ -864,9 +864,9 @@ export function clothGeometry(w, h, opts = {}) {
         tu[c] = P[(j * nx + i1) * 3 + c] - P[(j * nx + i0) * 3 + c];
         tv[c] = P[(j1 * nx + i) * 3 + c] - P[(j0 * nx + i) * 3 + c];
       }
-      let nxv = tu[1] * tv[2] - tu[2] * tv[1];
-      let nyv = tu[2] * tv[0] - tu[0] * tv[2];
-      let nzv = tu[0] * tv[1] - tu[1] * tv[0];
+      const nxv = tu[1] * tv[2] - tu[2] * tv[1];
+      const nyv = tu[2] * tv[0] - tu[0] * tv[2];
+      const nzv = tu[0] * tv[1] - tu[1] * tv[0];
       const l = hypot3(nxv, nyv, nzv) || 1;
       N[k * 3] = nxv / l;
       N[k * 3 + 1] = nyv / l;

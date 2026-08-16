@@ -928,9 +928,9 @@ export function buildBrassTextures(rng, size = 256) {
       const at = (dx, dy) => h[(((y + dy) % size) + size) % size * size + ((((x + dx) % size) + size) % size)];
       const gx = (at(1, 0) - at(-1, 0)) * 5;
       const gy = (at(0, 1) - at(0, -1)) * 5;
-      let nx = -gx;
-      let ny = -gy;
-      let nz = 1;
+      const nx = -gx;
+      const ny = -gy;
+      const nz = 1;
       const l = Math.hypot(nx, ny, nz) || 1;
       const i = (y * size + x) * 4;
       normal[i] = (nx / l * 0.5 + 0.5) * 255;

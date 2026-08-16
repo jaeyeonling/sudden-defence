@@ -168,7 +168,7 @@ section('Raycasts');
     rays[i * 6] = r3.range(-30, 30);
     rays[i * 6 + 1] = r3.range(0.2, 8);
     rays[i * 6 + 2] = r3.range(-30, 30);
-    let dx = r3.signed(), dy = r3.signed(), dz = r3.signed();
+    const dx = r3.signed(), dy = r3.signed(), dz = r3.signed();
     const l = hypot3(dx, dy, dz) || 1;
     rays[i * 6 + 3] = dx / l; rays[i * 6 + 4] = dy / l; rays[i * 6 + 5] = dz / l;
   }

@@ -156,10 +156,26 @@
  *             the library calls the engine's own `Math.sin`/`cos`/`atan2`.
  *             Substituting our sites never touched them.
  *
- * So the residue has a name and an address: transcendentals INSIDE three.js,
- * reached from simulation state through the pose path. Replacing those call
- * sites with `dmath` equivalents (an explicit euler-to-quaternion, primarily)
- * is the remaining work, and it is bounded — 15 sites, one conversion.
+ * So the residue had a name and an address: transcendentals INSIDE three.js,
+ * reached from simulation state through the pose path. Of the fifteen
+ * three.js-internal call sites, only SIX actually run trig — `setFromEuler`
+ * (the pose writer and the player's fire basis) and `setFromAxisAngle` (the
+ * aim/look IK); `getWorldQuaternion`, `setFromUnitVectors` and the decompose
+ * path are sqrt-and-arithmetic, pinned already, and the one `slerp` is the
+ * debris PRESENTATION interpolation. `dquatFromEuler`/`dquatFromAxisAngle`
+ * (three.js's own formulas with the trig on dmath) replaced the six, and:
+ *
+ *     chromium vs chromium#control   identical    (3600 ticks)
+ *     chromium vs firefox            IDENTICAL    (3600 ticks)
+ *     chromium vs webkit             IDENTICAL    (3600 ticks)
+ *
+ * Thirty seconds of driven combat — two deaths, ragdolls settling, grenades
+ * thrown mid-span and in flight at the dump — and THREE ENGINES AGREE ON EVERY
+ * BIT OF EVERY LEAF. This is the strongest statement this tool can currently
+ * make, and it is the one it was built to make: the deterministic architecture
+ * is available, on evidence that includes the paths that were noise when the
+ * tool could not yet measure its own control.
+ *
  * `dmath.js` remains the rule: a function is ported when a measurement
  * CONVICTS it, and every function in it was.
  *

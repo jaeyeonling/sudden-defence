@@ -26,7 +26,7 @@
 import * as THREE from 'three';
 import * as C from './clips.js';
 import { BORE_DIR } from './rig.js';
-import { dacos } from '../core/dmath.js';
+import { dacos, dquatFromAxisAngle, dquatFromEuler } from '../core/dmath.js';
 
 const DEG = Math.PI / 180;
 
@@ -370,7 +370,7 @@ export class Animator {
       const b = bones[i];
       if (x || y || z) {
         e.set(x * DEG, y * DEG, z * DEG, 'XYZ');
-        q.setFromEuler(e);
+        dquatFromEuler(q, e.x, e.y, e.z, 'XYZ');
         b.quaternion.copy(rig.localQuat[i]).multiply(q);
       } else {
         b.quaternion.copy(rig.localQuat[i]);
@@ -446,7 +446,7 @@ export class Animator {
       if (axis.lengthSq() < 1e-10) return;
       axis.normalize();
       for (const [bi, f] of spread) {
-        this._q3.setFromAxisAngle(axis, ang * f);
+        dquatFromAxisAngle(this._q3, axis, ang * f);
         this._applyWorld(bi, this._q3);
       }
     }
@@ -473,7 +473,7 @@ export class Animator {
       const axis = this._v4.crossVectors(fwd, want);
       if (axis.lengthSq() < 1e-10) continue;
       axis.normalize();
-      this._q3.setFromAxisAngle(axis, ang);
+      dquatFromAxisAngle(this._q3, axis, ang);
       this._applyWorld(bi, this._q3);
     }
   }
@@ -552,7 +552,7 @@ export class Animator {
         const axis = this._v4.crossVectors(up, n);
         if (axis.lengthSq() > 1e-10) {
           axis.normalize();
-          this._q3.setFromAxisAngle(axis, ang);
+          dquatFromAxisAngle(this._q3, axis, ang);
           this._applyWorld(foot, this._q3);
         }
       }

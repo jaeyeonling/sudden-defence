@@ -233,6 +233,57 @@ export const dlog = (x) => {
  */
 export const dtan = (x) => dsin(x) / dcos(x);
 
+/* ---------------------------------------------------------------------- */
+/* quaternion construction                                                 */
+/* ---------------------------------------------------------------------- */
+/*
+ * The door the call-site substitutions could not close. With every
+ * `Math.sin`-family call in OUR code on dmath, the 3600-tick span still
+ * diverged — bit-identical residue across five substitution generations — and
+ * the trail traced it to a grenade whose throw origin is a POSED BONE.
+ * `Quaternion.setFromEuler` and `setFromAxisAngle` run `Math.sin`/`Math.cos`
+ * INSIDE three.js, so every bone the animator writes was still asking the
+ * engine's libm which way the hand points.
+ *
+ * These are three.js's own formulas with the trig routed through dmath. They
+ * take any object with a `set(x, y, z, w)` — dmath stays ignorant of THREE.
+ * Euler orders cover what the simulation uses (XYZ everywhere today, YXZ for
+ * the camera convention should it ever construct here); an unknown order
+ * throws rather than guessing, loud over wrong.
+ */
+export const dquatFromEuler = (q, x, y, z, order = 'XYZ') => {
+  const c1 = dcos(x / 2), s1 = dsin(x / 2);
+  const c2 = dcos(y / 2), s2 = dsin(y / 2);
+  const c3 = dcos(z / 2), s3 = dsin(z / 2);
+  if (order === 'XYZ') {
+    q.set(
+      s1 * c2 * c3 + c1 * s2 * s3,
+      c1 * s2 * c3 - s1 * c2 * s3,
+      c1 * c2 * s3 + s1 * s2 * c3,
+      c1 * c2 * c3 - s1 * s2 * s3
+    );
+    return q;
+  }
+  if (order === 'YXZ') {
+    q.set(
+      s1 * c2 * c3 + c1 * s2 * s3,
+      c1 * s2 * c3 - s1 * c2 * s3,
+      c1 * c2 * s3 - s1 * s2 * c3,
+      c1 * c2 * c3 + s1 * s2 * s3
+    );
+    return q;
+  }
+  throw new Error(`dquatFromEuler: unsupported order "${order}"`);
+};
+
+/** `Quaternion.setFromAxisAngle` with dmath trig. Axis must be unit length. */
+export const dquatFromAxisAngle = (q, axis, angle) => {
+  const h = angle / 2;
+  const s = dsin(h);
+  q.set(axis.x * s, axis.y * s, axis.z * s, dcos(h));
+  return q;
+};
+
 /** Deterministic `pow` for positive bases: `dexp(y · dlog(x))` + identities. */
 export const dpow = (x, y) => {
   if (y === 0) return 1;

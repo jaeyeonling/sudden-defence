@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { dtan } from '../core/dmath.js';
+import { dquatFromEuler, dtan } from '../core/dmath.js';
 import { Rng } from '../core/rng.js';
 import { WeaponMaterials, ENV_OCCLUSION } from './materials.js';
 import { Viewmodel } from './viewmodel.js';
@@ -471,7 +471,7 @@ export class WeaponSystem {
     const o = this._aimOverride;
     if (o) {
       this._aimEuler.set(o.pitch, o.yaw, 0);
-      this._aimQuat.setFromEuler(this._aimEuler);
+      dquatFromEuler(this._aimQuat, this._aimEuler.x, this._aimEuler.y, this._aimEuler.z, this._aimEuler.order);
       this._aimDir.set(0, 0, -1).applyQuaternion(this._aimQuat);
       if (o.origin) this._eye.copy(o.origin);
       return;
@@ -479,7 +479,7 @@ export class WeaponSystem {
     const p = this.player ?? (this.player = this.ctx.peek('player'));
     if (p?.aimForward) {
       this._aimEuler.set(p.aimPitch, p.aimYaw, 0);
-      this._aimQuat.setFromEuler(this._aimEuler);
+      dquatFromEuler(this._aimQuat, this._aimEuler.x, this._aimEuler.y, this._aimEuler.z, this._aimEuler.order);
       this._aimDir.copy(p.aimForward).normalize();
       this._eye.copy(p.aimOrigin);
       return;

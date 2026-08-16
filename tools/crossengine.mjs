@@ -179,6 +179,21 @@
  * `dmath.js` remains the rule: a function is ported when a measurement
  * CONVICTS it, and every function in it was.
  *
+ * THE SEED SWEEP FOUND ONE MORE, AND IT DID NOT LOOK LIKE MATH. Seed 1 broke
+ * the agreement — corpses only, control clean — and `--rdwatch` (per-tick
+ * particle hashes, BITS not quanta; its first quantised version invented a
+ * "quiet-tick" entry sixty ticks after the real one) placed the divergence at
+ * the ragdoll's BIRTH tick. `physics.__bvhTriHash` acquitted the bake: the
+ * triangle soup is bit-identical, because a warehouse sits at right angles and
+ * every engine's sin/cos agree at multiples of pi/2. The door was
+ * `group.rotation.y = this.yaw` — Object3D's Euler proxy converts through
+ * three.js's native setFromEuler, and that quaternion roots every bone's
+ * matrixWorld. An arbitrary yaw is exactly where engine libms disagree.
+ * `dquatFromEuler` at both write sites, and:
+ *
+ *     seeds 0x5eed1234, 1, 424242, 1519997492 — three engines, 3600 ticks,
+ *     deaths and grenades in every span: IDENTICAL, all four.
+ *
  * The control's noise has a known address: state the snapshot does not carry.
  * `tools/perceive.mjs` established that bot rigs are posed in `ai.lateUpdate`,
  * on the frame, and that `MASK.BULLET` contains ACTOR — so which bone a round

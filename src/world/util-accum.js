@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { _n, _nm, _v0, fbm3 } from './util-noise.js';
+import { _n, _nm, _v0 } from './util-noise.js';
 
 /** Instance accumulation and the vertex-mask painters that weather it. */
 
@@ -16,10 +16,6 @@ export function trs(out, x, y, z, ry = 0, sx = 1, sy = sx, sz = sx, rx = 0, rz =
   _p.set(x, y, z);
   _s.set(sx, sy, sz);
   return out.compose(_p, _q, _s);
-}
-
-export function newTrs(x, y, z, ry = 0, sx = 1, sy = sx, sz = sx, rx = 0, rz = 0) {
-  return trs(new THREE.Matrix4(), x, y, z, ry, sx, sy, sz, rx, rz);
 }
 
 // ------------------------------------------------------------ accumulator --
@@ -166,23 +162,4 @@ export function fillMasks(geo, w = 0, g = 0, a = 0) {
   return geo;
 }
 
-/**
- * Wear on convex chamfers, grime on undersides, AO+grime toward the base.
- * Applied to nearly every prop so nothing reads as a clean extruded box.
- */
-export function weatherProp(geo, opts = {}) {
-  const { base = 0, wear = 0.85, grime = 0.5, down = 0.6, height = 1 } = opts;
-  const bb = geo.boundingBox ?? (geo.computeBoundingBox(), geo.boundingBox);
-  const lo = bb.min.y;
-  const h = Math.max(1e-3, height * (bb.max.y - lo));
-  return paintMasks(geo, (x, y, z, nx, ny, nz, out) => {
-    const up = Math.max(0, ny);
-    const dn = Math.max(0, -ny);
-    const t = 1 - Math.min(1, (y - lo) / h);
-    const n = fbm3(x * 3.1, y * 3.3, z * 3.1, 2);
-    out[0] = Math.min(1, out[0] * wear + up * 0.18 * wear * n);
-    out[1] = Math.min(1, out[1] + grime * (dn * down + t * t * base) * (0.55 + 0.9 * n));
-    out[2] = Math.min(1, out[2] + dn * 0.35 + t * t * base * 0.7);
-  });
-}
 

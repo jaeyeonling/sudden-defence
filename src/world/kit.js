@@ -1,7 +1,5 @@
-import { datan2, hypot2 } from '../core/dmath.js';
+import { datan2 } from '../core/dmath.js';
 import { clothGeometry, tubeY } from './util-cloth.js';
-import { fbm3 } from './util-noise.js';
-import { solidSlabs, wallPanel } from './util.js';
 import { IDENT, LL, BOX, BOX_FINE, BOX_SOFT, BOX_THIN, worldOf, ryOf } from './kit-base.js';
 
 /**
@@ -10,51 +8,6 @@ import { IDENT, LL, BOX, BOX_FINE, BOX_SOFT, BOX_THIN, worldOf, ryOf } from './k
  * `kit-damage.js`, and the panel-space vocabulary all three share in
  * `kit-base.js`.
  */
-
-// ============================================================== facade wall ==
-/**
- * A facade panel with real openings. Returns the list of openings so the
- * caller can hang props (AC units, laundry, awnings) off them.
- *
- * spec: { w, h, t, key, openings:[{x,y,w,h,arch,kind}], top, rng }
- */
-export function facadeWall(A, pm, spec) {
-  const { w, h, t, key, openings = [], rng } = spec;
-  const geo = wallPanel(w, h, t, openings, {
-    bevel: spec.bevel ?? 0.022,
-    rng,
-    top: spec.top ?? 'flat',
-    raggedAmp: spec.raggedAmp ?? 0.5,
-    jag: spec.jag ?? 0,
-    curveSegments: 7,
-  });
-  // Nothing perfectly flat: bow the face by a few millimetres.
-  const warpAmp = spec.warp ?? 0.018;
-  if (warpAmp > 0) {
-    const pa = geo.getAttribute('position');
-    const na = geo.getAttribute('normal');
-    for (let i = 0; i < pa.count; i++) {
-      const x = pa.getX(i);
-      const y = pa.getY(i);
-      const z = pa.getZ(i);
-      const nz = na.getZ(i);
-      if (Math.abs(nz) < 0.5) continue;
-      const d = (fbm3(x * 0.5 + 3.7, y * 0.42 + 1.3, 0.5, 2) - 0.5) * warpAmp * 2;
-      pa.setZ(i, z + d);
-    }
-    geo.computeVertexNormals();
-  }
-  // Accum.add expects an OPTIONS object, not a bare callback: passing the
-  // function straight through silently dropped every facade's base-grime paint.
-  A.addOnce(key, geo, pm, spec.paint ? { paint: spec.paint } : null);
-
-  // Collision: the solid rectangles left after the holes are cut.
-  const surface = A.surfaceOf(key);
-  for (const s of solidSlabs(w, h, openings)) {
-    A.slabBox(surface, pm, s.x, s.y, s.w, s.h, t);
-  }
-  return openings;
-}
 
 
 // ================================================================= balcony ==
@@ -156,56 +109,6 @@ export function parapet(A, key, cx, cz, w, d, y, rng, opts = {}) {
   return y + h;
 }
 
-// =================================================================== stairs ==
-/**
- * A straight flight. Origin at the bottom step's front-centre, climbing +Z.
- * Emits per-step collision so the character controller steps up naturally.
- */
-export function stairRun(A, pm, x, y, z, w, steps, rise, run, opts = {}) {
-  const key = opts.key ?? 'concrete';
-  const box = BOX(A);
-  for (let i = 0; i < steps; i++) {
-    const sy = y + (i + 0.5) * rise;
-    const sz = z + (i + 0.5) * run;
-    A.add(key, box, LL(pm, x, sy, sz, 0, w, rise, run), {
-      masks: [0.7, 0.35, 0.15],
-    });
-    const wp = worldOf(pm, x, sy, sz);
-    A.box(A.surfaceOf(key), wp[0], wp[1], wp[2], w, rise, run, ryOf(pm));
-  }
-  // side stringer / spine so it doesn't read as floating slabs
-  const H = steps * rise;
-  const D = steps * run;
-  if (opts.stringer !== false) {
-    A.add(key, box, LL(pm, x, y + H / 2 - 0.1, z + D / 2, 0, w * 1.02, H, D * 0.99), {
-      masks: [0.4, 0.6, 0.4],
-    });
-  }
-  if (opts.railing) {
-    const bar = BOX_THIN(A);
-    const ang = datan2(H, D);
-    const len = hypot2(H, D);
-    for (const sx of [-1, 1]) {
-      if (opts.railing === 'right' && sx < 0) continue;
-      if (opts.railing === 'left' && sx > 0) continue;
-      A.add(
-        'metal_rust',
-        bar,
-        LL(pm, x + sx * (w / 2 - 0.05), y + H / 2 + 0.95, z + D / 2, 0, 0.045, 0.045, len, -ang),
-        { masks: [0.9, 0.5, 0] }
-      );
-      for (let i = 0; i < steps; i += 3) {
-        A.add(
-          'metal_rust',
-          bar,
-          LL(pm, x + sx * (w / 2 - 0.05), y + i * rise + 0.5, z + (i + 0.5) * run, 0, 0.03, 1.0, 0.03),
-          { masks: [0.9, 0.5, 0] }
-        );
-      }
-    }
-  }
-  return { top: y + H, endZ: z + D };
-}
 
 // ================================================================= canopies ==
 /**

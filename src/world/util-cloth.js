@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { dcos, dcosh, dexp, dsin, hypot3 } from '../core/dmath.js';
 import { _v0, fbm3 } from './util-noise.js';
 
-/** Soft goods: hanging cloth, catenary cable, sacks, and the tubes they drape over. */
+/** Soft goods: hanging cloth, sacks, and the tubes they drape over. */
 
 /**
  * Hanging / draped cloth.
@@ -249,28 +249,6 @@ export function clothGeometry(w, h, opts = {}) {
   return g;
 }
 
-/** Sagging cable / rope / wire between two points, as a thin tube. */
-export function catenaryTube(from, to, sagAmt, radius, opts = {}) {
-  const { seg = 12, radial = 4, jitter = 0 } = opts;
-  const pts = [];
-  const K = dcosh(1.5) - 1;
-  for (let i = 0; i <= seg; i++) {
-    const t = i / seg;
-    // normalised catenary droop: 0 at the ends, 1 at mid-span
-    const droop = (dcosh(1.5) - dcosh((t - 0.5) * 3)) / K;
-    pts.push(
-      new THREE.Vector3(
-        from[0] + (to[0] - from[0]) * t + (jitter ? (fbm3(i * 3.1, 1.2, 4.4, 2) - 0.5) * jitter : 0),
-        from[1] + (to[1] - from[1]) * t - sagAmt * droop,
-        from[2] + (to[2] - from[2]) * t + (jitter ? (fbm3(i * 2.7, 8.2, 1.4, 2) - 0.5) * jitter : 0)
-      )
-    );
-  }
-  const curve = new THREE.CatmullRomCurve3(pts);
-  const g = new THREE.TubeGeometry(curve, seg, radius, radial, false);
-  g.computeBoundingBox();
-  return g;
-}
 
 /**
  * A sack / sandbag.

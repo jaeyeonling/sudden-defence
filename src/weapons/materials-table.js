@@ -583,5 +583,3 @@ const SURFACES = {
 };
 
 export const WEAPON_MATERIALS = { ...SURFACES, ...HAND_MATERIALS };
-
-export const MATERIAL_KEYS = Object.keys(WEAPON_MATERIALS);

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import { dcos, dsin } from '../core/dmath.js';
+import { dsin } from '../core/dmath.js';
 import { clothGeometry } from './util-cloth.js';
-import { chamferBox, plainBox } from './util.js';
+import { plainBox } from './util.js';
 import { _e, _q, _p, _s, LL, BOX, BOX_FINE, BOX_SOFT, BOX_THIN, PANE } from './kit-base.js';
 
 /** Windows, doors and shopfronts — every hole in a facade and what fills it. */
@@ -394,71 +394,6 @@ export function mergeSimple(list) {
   return out;
 }
 
-// ===================================================================== door ==
-export function doorUnit(A, pm, o, rng, opts = {}) {
-  const t = opts.t ?? 0.34;
-  const w = o.w;
-  const h = o.h;
-  const x = o.x;
-  const y = o.y;
-  const box = BOX(A);
-  const frameKey = opts.frameKey ?? 'wood_dark';
-  // jamb + head casing standing slightly proud of the wall
-  A.add(frameKey, box, LL(pm, x - w / 2 - 0.03, y, 0.0, 0, 0.09, h + 0.1, t * 0.9), {
-    masks: [0.6, 0.4, 0.2],
-  });
-  A.add(frameKey, box, LL(pm, x + w / 2 + 0.03, y, 0.0, 0, 0.09, h + 0.1, t * 0.9), {
-    masks: [0.6, 0.4, 0.2],
-  });
-  A.add(frameKey, box, LL(pm, x, y + h / 2 + 0.06, 0.0, 0, w + 0.2, 0.11, t * 0.9), {
-    masks: [0.6, 0.45, 0.25],
-  });
-  // threshold
-  A.add('concrete', BOX_SOFT(A), LL(pm, x, y - h / 2 + 0.03, t * 0.5 - 0.02, 0, w + 0.1, 0.06, t), {
-    masks: [0.7, 0.5, 0.3],
-  });
-
-  if (opts.leaf !== false) {
-    const key = opts.leafKey ?? 'metal_green';
-    const ang = opts.open ?? 0;
-    const leafW = w - 0.06;
-    const leaf = A.cache(`doorleaf:${leafW.toFixed(2)}:${h.toFixed(2)}`, () =>
-      doorLeaf(leafW, h - 0.06)
-    );
-    // hinge at the left jamb: rotate about the hinge, not the centre
-    const hx = x - leafW / 2;
-    const cs = dcos(ang);
-    const sn = dsin(ang);
-    A.add(
-      key,
-      leaf,
-      LL(pm, hx + (leafW / 2) * cs, y, t * 0.45 + (leafW / 2) * sn, -ang, 1, 1, 1),
-      { masks: [0.95, 0.5, 0.1] }
-    );
-  }
-  return o;
-}
-
-function doorLeaf(w, h) {
-  const parts = [];
-  const add = (sx, sy, sz, x, y, z) => {
-    const g = chamferBox(sx, sy, sz, 0.006);
-    g.translate(x, y, z);
-    parts.push(g);
-  };
-  add(w, h, 0.05, 0, 0, 0);
-  // recessed panels framed by rails
-  add(w, 0.1, 0.062, 0, h / 2 - 0.07, 0);
-  add(w, 0.1, 0.062, 0, -h / 2 + 0.07, 0);
-  add(w, 0.12, 0.062, 0, h * 0.06, 0);
-  add(0.09, h, 0.062, -w / 2 + 0.05, 0, 0);
-  add(0.09, h, 0.062, w / 2 - 0.05, 0, 0);
-  // handle
-  add(0.035, 0.13, 0.035, w / 2 - 0.16, -0.02, 0.05);
-  const g = mergeSimple(parts);
-  for (const p of parts) p.dispose();
-  return g;
-}
 
 // =============================================================== shopfront ==
 /** Wide ground-floor opening with a roller shutter part-way down. */

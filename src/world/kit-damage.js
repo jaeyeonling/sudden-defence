@@ -1,8 +1,7 @@
 import * as THREE from 'three';
 import { dcos, dsin, hypot2 } from '../core/dmath.js';
 import { paintMasks } from './util-accum.js';
-import { fbm3 } from './util-noise.js';
-import { polyPrism, rockGeometry } from './util.js';
+import { rockGeometry } from './util.js';
 import { IDENT, LL } from './kit-base.js';
 
 // ================================================================== damage ==
@@ -88,29 +87,6 @@ export function pockGeometry(rng, r = 0.05) {
   return g;
 }
 
-/** A crumbled corner / spalled patch: exposes the substrate under the render. */
-export function spallPatch(rng, w, h, depth = 0.03) {
-  const g = polyPrism(
-    (() => {
-      const pts = [];
-      const n = 11;
-      for (let i = 0; i < n; i++) {
-        const t = (i / n) * Math.PI * 2;
-        const rr = 0.5 * (1 + (fbm3(dcos(t) * 2 + 9, dsin(t) * 2 + 3, 1.7, 2) - 0.5) * 0.9);
-        pts.push([dcos(t) * rr * w, dsin(t) * rr * h]);
-      }
-      return pts;
-    })(),
-    depth
-  );
-  g.rotateX(Math.PI / 2);
-  paintMasks(g, (x, y, z, nx, ny, nz, out) => {
-    out[0] = 0.3;
-    out[1] = 0.55 + 0.3 * (1 - Math.abs(nz));
-    out[2] = 0.5 * (1 - Math.abs(nz)) + 0.2;
-  });
-  return g;
-}
 
 /** Rubble mound: a low pile of masonry chunks and dust. */
 export function rubbleMound(A, rng, x, y, z, radius, count, opts = {}) {

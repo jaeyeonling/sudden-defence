@@ -1,4 +1,3 @@
-import { DEG } from './mathx.js';
 import { dsin } from '../core/dmath.js';
 
 /**
@@ -605,4 +604,3 @@ export const SPREAD_MODS = {
   airborne: 2.0,
 };
 
-export const DEG2RAD = DEG;

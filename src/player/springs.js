@@ -52,15 +52,6 @@ export function approach(current, target, tau, dt) {
   return target + (current - target) * dexp(-dt / tau);
 }
 
-/** Constant-rate move, for things that must not have an asymptotic tail. */
-export function moveToward(current, target, rate, dt) {
-  const d = target - current;
-  const step = rate * dt;
-  if (d > step) return current + step;
-  if (d < -step) return current - step;
-  return target;
-}
-
 /** Shortest signed angular difference, radians. */
 export function angleDelta(from, to) {
   let d = (to - from) % TAU;

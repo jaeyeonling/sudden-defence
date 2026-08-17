@@ -60,11 +60,6 @@ export function cone(out, rng, ax, ay, az, spread, power = 1) {
   return out;
 }
 
-/** Uniform direction on the hemisphere around a unit axis. */
-export function hemi(out, rng, ax, ay, az) {
-  return cone(out, rng, ax, ay, az, Math.PI * 0.5, 1);
-}
-
 /**
  * Force a direction into the hemisphere around an axis by mirroring whatever
  * component points the wrong way, keeping a minimum forward bias.

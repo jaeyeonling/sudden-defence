@@ -438,59 +438,6 @@ export function patchGeometry(rng, radius, opts = {}) {
   return g;
 }
 
-/**
- * A drift berm: a ridge of blown sand or swept rubble piled against a wall.
- *
- * Runs along local +X for `len`, `w` deep in Z with the TALL edge at z=0 (put
- * that edge against the wall) feathering to nothing at z=w. The crest wanders and
- * dips along its length and the toe is scalloped, so it never reads as an
- * extruded triangle. This is the single cheapest fix for the hard geometric line
- * where a wall meets the ground — the thing that otherwise looks like a
- * Z-fighting seam in every wide shot.
- */
-export function driftBerm(rng, len, w, h, opts = {}) {
-  const nx = Math.max(4, Math.round(len / 0.55));
-  const nz = opts.nz ?? 4;
-  const pos = [];
-  const nrm = [];
-  const uv = [];
-  const idx = [];
-  const seed = rng.float() * 30;
-  for (let i = 0; i <= nx; i++) {
-    const u = i / nx;
-    const x = (u - 0.5) * len;
-    // crest height wanders, and the ends taper into the ground
-    const taper = Math.min(1, Math.min(u, 1 - u) * 6);
-    const wob = 0.45 + fbm3(x * 0.7 + seed, 2.1, seed, 3) * 1.1;
-    const ch = h * wob * taper;
-    const cw = w * (0.6 + fbm3(x * 0.5 + seed + 7, 5.3, 1.9, 2) * 0.85);
-    for (let j = 0; j <= nz; j++) {
-      const v = j / nz;
-      // cosine section: steep at the wall, long feathered toe out into the road
-      const y = ch * dcos((v * Math.PI) / 2) ** 1.7;
-      const rip = fbm3(x * 2.3 + seed, v * 3.1, 8.4, 2) - 0.5;
-      pos.push(x, Math.max(0, y + rip * h * 0.22 * (1 - v)), v * cw);
-      nrm.push(0, 1, 0);
-      uv.push(x * 0.5, v * cw * 0.5);
-    }
-  }
-  const row = nz + 1;
-  for (let i = 0; i < nx; i++) {
-    for (let j = 0; j < nz; j++) {
-      const a = i * row + j;
-      idx.push(a, a + 1, a + row, a + 1, a + row + 1, a + row);
-    }
-  }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  g.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
-  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-  g.setIndex(idx);
-  g.computeVertexNormals();
-  g.computeBoundingBox();
-  g.computeBoundingSphere();
-  return g;
-}
 
 /** Noise-deformed rock / masonry chunk. */
 export function rockGeometry(rng, size = 0.3, detail = 1, squash = 0.7) {
@@ -512,10 +459,6 @@ export function rockGeometry(rng, size = 0.3, detail = 1, squash = 0.7) {
   return g;
 }
 
-
-export function disposeAll(list) {
-  for (const g of list) g?.dispose?.();
-}
 
 /** Bend a geometry's vertices around Y so long thin objects aren't perfect. */
 export function warpGeometry(geo, amp = 0.02, freq = 1.1, seed = 0) {

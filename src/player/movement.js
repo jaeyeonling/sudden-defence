@@ -20,8 +20,6 @@ import { STANCE, MOVE, GRAVITY, JUMP_SPEED, FOOTSTEP } from './tuning.js';
 import { clamp, clamp01 } from './springs.js';
 import { dcos, dsin, hypot2, hypot3 } from '../core/dmath.js';
 
-export const STATES = ['stand', 'crouch', 'jump', 'fall'];
-
 export class Movement {
   /**
    * Snapshot classification (netcode step 5).

@@ -108,7 +108,6 @@ export const ease = {
 export const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 export const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
 export const lerp = (a, b, t) => a + (b - a) * t;
-export const invLerp = (a, b, v) => clamp01((v - a) / (b - a || 1));
 export const smoothstep = (t) => t * t * (3 - 2 * t);
 
 /** Framerate-independent exponential approach. `rate` = 1/e per second. */
@@ -137,11 +136,6 @@ export function angleDelta(a, b) {
 
 export function pad2(n) {
   return n < 10 ? '0' + n : String(n);
-}
-
-/** 1834 -> "1.8k", 240 -> "240" */
-export function shortNum(n) {
-  return n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n | 0);
 }
 
 /** Distance readout: <10m one decimal, else integer. */

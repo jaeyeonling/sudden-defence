@@ -44,10 +44,6 @@ export function easeOutCubic(t) {
   return 1 - p * p * p;
 }
 
-export function easeInCubic(t) {
-  return t * t * t;
-}
-
 export function easeInOutSine(t) {
   return 0.5 - 0.5 * dcos(Math.PI * clamp01(t));
 }

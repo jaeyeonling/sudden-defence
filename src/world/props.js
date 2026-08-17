@@ -1,7 +1,5 @@
 import { pockGeometry } from './kit-damage.js';
-import { paintMasks } from './util-accum.js';
 import { rockGeometry } from './util.js';
-import { PB } from './props-base.js';
 import { barrel, bucket, cardboardBox, concreteBlock, crate, gasBottle, jerryCan, jerseyBarrier, sandbag } from './props-containers.js';
 import { bottle, brickChunk, can, dustSkirt, litterPaper, plank, rebarBundle, slabShard } from './props-debris.js';
 import { palmFrond, palmTree, planter, shrub, signBoard, signHanging, weedTuft } from './props-flora.js';
@@ -11,58 +9,8 @@ import { acUnit, cabinet, chair, lampGlass, mattress, pallet, roofVent, satDish,
 /**
  * The prop registry. The builders moved out by category — `props-containers`,
  * `-furniture`, `-debris`, `-flora`, over the vocabulary in `props-base` — and
- * this file is what names them and what a burnt car is made of.
+ * this file is what names them.
  */
-
-
-// ================================================================ vehicles ==
-/**
- * A burnt-out saloon. Built as one merged geometry per material group and
- * returned so the caller can place one or two — silhouette first: sagging roof,
- * blown glass, missing wheels, doors hanging.
- */
-export function burntCar(_rng) {
-  const body = new PB();
-  const L = 4.35;
-  const W = 1.78;
-  // main body tub
-  body.box(W, 0.5, L, 0, 0.62, 0, { bevel: 0.05, grime: 0.5 });
-  body.box(W * 0.99, 0.34, L * 0.62, 0, 0.95, -0.15, { bevel: 0.06, grime: 0.5 });
-  // bonnet + boot
-  body.box(W * 0.94, 0.13, L * 0.3, 0, 0.94, L * 0.33, { bevel: 0.03, rx: 0.06, wear: 1 });
-  body.box(W * 0.94, 0.13, L * 0.22, 0, 0.95, -L * 0.38, { bevel: 0.03, rx: -0.08, wear: 1 });
-  // cabin: A/B/C pillars and a sagging roof
-  const rh = 1.42;
-  for (const sx of [-1, 1]) {
-    body.box(0.09, 0.55, 0.1, sx * (W / 2 - 0.08), 1.2, L * 0.14, { rx: 0.35, grime: 0.4 });
-    body.box(0.09, 0.5, 0.1, sx * (W / 2 - 0.08), 1.22, -L * 0.02, { grime: 0.4 });
-    body.box(0.11, 0.52, 0.12, sx * (W / 2 - 0.08), 1.2, -L * 0.2, { rx: -0.3, grime: 0.4 });
-    // sills and door skins
-    body.box(0.07, 0.42, L * 0.42, sx * (W / 2 - 0.03), 0.68, 0.05, { bevel: 0.02, wear: 1, grime: 0.5 });
-  }
-  body.box(W * 0.86, 0.07, L * 0.36, 0, rh - 0.04, -L * 0.04, { bevel: 0.04, wear: 1, grime: 0.6 });
-  // wheel arches
-  for (const sx of [-1, 1])
-    for (const sz of [-1, 1]) {
-      body.cyl(0.42, 0.1, sx * (W / 2 - 0.04), 0.5, sz * L * 0.31, {
-        radial: 12,
-        rz: Math.PI / 2,
-        open: true,
-        grime: 0.5,
-      });
-    }
-  // bumpers
-  body.box(W * 0.98, 0.22, 0.16, 0, 0.5, L / 2 - 0.05, { bevel: 0.03, wear: 1, grime: 0.5 });
-  body.box(W * 0.98, 0.22, 0.16, 0, 0.5, -L / 2 + 0.05, { bevel: 0.03, wear: 1, grime: 0.5, rz: 0.05 });
-  const g = body.build();
-  paintMasks(g, (x, y, z, nx, ny, nz, out) => {
-    // soot: heaviest around the cabin and upward faces
-    const soot = 0.45 + 0.5 * Math.max(0, ny) + 0.3 * Math.max(0, 1 - Math.abs(z) / 1.6);
-    out[1] = Math.min(1, out[1] + soot * 0.8);
-    out[0] = Math.min(1, out[0] * 0.8);
-  });
-  return g;
-}
 
 // =============================================================== registry ==
 /**

@@ -45,16 +45,12 @@
  *   --draws     which draw inside it          (--passes said "the 6th world pass")
  *   --visdiff   what became visible that frame (a new draw has to come from somewhere)
  */
-import { chromium } from 'playwright';
 import { resolve } from 'node:path';
 import { readFile } from 'node:fs/promises';
-import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import net from 'node:net';
+import { parseArgs, portOpen, ensureServer, killServer, launchChromium } from './harness.mjs';
 
-const args = Object.fromEntries(process.argv.slice(2).map((a) => {
-  const m = a.match(/^--([^=]+)(?:=(.*))?$/); return m ? [m[1], m[2] ?? true] : [a, true];
-}));
+const args = parseArgs();
 
 const PORT = Number(args.port ?? 8080);
 const W = Number(args.w ?? 1512);
@@ -72,34 +68,15 @@ const FRAMES = Number(args.frames ?? 900);
  */
 const STALL_MS = Number(args.stallms ?? 50);
 
-const portOpen = (port) =>
-  new Promise((res) => {
-    const s = net.connect({ port, host: '127.0.0.1' }, () => (s.destroy(), res(true)));
-    s.on('error', () => res(false));
-    s.setTimeout(400, () => (s.destroy(), res(false)));
-  });
-
-let server = null;
-if (!(await portOpen(PORT))) {
-  // `dist/` has to exist first, and saying so beats letting the preview server
-  // come up empty and the page fail on a missing bundle 90 seconds later.
-  if (!existsSync(resolve('dist/index.html'))) {
-    console.error('PROFILE FAILED — no dist/index.html. Run `npm run build` first.');
-    process.exit(1);
-  }
-  server = spawn('npx', ['vite', 'preview', '--port', String(PORT)],
-    { stdio: 'ignore', detached: true });
-  for (let i = 0; i < 80 && !(await portOpen(PORT)); i++) {
-    await new Promise((r) => setTimeout(r, 250));
-  }
-  if (!(await portOpen(PORT))) {
-    console.error(`PROFILE FAILED — vite preview never opened port ${PORT}.`);
-    try { process.kill(-server.pid); } catch { /* already gone */ }
-    process.exit(1);
-  }
+// `dist/` has to exist first, and saying so beats letting the preview server
+// come up empty and the page fail on a missing bundle 90 seconds later.
+if (!(await portOpen(PORT)) && !existsSync(resolve('dist/index.html'))) {
+  console.error('PROFILE FAILED — no dist/index.html. Run `npm run build` first.');
+  process.exit(1);
 }
+const server = await ensureServer(PORT, { preview: true, name: 'PROFILE' });
 
-const browser = await chromium.launch({
+const browser = await launchChromium({
   headless: true,
   args: ['--use-angle=metal', '--ignore-gpu-blocklist', '--mute-audio',
          '--disable-frame-rate-limit', '--disable-gpu-vsync'],
@@ -858,7 +835,7 @@ console.log(JSON.stringify({
 await browser.close();
 // Only ours. A preview server that was already up on this port belongs to
 // whoever started it, and killing it would be a surprise to them.
-if (server) { try { process.kill(-server.pid); } catch { /* already gone */ } }
+killServer(server);
 
 /* ------------------------------------------------------------------ gate */
 

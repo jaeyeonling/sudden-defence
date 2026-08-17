@@ -20,10 +20,9 @@
 import { PNG } from 'pngjs';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { parseArgs } from './harness.mjs';
 
-const args = Object.fromEntries(process.argv.slice(2).map((a) => {
-  const m = a.match(/^--([^=]+)(?:=(.*))?$/); return m ? [m[1], m[2] ?? true] : [a, true];
-}));
+const args = parseArgs();
 
 const X = Number(args.x ?? 0);
 const Y = Number(args.y ?? 0);

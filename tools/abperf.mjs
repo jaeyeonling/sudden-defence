@@ -33,15 +33,11 @@
  *   node tools/abperf.mjs --a= --b=warmhidden=1
  *   node tools/abperf.mjs --a= --b=warmhidden=1 --pairs=6 --frames=600
  */
-import { chromium } from 'playwright';
 import { resolve } from 'node:path';
-import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import net from 'node:net';
+import { parseArgs, portOpen, ensureServer, killServer, launchChromium } from './harness.mjs';
 
-const args = Object.fromEntries(process.argv.slice(2).map((a) => {
-  const m = a.match(/^--([^=]+)(?:=(.*))?$/); return m ? [m[1], m[2] ?? true] : [a, true];
-}));
+const args = parseArgs();
 
 const PORT = Number(args.port ?? 8080);
 const W = Number(args.w ?? 1512);
@@ -53,27 +49,13 @@ const PAIRS = Number(args.pairs ?? 5);
 const QA = args.a === true ? '' : String(args.a ?? '');
 const QB = args.b === true ? '' : String(args.b ?? '');
 
-const portOpen = (port) =>
-  new Promise((res) => {
-    const s = net.connect({ port, host: '127.0.0.1' }, () => (s.destroy(), res(true)));
-    s.on('error', () => res(false));
-    s.setTimeout(400, () => (s.destroy(), res(false)));
-  });
-
-let server = null;
-if (!(await portOpen(PORT))) {
-  if (!existsSync(resolve('dist/index.html'))) {
-    console.error('ABPERF FAILED — no dist/index.html. Run `npm run build` first.');
-    process.exit(1);
-  }
-  server = spawn('npx', ['vite', 'preview', '--port', String(PORT)],
-    { stdio: 'ignore', detached: true });
-  for (let i = 0; i < 80 && !(await portOpen(PORT)); i++) {
-    await new Promise((r) => setTimeout(r, 250));
-  }
+if (!(await portOpen(PORT)) && !existsSync(resolve('dist/index.html'))) {
+  console.error('ABPERF FAILED — no dist/index.html. Run `npm run build` first.');
+  process.exit(1);
 }
+const server = await ensureServer(PORT, { preview: true, name: 'ABPERF' });
 
-const browser = await chromium.launch({
+const browser = await launchChromium({
   headless: true,
   args: ['--use-angle=metal', '--ignore-gpu-blocklist', '--mute-audio',
          '--disable-frame-rate-limit', '--disable-gpu-vsync'],
@@ -160,4 +142,4 @@ if (agree < PAIRS - 1 || Math.abs(medDiff) < 1) {
 }
 
 await browser.close();
-if (server) { try { process.kill(-server.pid); } catch { /* already gone */ } }
+killServer(server);

@@ -32,33 +32,14 @@
  * throwing one reaches the world (a count that decrements and spawns nothing is
  * the failure that looks fine on the HUD), and that the reset reissues them.
  */
-import { chromium } from 'playwright';
-import { spawn } from 'node:child_process';
-import net from 'node:net';
+import { parseArgs, ensureServer, killServer, launchChromium } from './harness.mjs';
 
-const args = Object.fromEntries(process.argv.slice(2).map((a) => {
-  const m = a.match(/^--([^=]+)(?:=(.*))?$/);
-  return m ? [m[1], m[2] ?? true] : [a, true];
-}));
+const args = parseArgs();
 const PORT = Number(args.port ?? 5173);
 
-const portOpen = (port) => new Promise((res) => {
-  const s = net.connect({ port, host: '127.0.0.1' }, () => (s.destroy(), res(true)));
-  s.on('error', () => res(false));
-  s.setTimeout(400, () => (s.destroy(), res(false)));
-});
+const vite = await ensureServer(PORT, { name: 'ROUNDRESET' });
 
-let vite = null;
-if (!(await portOpen(PORT))) {
-  vite = spawn('npx', ['vite', '--port', String(PORT)], {
-    stdio: 'ignore', detached: true, env: { ...process.env, OW_NO_HMR: '1' },
-  });
-  for (let i = 0; i < 80 && !(await portOpen(PORT)); i++) {
-    await new Promise((r) => setTimeout(r, 250));
-  }
-}
-
-const browser = await chromium.launch({
+const browser = await launchChromium({
   args: ['--use-gl=angle', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
 });
 const page = await browser.newPage({ viewport: { width: 640, height: 480 } });
@@ -127,13 +108,7 @@ const out = await page.evaluate(async () => {
 });
 
 await browser.close();
-if (vite) {
-  try {
-    process.kill(-vite.pid);
-  } catch {
-    /* already gone */
-  }
-}
+killServer(vite);
 
 const fail = [];
 const { full, fired, thrown, spent, spentAgain, spentNades, afterReset } = out;

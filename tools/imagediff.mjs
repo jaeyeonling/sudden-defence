@@ -13,10 +13,9 @@
 import { PNG } from 'pngjs';
 import { readFileSync, writeFileSync, readdirSync, existsSync } from 'node:fs';
 import { resolve, join } from 'node:path';
+import { parseArgs } from './harness.mjs';
 
-const args = Object.fromEntries(process.argv.slice(2).map((a) => {
-  const m = a.match(/^--([^=]+)(?:=(.*))?$/); return m ? [m[1], m[2] ?? true] : [a, true];
-}));
+const args = parseArgs();
 const A = resolve(args.a), B = resolve(args.b);
 const TOL = Number(args.tol ?? 0);
 

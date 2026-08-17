@@ -26,16 +26,9 @@
  *   node tools/converge.mjs
  *   node tools/converge.mjs --budget=45 --trials=3
  */
-import { chromium } from 'playwright';
-import { spawn } from 'node:child_process';
-import net from 'node:net';
+import { parseArgs, ensureServer, killServer, launchChromium } from './harness.mjs';
 
-const args = Object.fromEntries(
-  process.argv.slice(2).map((a) => {
-    const m = a.match(/^--([^=]+)(?:=(.*))?$/);
-    return m ? [m[1], m[2] ?? true] : [a, true];
-  })
-);
+const args = parseArgs();
 const PORT = Number(args.port ?? 5173);
 /** Override for every pair's own budget. Unset uses the per-pair value below. */
 const BUDGET = args.budget ? Number(args.budget) : null;
@@ -94,42 +87,9 @@ const PAIRS = [
   { name: 'cold-mid', a: [1.4, 2.6], b: [10, 11.8], stale: null, budget: 90 },
 ];
 
-const portOpen = (port) =>
-  new Promise((res) => {
-    const s = net.connect({ port, host: '127.0.0.1' }, () => (s.destroy(), res(true)));
-    s.on('error', () => res(false));
-    s.setTimeout(400, () => (s.destroy(), res(false)));
-  });
+const vite = await ensureServer(PORT, { name: 'CONVERGE' });
 
-let vite = null;
-if (!(await portOpen(PORT))) {
-  // `OW_NO_HMR=1`: the server this harness owns must not hot-reload.
-  //
-  // `vite.config.js` has carried the guard and the explanation since the capture
-  // harness needed it — a file saved while a run is in flight reloads the page
-  // and playwright fails the in-flight `page.evaluate` with "Execution context
-  // was destroyed" — and `tools/capture.mjs` was the only tool that set it. Every
-  // tool here spawns the same server for the same reason, and in `npm test` the
-  // one that wins the race owns it for the whole chain, so the guard has to be on
-  // all of them or it is on none of the ones that matter. Cost when nothing is
-  // being edited: nothing.
-  vite = spawn('npx', ['vite', '--port', String(PORT)], {
-    stdio: 'ignore',
-    detached: true,
-    env: { ...process.env, OW_NO_HMR: '1' },
-  });
-  for (let i = 0; i < 80 && !(await portOpen(PORT)); i++) {
-    await new Promise((r) => setTimeout(r, 250));
-  }
-  // Fail here, with a name — not 90 s later as an opaque page.goto timeout.
-  if (!(await portOpen(PORT))) {
-    console.error(`CONVERGE FAILED — vite did not come up on :${PORT}`);
-    try { process.kill(-vite.pid); } catch { /* already gone */ }
-    process.exit(1);
-  }
-}
-
-const browser = await chromium.launch({
+const browser = await launchChromium({
   args: ['--use-gl=angle', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
 });
 const page = await browser.newPage({ viewport: { width: 640, height: 480 } });
@@ -184,13 +144,7 @@ const setup = await page.evaluate(() => {
 if (!setup.ok) {
   console.error(`setup failed: ${setup.why}`);
   await browser.close();
-  if (vite) {
-    try {
-      process.kill(-vite.pid);
-    } catch {
-      /* already gone */
-    }
-  }
+  killServer(vite);
   process.exit(2);
 }
 
@@ -382,13 +336,7 @@ if (slow && degraded.length) {
     `attributed to the AI at this rate. Re-run on an idle machine.`
   );
   await browser.close();
-  if (vite) {
-    try {
-      process.kill(-vite.pid);
-    } catch {
-      /* already gone */
-    }
-  }
+  killServer(vite);
   process.exit(1);
 }
 console.log(
@@ -399,11 +347,5 @@ console.log(
 );
 
 await browser.close();
-if (vite) {
-  try {
-    process.kill(-vite.pid);
-  } catch {
-    /* already gone */
-  }
-}
+killServer(vite);
 process.exit(fail.length === 0 ? 0 : 1);

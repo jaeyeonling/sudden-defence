@@ -18,35 +18,19 @@
  * If you want the picture rather than the numbers, that is `tools/capture.mjs`
  * for one shot or `tools/baseline.mjs` for the comparable set.
  */
-import { chromium } from 'playwright';
-import { spawn } from 'node:child_process';
-import net from 'node:net';
+import { parseArgs, ensureServer, killServer, launchChromium } from './harness.mjs';
 
-const portOpen = (p) => new Promise((r) => {
-  const s = net.connect({ port: p, host: '127.0.0.1' }, () => (s.destroy(), r(true)));
-  s.on('error', () => r(false)); s.setTimeout(400, () => (s.destroy(), r(false)));
-});
+const args = parseArgs();
+const PORT = Number(args.port ?? 5173);
 
-let vite;
-if (!(await portOpen(5173))) {
-  vite = spawn('npx', ['vite', '--port', '5173'], {
-    stdio: 'ignore', detached: true, env: { ...process.env, OW_NO_HMR: '1' },
-  });
-  for (let i = 0; i < 60 && !(await portOpen(5173)); i++) await new Promise(r => setTimeout(r, 250));
-  // Fail here, with a name — not later as an opaque page.goto timeout.
-  if (!(await portOpen(5173))) {
-    console.error('CONTRACT FAILED — vite did not come up on :5173');
-    try { process.kill(-vite.pid); } catch { /* already gone */ }
-    process.exit(1);
-  }
-}
+const vite = await ensureServer(PORT, { tries: 60, name: 'CONTRACT' });
 
-const browser = await chromium.launch({ args: ['--use-gl=angle', '--enable-unsafe-swiftshader'] });
+const browser = await launchChromium();
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
 const logs = [];
 page.on('console', (m) => logs.push(`[${m.type()}] ${m.text()}`));
 page.on('pageerror', (e) => logs.push(`[pageerror] ${e.message}`));
-await page.goto('http://127.0.0.1:5173/', { waitUntil: 'load' });
+await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'load' });
 await page.waitForFunction('window.__READY__ === true', null, { timeout: 90000 });
 
 const state = await page.evaluate(() => {
@@ -75,11 +59,5 @@ console.log(JSON.stringify(state, null, 2));
 console.log('--- logs ---');
 console.log(logs.filter(l => /render|world|physics|error|warn/i.test(l)).join('\n'));
 await browser.close();
-if (vite) {
-  try {
-    process.kill(-vite.pid);
-  } catch {
-    /* already gone */
-  }
-}
+killServer(vite);
 process.exit(0);

@@ -301,16 +301,10 @@
  *                              [--seed=N]  which world every engine builds
  *                              [--rows=12] [--port=5173] [--ignore=a.b,c.d]
  */
+import { parseArgs, ensureServer, killServer } from './harness.mjs';
 import { chromium, firefox, webkit } from 'playwright';
-import { spawn } from 'node:child_process';
-import net from 'node:net';
 
-const args = Object.fromEntries(
-  process.argv.slice(2).map((a) => {
-    const m = a.match(/^--([^=]+)(?:=(.*))?$/);
-    return m ? [m[1], m[2] ?? true] : [a, true];
-  })
-);
+const args = parseArgs();
 const PORT = Number(args.port ?? 5173);
 const TICKS = Number(args.ticks ?? 240);
 const ROWS = Number(args.rows ?? 12);
@@ -333,30 +327,7 @@ if (ENGINES.length < 2) {
   process.exit(1);
 }
 
-const portOpen = (port) =>
-  new Promise((res) => {
-    const s = net.connect({ port, host: '127.0.0.1' }, () => (s.destroy(), res(true)));
-    s.on('error', () => res(false));
-    s.setTimeout(400, () => (s.destroy(), res(false)));
-  });
-
-let vite = null;
-if (!(await portOpen(PORT))) {
-  vite = spawn('npx', ['vite', '--port', String(PORT)], {
-    stdio: 'ignore',
-    detached: true,
-    env: { ...process.env, OW_NO_HMR: '1' },
-  });
-  for (let i = 0; i < 80 && !(await portOpen(PORT)); i++) {
-    await new Promise((r) => setTimeout(r, 250));
-  }
-  // Fail here, with a name — not later as an opaque page.goto timeout.
-  if (!(await portOpen(PORT))) {
-    console.error(`CROSSENGINE FAILED — vite did not come up on :${PORT}`);
-    try { process.kill(-vite.pid); } catch { /* already gone */ }
-    process.exit(1);
-  }
-}
+const vite = await ensureServer(PORT, { name: 'CROSSENGINE' });
 
 /**
  * Runs inside the page.
@@ -896,7 +867,7 @@ for (const label of PLAN) {
   results.push({ name: label, engine: name, out, errors });
 }
 
-if (vite && !args.keep) try { process.kill(-vite.pid); } catch { /* already gone */ }
+if (!args.keep) killServer(vite);
 
 /* ====================================================================== */
 /*  Report                                                                */

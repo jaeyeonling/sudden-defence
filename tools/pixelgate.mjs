@@ -61,11 +61,9 @@ import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync, existsSync, readdirSync, rmSync } from 'node:fs';
 import { resolve, join } from 'node:path';
+import { parseArgs } from './harness.mjs';
 
-const args = Object.fromEntries(process.argv.slice(2).map((a) => {
-  const m = a.match(/^--([^=]+)(?:=(.*))?$/);
-  return m ? [m[1], m[2] ?? true] : [a, true];
-}));
+const args = parseArgs();
 
 const ROOT = resolve(import.meta.dirname, '..');
 const MANIFEST = join(ROOT, 'tools/pixelgate.json');

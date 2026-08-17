@@ -131,6 +131,8 @@ export class Agent {
     // presentation. `lodIrrelevant` stays: it only gates shadows now.
     'bones', 'skeleton', 'mesh', 'group', 'skinnedMesh',
     'lodIrrelevant',
+    // diagnostic latch for ai/index.js debugLog; reset() clears it per death
+    '_loggedDoll',
     // tuning, constant for the life of the agent
     'mass', 'height', 'radius', 'maxHealth', 'eyeHeight', 'viewRange', 'viewCos',
     'weaponRange', 'fireRate', 'magSize', 'weaponDamage', 'patrolPoints',

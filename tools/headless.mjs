@@ -48,11 +48,9 @@ import { MaterialSystem } from '../src/materials/index.js';
 import { WorldSystem } from '../src/world/index.js';
 import { MatchSystem } from '../src/match/index.js';
 import { AiSystem } from '../src/ai/index.js';
+import { parseArgs } from './harness.mjs';
 
-const args = Object.fromEntries(process.argv.slice(2).map((a) => {
-  const m = a.match(/^--([^=]+)(?:=(.*))?$/);
-  return m ? [m[1], m[2] ?? true] : [a, true];
-}));
+const args = parseArgs();
 const TICKS = Number(args.ticks ?? 600);
 
 const notes = [];

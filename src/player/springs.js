@@ -164,18 +164,43 @@ export class Spring {
 }
 
 /**
- * Two-layer response: a fast under-damped spring plus a slow exponential
- * residual. Real weapon/camera recoil rises instantly, snaps most of the way
- * back, then settles — a single spring can only do two of those three.
+ * Three-layer response: a fast under-damped spring, a slow exponential
+ * residual, and a CLIMB that holds while you keep firing.
+ *
+ * The first two were here from the start and they make one shot feel right:
+ * recoil rises instantly, snaps most of the way back, then settles — a single
+ * spring can only do two of those three.
+ *
+ * The third exists because the first two cannot make a SPRAY feel like
+ * anything. Both recover continuously, so at 800 rpm each shot arrives into a
+ * channel that has already given most of the last one back, and the sum reaches
+ * equilibrium after about three rounds. Measured (`tools/kick.mjs`): the M4A1
+ * peaked at 1.18 degrees of view climb over ten rounds — and at 1.18 degrees
+ * over twenty-eight. The magazine did not exist as a shape.
+ *
+ * Meanwhile `defs.js` described a "hard vertical for the first five rounds",
+ * a spray "you are meant to let go" of, and `ballistics` reported 15.4 degrees
+ * of climb for the same weapon — because it sums the pattern ARRAY, which is
+ * the impulses fired into this object, not what this object did with them. The
+ * design, the documentation and the gate all agreed with each other about a
+ * pattern that the player was never subject to.
+ *
+ * `climb` takes its share of every kick and does not decay at all until
+ * `climbDelay` has passed with no new one. Set that longer than the fastest
+ * cyclic interval in the game and holding the trigger accumulates, releasing it
+ * recovers — which is the whole pull-down mechanic, and the reason a spray can
+ * be learned rather than merely endured.
  */
 export class RecoilAxis {
-  /** Snapshot classification. `residualTau`/`residualShare` are tuning. */
-  static snapshotState = ['spring', 'residual', 'value'];
-  static excludedState = ['residualTau', 'residualShare'];
+  /** Snapshot classification. The `*Share`/`*Tau` fields are tuning. */
+  static snapshotState = ['spring', 'residual', 'climb', 'sinceKick', 'value'];
+  static excludedState = ['residualTau', 'residualShare', 'climbTau', 'climbShare', 'climbDelay'];
 
   captureState(out = {}) {
     out.spring = this.spring.captureState(out.spring);
     out.residual = this.residual;
+    out.climb = this.climb;
+    out.sinceKick = this.sinceKick;
     out.value = this.value;
     return out;
   }
@@ -183,34 +208,61 @@ export class RecoilAxis {
   restoreState(s) {
     this.spring.restoreState(s.spring);
     this.residual = s.residual;
+    this.climb = s.climb;
+    this.sinceKick = s.sinceKick;
     this.value = s.value;
   }
 
-  constructor(freq = 9.5, damping = 0.52, residualTau = 0.3, residualShare = 0.34) {
+  constructor(freq = 9.5, damping = 0.52, residualTau = 0.3, residualShare = 0.34, climb = null) {
     this.spring = new Spring(freq, damping, 0);
     this.residual = 0;
     this.residualTau = residualTau;
     this.residualShare = residualShare;
+    // Absent climb tuning means "no climb", so every existing axis — the roll
+    // channels, the unused kick channels — keeps its two-layer behaviour.
+    this.climb = 0;
+    this.climbShare = climb?.share ?? 0;
+    this.climbTau = climb?.tau ?? 0.3;
+    this.climbDelay = climb?.delay ?? 0.1;
+    this.sinceKick = 1e3;
     this.value = 0;
   }
 
   reset() {
     this.spring.reset(0);
     this.residual = 0;
+    this.climb = 0;
+    this.sinceKick = 1e3;
     this.value = 0;
   }
 
-  /** `amount` is an angle in radians (or metres for a positional axis). */
-  kick(amount) {
+  /**
+   * `amount` is an angle in radians (or metres for a positional axis).
+   *
+   * `share` overrides how much of it is held. Landing, damage and the jump kick
+   * all arrive through the same axis and pass 0: they are one-off disturbances,
+   * and a landing that left two degrees of permanent climb would be a recoil
+   * pattern you paid for by walking off a crate.
+   */
+  kick(amount, share = this.climbShare) {
+    const held = amount * share;
+    const transient = amount - held;
     // A displacement kick reads snappier than a velocity kick for recoil.
-    this.spring.value += amount * (1 - this.residualShare);
-    this.residual += amount * this.residualShare;
+    this.spring.value += transient * (1 - this.residualShare);
+    this.residual += transient * this.residualShare;
+    this.climb += held;
+    this.sinceKick = 0;
   }
 
   step(dt) {
     this.spring.step(dt);
     this.residual = approach(this.residual, 0, this.residualTau, dt);
-    this.value = this.spring.value + this.residual;
+    this.sinceKick += dt;
+    // Held, not decaying, until the trigger has actually been off for a moment.
+    if (this.sinceKick >= this.climbDelay) {
+      this.climb = approach(this.climb, 0, this.climbTau, dt);
+    }
+    this.value = this.spring.value + this.residual + this.climb;
     return this.value;
   }
 }

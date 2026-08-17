@@ -662,7 +662,9 @@ export class WeaponSystem {
     const p = this.player;
     if (p?.addRecoil) {
       // The camera climb is the learnable part; the viewmodel kick is the feel.
-      p.addRecoil(pitch, yaw, def.recoil.roll * 0.35, def.recoil.punch);
+      // `held` is what makes the first true: it routes this shot's share into
+      // the channel that does not give itself back while the trigger is down.
+      p.addRecoil(pitch, yaw, def.recoil.roll * 0.35, def.recoil.punch, true);
     }
     this._spread = Math.min(def.spreadMax, this._spread + def.spreadPerShot);
     // `+=`, NOT `=`. See `_advanceFireTimer` — the overshoot this carries is the
@@ -804,6 +806,16 @@ export class WeaponSystem {
     // first frame the player sees. These are the same resets `debugPose` uses to
     // put the viewmodel into a settled pose for a capture — an existing, tested
     // path, rather than a `resetSprings?.()` that would silently no-op.
+    //
+    // The camera half was named in that comment and then not done, which stayed
+    // invisible for as long as a camera kick was a transient that unwound in
+    // 0.6 s behind a loading screen. It stopped being invisible the moment the
+    // channel could HOLD: three warm rounds left a permanent climb on the aim,
+    // and every shot in the pixel gate moved — 141,508 pixels of `lane`, the
+    // whole frame, because the player was now looking slightly higher than the
+    // pose asked for. The prewarm's own contract is that everything the rounds
+    // leave behind is put back; this is the line that makes it true.
+    p?.resetRecoil?.();
     const vm = this.viewmodel;
     if (vm) {
       vm.recPos.reset();

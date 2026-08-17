@@ -49,6 +49,7 @@
     "tool:contract": "node tools/contract.mjs",
     "tool:cropcmp": "node tools/cropcmp.mjs",
     "tool:imagediff": "node tools/imagediff.mjs",
+    "tool:kick": "node tools/kick.mjs",
     "tool:observe": "node tools/observe.mjs",
     "tool:sight": "node tools/sight.mjs",
     "tool:zoom": "node tools/zoom.mjs",

@@ -680,11 +680,15 @@ export class PlayerSystem {
     return this.rig.bobPhase;
   }
 
-  addRecoil(pitch, yaw, roll, punch) {
-    this.rig.addRecoil(pitch, yaw, roll, punch);
+  addRecoil(pitch, yaw, roll, punch, held = false) {
+    this.rig.addRecoil(pitch, yaw, roll, punch, held);
   }
   addKick(pitch, yaw, roll) {
     this.rig.addKick(pitch, yaw, roll);
+  }
+  /** Empty the recoil springs, leaving stance and aim alone. See CameraRig. */
+  resetRecoil() {
+    this.rig.resetRecoil();
   }
   addTrauma(a) {
     this.rig.addTrauma(a);

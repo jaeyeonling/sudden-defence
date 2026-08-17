@@ -147,14 +147,26 @@ export const WEAPON_DEFS = {
     spreadPerShot: 0.3,
     spreadMax: 1.6,
     spreadDecay: 3.4,
-    /* --- recoil --- */
+    /* --- recoil ---
+     *
+     * `kickBack` / `kickUp` / `roll` / `punch` are all x1.37 from where they
+     * sat, on all three weapons. Those four are the FELT half — the viewmodel
+     * travel and the positional shove — and none of them touches a bullet, so
+     * the change is free of the balance table below.
+     *
+     * They were raised because the aim half had been carrying the whole job and
+     * was not doing it: `CAMERA.recoil.climbShare` now makes the pattern
+     * actually accumulate, and once a spray had a shape, the gun in the hands
+     * was visibly the quietest thing in the frame. `tools/kick.mjs` measures
+     * both, so the split is legible: the M4A1 went 2.07 -> 2.79 cm of punch and
+     * 1.04 -> 1.25 cm of viewmodel travel, with the pattern untouched. */
     recoil: {
       pitch: 0.0085, // radians of camera climb per shot
       yaw: 0.0022,
-      kickBack: 0.019, // metres the viewmodel travels rearward
-      kickUp: 0.0072,
-      roll: 0.032,
-      punch: 0.35,
+      kickBack: 0.026, // metres the viewmodel travels rearward
+      kickUp: 0.0098,
+      roll: 0.04,
+      punch: 0.47,
       freq: 8.5,
       damping: 0.42,
       patternLength: 30,
@@ -351,10 +363,10 @@ export const WEAPON_DEFS = {
        * horizontal in the game — see `drift` below. */
       pitch: 0.0044,
       yaw: 0.0026,
-      kickBack: 0.0135,
-      kickUp: 0.0052,
-      roll: 0.026,
-      punch: 0.24,
+      kickBack: 0.018,
+      kickUp: 0.007,
+      roll: 0.033,
+      punch: 0.32,
       freq: 10.5,
       damping: 0.4,
       patternLength: 32,
@@ -448,13 +460,19 @@ export const WEAPON_DEFS = {
        * and 0.25 on its softest. This is the whole punishment model for a
        * semi-automatic: there is no spray to learn, so the cost of mashing has
        * to be paid per shot, and the reward for waiting is that the spring has
-       * cleared it by the time a deliberate second shot goes. */
+       * cleared it by the time a deliberate second shot goes.
+       *
+       * "Cleared it" got more expensive when the climb channel landed: a tap
+       * takes 1.1 s to fall under a tenth of its peak, against 0.6 s before.
+       * That is the right direction for this weapon — it is the one gun whose
+       * entire skill expression is waiting — but it is a real handling change
+       * and it is why `climbTau` is 0.22 and not the 0.33 first tried. */
       pitch: 0.0158,
       yaw: 0.0032,
-      kickBack: 0.012,
-      kickUp: 0.0105,
-      roll: 0.018,
-      punch: 0.3,
+      kickBack: 0.016,
+      kickUp: 0.0142,
+      roll: 0.023,
+      punch: 0.41,
       freq: 9.0,
       damping: 0.45,
       patternLength: 17,

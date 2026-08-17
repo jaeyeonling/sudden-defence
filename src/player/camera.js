@@ -135,8 +135,15 @@ export class CameraRig {
     // ---- springs ---------------------------------------------------------
     this.dip = new Spring(C.land.freq, C.land.damping, 0); // landing
     this.step = new Spring(C.step.freq, C.step.damping, 0); // footfall
-    this.recoilPitch = new RecoilAxis(C.recoil.freq, C.recoil.damping, C.recoil.residualTau, C.recoil.residualShare);
-    this.recoilYaw = new RecoilAxis(C.recoil.freq * 1.08, C.recoil.damping + 0.06, C.recoil.residualTau, C.recoil.residualShare);
+    // Climb on the two axes that steer a round, and only those. Roll gets none
+    // for the reason it is excluded from the aim at all: a rotation about the
+    // view axis leaves `forward` alone, so a held roll would be a permanent
+    // tilt bought for nothing.
+    const climb = {
+      share: C.recoil.climbShare, tau: C.recoil.climbTau, delay: C.recoil.climbDelay,
+    };
+    this.recoilPitch = new RecoilAxis(C.recoil.freq, C.recoil.damping, C.recoil.residualTau, C.recoil.residualShare, climb);
+    this.recoilYaw = new RecoilAxis(C.recoil.freq * 1.08, C.recoil.damping + 0.06, C.recoil.residualTau, C.recoil.residualShare, climb);
     this.recoilRoll = new RecoilAxis(C.recoil.freq * 0.86, C.recoil.damping + 0.1, C.recoil.residualTau, 0.24);
     this.punch = new Spring(C.recoil.punchFreq, C.recoil.punchDamping, 0);
     /**
@@ -213,12 +220,35 @@ export class CameraRig {
   /* impulses — the public feel API                                       */
   /* ==================================================================== */
 
-  /** Camera-owned recoil. Angles in radians; `punch` in metres. */
-  addRecoil(pitch = 0, yaw = 0, roll = 0, punch = 0) {
-    this.recoilPitch.kick(pitch);
-    this.recoilYaw.kick(yaw);
-    this.recoilRoll.kick(roll);
+  /**
+   * Camera-owned recoil. Angles in radians; `punch` in metres.
+   *
+   * `held` opts into the climb channel and only weapon fire sets it. Everything
+   * else that pushes the view — landing, taking a hit, the jump — is a one-off
+   * and passes it through as a pure transient.
+   */
+  addRecoil(pitch = 0, yaw = 0, roll = 0, punch = 0, held = false) {
+    const share = held ? undefined : 0;
+    this.recoilPitch.kick(pitch, share);
+    this.recoilYaw.kick(yaw, share);
+    this.recoilRoll.kick(roll, share);
     if (punch) this.punch.impulse(-punch * 14);
+  }
+
+  /**
+   * Zero every recoil channel without touching stance, bob or the aim angles.
+   *
+   * `reset()` is the respawn-sized hammer — it puts the eye height back too, so
+   * calling it mid-round would stand a crouching player up. This is for the one
+   * caller that needs the springs empty and everything else left alone: the
+   * weapon prewarm, which fires three real rounds before the first frame and is
+   * responsible for putting back everything they leave behind.
+   */
+  resetRecoil() {
+    this.recoilPitch.reset();
+    this.recoilYaw.reset();
+    this.recoilRoll.reset();
+    this.punch.reset(0);
   }
 
   /** Weapon-driven kick — a separate channel so the two never fight. */

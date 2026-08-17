@@ -1,11 +1,11 @@
-# The 25 gates, split by what each one actually depends on.
+# The 28 gates, split by what each one actually depends on.
 #
 # The split is not by speed. It is by whether a gate's verdict is a property of
 # the CODE or a property of the MACHINE, because those two need different
 # runners and mixing them produces a suite that is red for reasons nobody can
 # act on — which is how a gate stops being read.
 #
-#   logic    16 gates that read engine state through page.evaluate and never
+#   logic    20 gates that read engine state through page.evaluate and never
 #            look at a pixel. The simulation is CPU-side JS, so SwiftShader on a
 #            shared runner answers the same as Metal does. Cheap, parallel,
 #            always available: this is the one that should block a PR fastest.
@@ -26,7 +26,10 @@
 #
 # The gate lists live in package.json (`test:logic`, `test:render`, `test:perf`,
 # whose union is `npm test`) and not in this file. Two copies of that list would
-# drift, and the copy in CI is the one nobody runs locally.
+# drift, and the copy in CI is the one nobody runs locally. The COUNTS above are
+# a different matter — they are prose, they went stale the moment a gate was
+# added, and `node tools/layering.mjs --sizes` is not going to catch them. Read
+# them as a rough shape and `package.json` as the truth.
 
 name: gates
 
@@ -45,7 +48,7 @@ concurrency:
 
 jobs:
   logic:
-    name: logic (16 gates)
+    name: logic (20 gates)
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 45

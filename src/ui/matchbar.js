@@ -87,7 +87,7 @@ export class MatchBar {
       this.clock.className = cls;
     }
 
-    this._updatePips(us, them, s.roundsToWin ?? 5);
+    this._updatePips(us, them, s.roundsToWin ?? 0);
   }
 
   /**

@@ -78,21 +78,6 @@ import { WorldMarkers } from './markers.js';
 import { Prompt, Banner } from './prompts.js';
 import { PauseMenu } from './menu.js';
 
-/**
- * Seconds of freeze the countdown covers.
- *
- * `TEMPO.freeze` is 5, so this counts the WHOLE phase — 5, 4, 3, 2, 1 — rather
- * than appearing three seconds in. It was 3, which read as the number arriving
- * late: a player watching a doorway saw nothing, nothing, then a 3, and the two
- * seconds that would have let them settle on the door were spent wondering
- * whether the round had started.
- *
- * Tied to the freeze length by intent rather than by import: if freeze grows,
- * a countdown that starts at the top of it stops being a countdown and becomes
- * a clock. Raise both together and only on purpose.
- */
-const COUNTDOWN_FROM = 5;
-
 /** Phase -> what the round-end banner says when a side takes the round. */
 const RESULT = {
   elimination: 'ELIMINATED',
@@ -132,7 +117,7 @@ export class UiSystem {
     this.banner = new Banner(this.chromeLayer);
     /**
      * The freeze countdown: one big number, dead centre, counting the whole
-     * freeze out — see COUNTDOWN_FROM.
+     * freeze out — the length is read off `match.round.tempo.freeze` per frame.
      *
      * On the CENTRE layer rather than with the banner, because it has to sit
      * where the crosshair is — a player waiting for a round to start is looking
@@ -171,7 +156,11 @@ export class UiSystem {
       timeLeft: 0,
       phase: 'idle',
       round: 0,
-      roundsToWin: 5,
+      // Both filled from `match.round.tempo` every frame — TEMPO lives in ONE
+      // place (round.js) and the HUD may not grow its own copy of any of it.
+      // Zero until the first fill: no pips, no countdown, nothing to unlearn.
+      roundsToWin: 0,
+      countdownFrom: 0,
       roundResult: '',
       time: 0,
     };
@@ -409,7 +398,7 @@ export class UiSystem {
   _updateCountdown(s) {
     const arm = s.phase === 'freeze' || s.phase === 'warmup';
     const left = s.timeLeft ?? 0;
-    if (!arm || left > COUNTDOWN_FROM + 0.001 || left <= 0) {
+    if (!arm || left > s.countdownFrom + 0.001 || left <= 0) {
       // Hidden unconditionally, NOT guarded on `_countdownAt`.
       //
       // Two places were using that field for two different things: this one as
@@ -431,7 +420,7 @@ export class UiSystem {
     // The pitch climbs as the number falls, so the last tick sits under the
     // bell rather than beside it. Steps are counted from the top of the count,
     // not from a literal, or lengthening the countdown flattens it.
-    const step = COUNTDOWN_FROM - n;
+    const step = s.countdownFrom - n;
     this.sfx('round_tick', 0.55 + step * 0.12, { step });
   }
 
@@ -597,6 +586,11 @@ export class UiSystem {
     s.round = m.round.round;
     s.timeLeft = m.round.remaining;
     s.roundsToWin = m.round.tempo.roundsToWin;
+    // The countdown covers the WHOLE freeze — 5, 4, 3, 2, 1 — not its last
+    // three seconds (which read as the number arriving late). Reading the
+    // length off the tempo keeps that true if freeze ever changes: a countdown
+    // that starts at the top of the phase stays a countdown and never a clock.
+    s.countdownFrom = m.round.tempo.freeze;
 
     // ---- movement-derived reticle bloom, when nothing else supplies it ----
     const pos = this._playerPos();

@@ -516,7 +516,32 @@ export class FxSystem {
      * body was hit.
      */
     const surface = e.friendly && e.surface === 'flesh' ? 'fabric' : e.surface;
-    spawnImpact(this, e.point, e.normal, e.incident ?? this._defaultIncident(e), surface, energy);
+    /**
+     * No world decal for a round that hit somebody.
+     *
+     * A decal is written into a world-space atlas and lives 80 to 120 seconds.
+     * That is correct for concrete, which will still be there; it is wrong for
+     * anything that can walk away, because what stays behind is a bullet hole
+     * hanging in mid-air at chest height.
+     *
+     * `flesh` never wrote one — but the friendly substitution above routes a
+     * team-mate hit to `fabric`, and `fabric` stamps a 0.09-0.15 m tear that
+     * lasts 80 seconds. Four rounds into a team-mate left four holes floating
+     * where they had been standing, which is exactly what it looked like.
+     *
+     * Gated on `e.actor` rather than on the substitution, so the rule is the
+     * general one: the decal belongs to the surface, and an actor is not a
+     * surface.
+     *
+     * Passed as an argument rather than set on `_suppressDecals`, which was the
+     * first attempt and was wrong: `flesh` calls `bloodSpatterBehind`, which
+     * raycasts PAST the target and decals whatever wall it finds. That decal is
+     * on a real surface and has to survive. The flag has to reach the one call
+     * that marks the actor's own position, not the whole recipe.
+     */
+    spawnImpact(
+      this, e.point, e.normal, e.incident ?? this._defaultIncident(e), surface, energy, !!e.actor
+    );
     this.stats.spawned++;
   }
 

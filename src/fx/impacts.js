@@ -332,7 +332,7 @@ function foliage(fx, p, n, inc, _e) {
 }
 
 /** Fabric / rubber: dust, fibres and a tear. */
-function soft(fx, p, n, inc, e, rubber) {
+function soft(fx, p, n, inc, e, rubber, onActor = false) {
   const rng = fx.rng;
   const q = fx.pScale;
   reflect(V, inc.x, inc.y, inc.z, n.x, n.y, n.z);
@@ -380,7 +380,11 @@ function soft(fx, p, n, inc, e, rubber) {
     s.alphaCurve = 0.35; s.soft = 0.06; s.seed = rng.float();
     fx.emitLit(s);
   }
-  fx.addDecal(p, n, { tile: D.TEAR, size: rng.range(0.09, 0.15), life: 80, roll: rng.float() * TWO_PI });
+  // Not on a fighter — see `spawnImpact`. The tear lasts 80 seconds and the
+  // fighter does not stay 80 seconds.
+  if (!onActor) {
+    fx.addDecal(p, n, { tile: D.TEAR, size: rng.range(0.09, 0.15), life: 80, roll: rng.float() * TWO_PI });
+  }
 }
 
 export const IMPACTS = {
@@ -394,12 +398,24 @@ export const IMPACTS = {
   water,
   flesh,
   foliage,
-  fabric: (fx, p, n, i, e) => soft(fx, p, n, i, e, false),
-  rubber: (fx, p, n, i, e) => soft(fx, p, n, i, e, true),
+  fabric: (fx, p, n, i, e, onActor) => soft(fx, p, n, i, e, false, onActor),
+  rubber: (fx, p, n, i, e, onActor) => soft(fx, p, n, i, e, true, onActor),
 };
 
 /** Dispatch on surface name; unknown surfaces fall back to concrete. */
-export function spawnImpact(fx, point, normal, incident, surface, energy) {
-  (IMPACTS[surface] ?? IMPACTS.concrete)(fx, point, normal, incident, energy);
+/**
+ * `onActor` says the round hit something that can walk away.
+ *
+ * Only the recipes that stamp a decal AT THE IMPACT POINT need it, and today
+ * that is `soft` (fabric, rubber). A decal lives 80 seconds in a world-space
+ * atlas, so one written where a fighter was standing is a bullet hole left
+ * hanging in the air after they move.
+ *
+ * `flesh` is deliberately unaffected: its decal comes from
+ * `fx.bloodSpatterBehind`, which raycasts past the target and marks the wall
+ * behind — a real surface that will still be there.
+ */
+export function spawnImpact(fx, point, normal, incident, surface, energy, onActor = false) {
+  (IMPACTS[surface] ?? IMPACTS.concrete)(fx, point, normal, incident, energy, onActor);
 }
 

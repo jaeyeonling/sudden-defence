@@ -84,8 +84,6 @@ const GRENADES_PER_ROUND = 2;
 const THROW_SPEED = 15.5;
 /** m/s of loft added on top, so the arc clears cover instead of hugging it. */
 const THROW_LOFT = 2.6;
-/** Seconds. Matches the bot fuse — one grenade, one behaviour. */
-const GRENADE_FUSE = 2.35;
 
 export class WeaponSystem {
   static id = 'weapons';
@@ -492,7 +490,10 @@ export class WeaponSystem {
     const thrown = ai.spawnGrenade(
       { x: o.x + d.x * 0.35, y: o.y + d.y * 0.35, z: o.z + d.z * 0.35 },
       { x: d.x * THROW_SPEED, y: d.y * THROW_SPEED + THROW_LOFT, z: d.z * THROW_SPEED },
-      GRENADE_FUSE,
+      // undefined on purpose: the fuse is `ai`'s number (one grenade, one
+      // behaviour) and rule 2 bars importing it — omitting takes its default,
+      // which is the single copy instead of a second one apologising for itself.
+      undefined,
       player
     );
     if (!thrown) return false;

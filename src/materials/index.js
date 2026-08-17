@@ -218,8 +218,11 @@ export class MaterialSystem {
       // The height in albedo.a is only meaningful with the extension; keep the
       // stock alpha path off unless the surface is actually alpha-masked.
       if (!(p.alphaMask || threeProps.transparent)) mat.transparent = false;
-    } else if (!this._warned) {
+    } else if (!this._warnedTextureless) {
+      // Own latch — `_warned` belongs to the deferred-bake warning in
+      // _tryBuild(), and sharing it made this branch unreachable.
       console.warn(`[materials] "${key}" built without textures (no renderer)`);
+      this._warnedTextureless = true;
     }
 
     if (p.vertexMasks) mat.vertexColors = true;
@@ -227,7 +230,10 @@ export class MaterialSystem {
 
     if (set) extendMaterial(mat, p, this._shared);
 
-    this._materials.set(matKey, mat);
+    // A textureless material must not enter the cache: caching it under the
+    // normal key would pin the flat-white fallback for the whole session even
+    // after a renderer arrives. Uncached, the next get() re-bakes.
+    if (set) this._materials.set(matKey, mat);
     return mat;
   }
 

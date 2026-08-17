@@ -69,6 +69,9 @@
  *   player:health     { health, fraction, low, critical, dead }
  *   player:jump       { position }
  *   player:death      { position, part, headshot, source }
+ *
+ * OVER THE 800-LINE LIMIT as a subsystem entry point: the line count is API
+ * area, not depth. See ARCHITECTURE.md, "File size".
  */
 
 import * as THREE from 'three';

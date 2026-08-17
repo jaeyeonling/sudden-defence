@@ -27,6 +27,9 @@
  * damage:taken, actor:death, player:land, player:footstep, player:state,
  * explosion. If `ai` emits the optional `ai:bark {kind, position, voice}` it is
  * picked up as well.
+ *
+ * OVER THE 800-LINE LIMIT as a subsystem entry point: the line count is API
+ * area, not depth. See ARCHITECTURE.md, "File size".
  */
 
 import { NoiseBank, SPEED_OF_SOUND, clamp, gain as mkGain } from './dsp.js';

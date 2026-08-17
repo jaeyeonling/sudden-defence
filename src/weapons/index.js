@@ -64,6 +64,9 @@ import { DEG } from './mathx.js';
  * `bullet:impact` comes from physics, because physics owns penetration.
  * Anything else (ammo counts, fire mode, the current weapon) is a getter on
  * this object rather than an event, so no new event types are introduced.
+ *
+ * OVER THE 800-LINE LIMIT as a subsystem entry point: the line count is API
+ * area, not depth. See ARCHITECTURE.md, "File size".
  */
 export class WeaponSystem {
   static id = 'weapons';

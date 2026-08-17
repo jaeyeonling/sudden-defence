@@ -42,6 +42,9 @@ import { dcos, dpow, dsin } from '../core/dmath.js';
  *         weapon      <- body meshes + moving-part groups
  *         armL/armR   <- two-bone IK, hands welded to the weapon's grips
 
+ *
+ * OVER THE 800-LINE LIMIT as a single-class file: one state machine sharing one
+ * blackboard. See ARCHITECTURE.md, "File size".
  */
 
 const _v = new THREE.Vector3();

@@ -22,6 +22,9 @@ const QUALITY_LEVEL = { low: 0, medium: 1, high: 2, ultra: 3 };
 /**
  * Registration range at or below which a punctual light counts as a room/street
  * PRACTICAL rather than as an effect flash. See `settings.practicalGain`.
+ *
+ * OVER THE 800-LINE LIMIT as a subsystem entry point: the line count is API
+ * area, not depth. See ARCHITECTURE.md, "File size".
  */
 const PRACTICAL_RANGE = 30;
 

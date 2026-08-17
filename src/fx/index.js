@@ -32,6 +32,9 @@ import { V, cone } from './util.js';
  * one buffer sub-upload of whatever was spawned this frame. Budgets come from
  * `config.q.particleBudget` / `decalBudget` and are hard caps: every layer is a
  * ring, and a ring never allocates.
+ *
+ * OVER THE 800-LINE LIMIT as a subsystem entry point: the line count is API
+ * area, not depth. See ARCHITECTURE.md, "File size".
  */
 export class FxSystem {
   static id = 'fx';

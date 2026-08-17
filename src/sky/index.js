@@ -20,6 +20,9 @@ import { cloudSunOcclusion } from './clouds.js';
  * stop of luminance under a noon sun (whose luminous transmittance is 0.77)
  * while leaving its physical hue untouched, which is what keeps a golden hour
  * reading as a key light instead of as an ambient wash.
+ *
+ * OVER THE 800-LINE LIMIT as a subsystem entry point: the line count is API
+ * area, not depth. See ARCHITECTURE.md, "File size".
  */
 const SUN_LUM_FLOOR = 0.35;
 

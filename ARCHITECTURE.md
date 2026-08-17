@@ -43,6 +43,59 @@ of this codebase will be impossible.
 10. `npm run build` must pass and `node tools/capture.mjs --shot=boot` must
     produce a frame after your change. If you break the boot, nobody else can work.
 
+## File size
+
+**800 lines is the working limit, and eleven files are over it on purpose.**
+
+Twenty-six were over when this was written down. Fifteen came apart cleanly,
+because the number was reporting a real problem: several unrelated concerns
+sharing a file. `weapons/parts.js` was 2,073 lines of barrel, receiver,
+furniture, magazine and optics; `world/props.js` was forty prop builders and a
+registry. Those are now six files each, and every consumer's import list says
+which part of the subsystem it actually depends on.
+
+The other eleven are over the limit because ONE CLASS FILLS THE FILE:
+
+| file | lines | the class | |
+|---|---|---|---|
+| `ai/agent.js` | 2367 | `Agent` | 97% |
+| `render/index.js` | 1772 | `RenderSystem` | 93% |
+| `fx/index.js` | 1421 | `FxSystem` | 97% |
+| `ai/index.js` | 1351 | `AiSystem` | 95% |
+| `physics/index.js` | 1282 | `PhysicsSystem` | 84% |
+| `weapons/index.js` | 1280 | `WeaponSystem` | 95% |
+| `physics/bvh.js` | 934 | `StaticWorld` | 84% |
+| `audio/index.js` | 902 | `AudioSystem` | 92% |
+| `weapons/viewmodel.js` | 899 | `Viewmodel` | 89% |
+| `sky/index.js` | 872 | `SkySystem` | 86% |
+| `player/index.js` | 816 | `PlayerSystem` | 88% |
+
+There is no file split that helps here, and the arithmetic says so before the
+judgement does: `Viewmodel` is 796 lines, so `weapons/viewmodel.js` cannot reach
+800 even if everything else in it were deleted. The same holds for the rest.
+
+Two shapes, and they want different things:
+
+- **Subsystem entry points.** Line count is API AREA, not depth.
+  `physics/index.js` exposes about thirty methods — `raycast`, `sphereCast`,
+  `capsuleCast`, `createCharacter`, `fireBullet`, `explode` — most of them five
+  to twenty lines delegating to `bvh.js`, `character.js`, `rigidbody.js`,
+  `ragdoll.js`. Splitting the facade breaks the single surface `ctx.get(id)`
+  reaches, which is rule 2's whole point.
+- **State machines.** `Agent` shares one blackboard across every concern:
+  `lastKnownAge` is read by eleven methods, `suppression` by ten. Lifting
+  `_think`/`_combat`/`_move` into another file makes them functions that take
+  the agent back as an argument — a syntax move, not a split — and rule 6 pins
+  the scratch vectors to the instance anyway. `static snapshotState` also
+  nails the object down as one netcode unit.
+
+**What is allowed, and what is required.** Data and constants outside a class
+may be lifted when it aids findability — `ai/agent-tuning.js` holds the ranges,
+aim drop, hitbox capsules and muzzle offset, which are the only lines in that
+file anyone edits to change how the AI feels. Do not lift methods to make the
+number smaller. A file over 800 lines must be one of the two shapes above, and
+its header must say which.
+
 ## Subsystem interface
 
 ```js

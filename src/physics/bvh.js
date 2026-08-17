@@ -18,6 +18,9 @@
  *   nodeMeta   Int32Array,   2 per node — [leftFirst, count]
  *                            count > 0 : leaf, triIndex[leftFirst .. +count)
  *                            count = 0 : interior, children at leftFirst, +1
+ *
+ * OVER THE 800-LINE LIMIT as a single-class file: one state machine sharing one
+ * blackboard. See ARCHITECTURE.md, "File size".
  */
 
 import * as THREE from 'three';

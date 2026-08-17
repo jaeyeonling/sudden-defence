@@ -538,6 +538,14 @@ export class AudioSystem {
     on('damage:dealt', (p) => this._onDamageDealt(p));
     on('damage:taken', (p) => this._onDamageTaken(p));
     on('actor:death', (p) => this._onDeath(p));
+    // Kill confirm rides `combatant:death`, NOT `damage:dealt.killed`: that
+    // flag is back-filled by the TARGET's own listener, and audio subscribes
+    // before `ai` does — so at this handler's dispatch the field is still the
+    // hardcoded `false` physics emitted. `match` is the one thing that knows
+    // both ends of a kill, which is also why the killfeed hangs off it.
+    on('combatant:death', (p) => {
+      if (this.running && this._isPlayer(p?.source)) this.ui('kill', 1);
+    });
     // Optional: emitted by `ai` if it wants scripted chatter.
     on('ai:bark', (p) => this.bark(p?.kind ?? 'spot', p?.position, { voice: p?.voice ?? 0 }));
   }
@@ -724,8 +732,10 @@ export class AudioSystem {
     // position, and it belongs in the world whoever pulled the trigger. So it
     // stays on the target test, and bot-on-bot fights keep making noise.
     if (this._isPlayer(p.source)) {
+      // No `p.killed` check here — see the `combatant:death` subscription in
+      // _wireEvents(): at this point in the dispatch order the flag is always
+      // the emitter's hardcoded `false`, so a branch on it never fired.
       this.ui(p.headshot ? 'headshot' : 'hitmarker', 1);
-      if (p.killed) this.ui('kill', 1);
     }
     if (!targetIsPlayer && !p.killed && p.point && t && this.rng.float() < 0.3) {
       this.bark('hurt', p.point, { level: 0.85 });

@@ -18,6 +18,13 @@
  *           pushes it down.
  *   rule 5  no `Math.random()`. Capture reproducibility depends on it, and so
  *           does the deterministic spray.
+ *   size    800 lines is the working limit, and a file over it must say in a
+ *           comment why. `ARCHITECTURE.md` writes the escape hatch down —
+ *           "exceeding the limit requires a comment saying which of these two
+ *           reasons applies" — which makes it the one rule in the document with
+ *           a documented way to be exempt and no way to check that you took it.
+ *           Eleven files are over today and all eleven carry the marker; what
+ *           this stops is the twelfth arriving without one.
  *
  * WHY THIS STRIPS COMMENTS FIRST, WHICH IS MOST OF THE FILE'S DIFFICULTY
  *
@@ -122,8 +129,13 @@ function stripComments(src) {
   return out;
 }
 
+const LINE_LIMIT = 800;
+/** The comment a file over the limit must carry. See ARCHITECTURE.md, "File size". */
+const LIMIT_MARKER = 'OVER THE 800-LINE LIMIT';
+
 const fail = [];
 const counts = { files: 0, imports: 0, lookups: 0 };
+const oversize = [];
 
 for (const abs of walk(SRC)) {
   const rel = relative(SRC, abs).split('\\').join('/');
@@ -131,8 +143,26 @@ for (const abs of walk(SRC)) {
   if (!SUBSYSTEMS.includes(owner)) continue; // main.js, dev/ — not subsystems
   counts.files++;
 
-  const code = stripComments(readFileSync(abs, 'utf8'));
+  const raw = readFileSync(abs, 'utf8');
+  const code = stripComments(raw);
   const at = (idx) => code.slice(0, idx).split('\n').length;
+
+  // Size — counted on the RAW file, because the limit is about the file a
+  // person has to open, and this codebase's comments are a large and deliberate
+  // part of that. Stripping them first would let a 2,000-line file pass by
+  // being mostly prose, which is the opposite of what the limit is for.
+  const lines = raw.split('\n').length;
+  if (lines > LINE_LIMIT) {
+    oversize.push({ rel, lines });
+    // The marker is a comment, so it is looked for in `raw` — `code` has just
+    // removed the only evidence that the author made the decision on purpose.
+    if (!raw.includes(LIMIT_MARKER)) {
+      fail.push(
+        `size    ${rel} is ${lines} lines and says nothing about it — ` +
+        `add the "${LIMIT_MARKER}" note naming which reason applies, or split it`
+      );
+    }
+  }
 
   // Rule 2 — a cross-subsystem import. `../<other>/…`, or an absolute-ish
   // `src/<other>/…`. Same-directory and `./sub/…` imports are the point of the
@@ -175,5 +205,14 @@ if (fail.length) {
 console.log(
   `LAYERING OK — ${counts.files} files across ${SUBSYSTEMS.length} subsystems · ` +
   `${counts.imports} imports, none crossing · ${counts.lookups} engine-layer lookups, none naming gameplay · ` +
-  `Math.random() only in ${SEED_SITES.join(', ')}`
+  `Math.random() only in ${SEED_SITES.join(', ')} · ` +
+  `${oversize.length} files over ${LINE_LIMIT} lines, all declared`
 );
+if (process.argv.includes('--sizes')) {
+  // The table in ARCHITECTURE.md, regenerated. It went stale by up to 109 lines
+  // before anything printed it.
+  console.log('');
+  for (const f of oversize.sort((a, b) => b.lines - a.lines)) {
+    console.log(`  ${String(f.lines).padStart(5)}  ${f.rel}`);
+  }
+}

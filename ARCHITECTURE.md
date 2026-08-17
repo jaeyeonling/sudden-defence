@@ -58,20 +58,25 @@ The other eleven are over the limit because ONE CLASS FILLS THE FILE:
 
 | file | lines | the class | |
 |---|---|---|---|
-| `ai/agent.js` | 2367 | `Agent` | 97% |
-| `render/index.js` | 1772 | `RenderSystem` | 93% |
-| `fx/index.js` | 1421 | `FxSystem` | 97% |
-| `ai/index.js` | 1351 | `AiSystem` | 95% |
-| `physics/index.js` | 1282 | `PhysicsSystem` | 84% |
-| `weapons/index.js` | 1280 | `WeaponSystem` | 95% |
-| `physics/bvh.js` | 934 | `StaticWorld` | 84% |
-| `audio/index.js` | 902 | `AudioSystem` | 92% |
-| `weapons/viewmodel.js` | 899 | `Viewmodel` | 89% |
-| `sky/index.js` | 872 | `SkySystem` | 86% |
-| `player/index.js` | 816 | `PlayerSystem` | 88% |
+| `ai/agent.js` | 2371 | `Agent` | 97% |
+| `render/index.js` | 1776 | `RenderSystem` | 93% |
+| `fx/index.js` | 1461 | `FxSystem` | 97% |
+| `weapons/index.js` | 1390 | `WeaponSystem` | 94% |
+| `ai/index.js` | 1373 | `AiSystem` | 95% |
+| `physics/index.js` | 1310 | `PhysicsSystem` | 84% |
+| `physics/bvh.js` | 938 | `StaticWorld` | 95% |
+| `audio/index.js` | 906 | `AudioSystem` | 92% |
+| `weapons/viewmodel.js` | 903 | `Viewmodel` | 89% |
+| `sky/index.js` | 876 | `SkySystem` | 85% |
+| `player/index.js` | 843 | `PlayerSystem` | 87% |
+
+Regenerate with `node tools/layering.mjs --sizes`. The numbers above went stale
+by up to 110 lines while nothing printed them, and `physics/bvh.js` was recorded
+at 84% when `StaticWorld` is 95% of it — a table maintained by hand drifts in
+exactly the direction that makes the argument for the exemption look weaker.
 
 There is no file split that helps here, and the arithmetic says so before the
-judgement does: `Viewmodel` is 796 lines, so `weapons/viewmodel.js` cannot reach
+judgement does: `Viewmodel` is 801 lines, so `weapons/viewmodel.js` cannot reach
 800 even if everything else in it were deleted. The same holds for the rest.
 
 Two shapes, and they want different things:
@@ -94,7 +99,11 @@ may be lifted when it aids findability — `ai/agent-tuning.js` holds the ranges
 aim drop, hitbox capsules and muzzle offset, which are the only lines in that
 file anyone edits to change how the AI feels. Do not lift methods to make the
 number smaller. A file over 800 lines must be one of the two shapes above, and
-its header must say which.
+its header must say which — the marker is the literal string
+`OVER THE 800-LINE LIMIT`, and `tools/layering.mjs` fails the run if a file
+crosses the limit without one. The check reads the raw file rather than the
+stripped one, deliberately: the limit is about the file a person has to open,
+and letting a 2,000-line file pass by being mostly prose would invert it.
 
 ## Subsystem interface
 

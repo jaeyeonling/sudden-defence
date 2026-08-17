@@ -33,6 +33,12 @@ if (!(await portOpen(5173))) {
     stdio: 'ignore', detached: true, env: { ...process.env, OW_NO_HMR: '1' },
   });
   for (let i = 0; i < 60 && !(await portOpen(5173)); i++) await new Promise(r => setTimeout(r, 250));
+  // Fail here, with a name — not later as an opaque page.goto timeout.
+  if (!(await portOpen(5173))) {
+    console.error('CONTRACT FAILED — vite did not come up on :5173');
+    try { process.kill(-vite.pid); } catch { /* already gone */ }
+    process.exit(1);
+  }
 }
 
 const browser = await chromium.launch({ args: ['--use-gl=angle', '--enable-unsafe-swiftshader'] });

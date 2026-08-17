@@ -350,6 +350,12 @@ if (!(await portOpen(PORT))) {
   for (let i = 0; i < 80 && !(await portOpen(PORT)); i++) {
     await new Promise((r) => setTimeout(r, 250));
   }
+  // Fail here, with a name — not later as an opaque page.goto timeout.
+  if (!(await portOpen(PORT))) {
+    console.error(`CROSSENGINE FAILED — vite did not come up on :${PORT}`);
+    try { process.kill(-vite.pid); } catch { /* already gone */ }
+    process.exit(1);
+  }
 }
 
 /**

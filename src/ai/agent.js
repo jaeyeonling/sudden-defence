@@ -2262,6 +2262,9 @@ export class Agent {
       this.ragdoll = null;
       this.__ragdoll = null;
     }
+    // Diagnostic latch (ai/index.js debugLog): without this a pooled agent
+    // logged its ragdoll once per MATCH instead of once per death.
+    this._loggedDoll = false;
     this.alive = true;
     this.health = this.maxHealth;
     this.animator.enabled = true;

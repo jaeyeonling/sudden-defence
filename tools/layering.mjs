@@ -133,6 +133,37 @@ const LINE_LIMIT = 800;
 /** The comment a file over the limit must carry. See ARCHITECTURE.md, "File size". */
 const LIMIT_MARKER = 'OVER THE 800-LINE LIMIT';
 
+/**
+ * The largest top-level class in the file: name, and its span as a fraction of
+ * the RAW line count. This is the `%` column of ARCHITECTURE.md's exemption
+ * table — the one column the table used to maintain by hand, which drifted
+ * twice (once in each direction) before this printed it.
+ *
+ * Brace-matched on the comment-stripped source so a `}` in a string or comment
+ * cannot close the class early, then mapped back to raw lines (stripComments
+ * preserves newlines, so line numbers agree).
+ */
+function largestClass(raw, code) {
+  let best = null;
+  for (const m of code.matchAll(/^(?:export\s+)?class\s+([A-Za-z_$][\w$]*)/gm)) {
+    const open = code.indexOf('{', m.index);
+    if (open < 0) continue;
+    let depth = 0;
+    let end = -1;
+    for (let i = open; i < code.length; i++) {
+      if (code[i] === '{') depth++;
+      else if (code[i] === '}' && --depth === 0) { end = i; break; }
+    }
+    if (end < 0) continue;
+    const startLine = code.slice(0, m.index).split('\n').length;
+    const endLine = code.slice(0, end).split('\n').length;
+    const span = endLine - startLine + 1;
+    if (!best || span > best.span) best = { className: m[1], span };
+  }
+  if (!best) return { className: null, pct: null };
+  return { className: best.className, pct: Math.round((best.span / raw.split('\n').length) * 100) };
+}
+
 const fail = [];
 const counts = { files: 0, imports: 0, lookups: 0 };
 const oversize = [];
@@ -153,7 +184,7 @@ for (const abs of walk(SRC)) {
   // being mostly prose, which is the opposite of what the limit is for.
   const lines = raw.split('\n').length;
   if (lines > LINE_LIMIT) {
-    oversize.push({ rel, lines });
+    oversize.push({ rel, lines, ...largestClass(raw, code) });
     // The marker is a comment, so it is looked for in `raw` — `code` has just
     // removed the only evidence that the author made the decision on purpose.
     if (!raw.includes(LIMIT_MARKER)) {
@@ -213,6 +244,7 @@ if (process.argv.includes('--sizes')) {
   // before anything printed it.
   console.log('');
   for (const f of oversize.sort((a, b) => b.lines - a.lines)) {
-    console.log(`  ${String(f.lines).padStart(5)}  ${f.rel}`);
+    const cls = f.className ? `  ${f.className} ${f.pct}%` : '';
+    console.log(`  ${String(f.lines).padStart(5)}  ${f.rel}${cls}`);
   }
 }

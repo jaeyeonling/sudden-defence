@@ -67,8 +67,17 @@ export class MatchBar {
 
     // ---- label ----
     let label = LABEL[s.phase] ?? '';
-    if (s.phase === 'live') label = `ROUND ${s.round ?? 1}`;
-    else if (s.phase === 'roundEnd') label = s.roundResult ?? 'ROUND OVER';
+    if (s.phase === 'live') {
+      // Built on the round edge, not per frame — the label only changes when
+      // the round number does, and the template literal was the one allocation
+      // left ahead of the setText diff.
+      const round = s.round ?? 1;
+      if (this._labelRound !== round) {
+        this._labelRound = round;
+        this._labelLive = `ROUND ${round}`;
+      }
+      label = this._labelLive;
+    } else if (s.phase === 'roundEnd') label = s.roundResult ?? 'ROUND OVER';
     if (label !== this._lastLabel) {
       this._lastLabel = label;
       setText(this.phase, label);

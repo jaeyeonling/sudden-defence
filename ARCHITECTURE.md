@@ -59,23 +59,22 @@ The other eleven are over the limit because ONE CLASS FILLS THE FILE:
 | file | lines | the class | |
 |---|---|---|---|
 | `ai/agent.js` | 2371 | `Agent` | 97% |
-| `render/index.js` | 1776 | `RenderSystem` | 93% |
+| `render/index.js` | 1779 | `RenderSystem` | 93% |
 | `fx/index.js` | 1461 | `FxSystem` | 97% |
 | `weapons/index.js` | 1391 | `WeaponSystem` | 94% |
-| `ai/index.js` | 1377 | `AiSystem` | 95% |
-| `physics/index.js` | 1310 | `PhysicsSystem` | 84% |
+| `ai/index.js` | 1388 | `AiSystem` | 95% |
+| `physics/index.js` | 1310 | `PhysicsSystem` | 83% |
 | `physics/bvh.js` | 938 | `StaticWorld` | 83% |
-| `audio/index.js` | 919 | `AudioSystem` | 92% |
+| `audio/index.js` | 915 | `AudioSystem` | 92% |
 | `weapons/viewmodel.js` | 900 | `Viewmodel` | 88% |
-| `sky/index.js` | 882 | `SkySystem` | 85% |
+| `sky/index.js` | 882 | `SkySystem` | 84% |
 | `player/index.js` | 850 | `PlayerSystem` | 87% |
 
-Regenerate the line counts with `node tools/layering.mjs --sizes`. The `%`
-column the tool does NOT print, and it has now drifted twice — once to 84%,
-then "corrected" to 95% when the measured span (`StaticWorld` is lines 47–827
-of 937) is 83%. A hand-maintained column drifts in whichever direction the last
-editor expected; treat the percentages as the shape of the argument and the
-class spans in the files as the truth.
+Regenerate the whole table with `node tools/layering.mjs --sizes` — all four
+columns, including the class span, which the table used to maintain by hand.
+That column drifted twice (once in each direction) before the tool printed it;
+a hand-maintained column drifts in whichever direction the last editor
+expected.
 
 There is no file split that helps here: in every row the class alone is at or
 near the limit (`Viewmodel` is 796 of `weapons/viewmodel.js`'s 900 lines), so

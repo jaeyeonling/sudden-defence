@@ -498,7 +498,7 @@ export class WeaponSystem {
     );
     if (!thrown) return false;
     this.grenades--;
-    this.viewmodel.play('inspect');
+    this.viewmodel.play('throw');
     return true;
   }
 

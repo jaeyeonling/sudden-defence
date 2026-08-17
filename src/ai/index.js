@@ -246,6 +246,9 @@ export class AiSystem {
     };
     this._shellEvent = { position: new THREE.Vector3(), velocity: new THREE.Vector3() };
     this._tracerEvent = { from: this._tracerFrom, to: this._tracerTo, speed: 800 };
+    // Detonations fire a handful of times a match, but the rule is the rule:
+    // preallocated like every other event payload in this file.
+    this._explosionEvent = { position: new THREE.Vector3(), radius: 6.5, damage: 120, source: null };
     this._grenades = [];
     this._grenadeGeo = null;
     this._grenadeMat = null;
@@ -1128,15 +1131,16 @@ export class AiSystem {
       g.fuse -= dt;
       if (g.fuse > 0) continue;
       const p = g.body?.position ?? g.mesh.position;
-      this.ctx.events.emit('explosion', {
-        position: new THREE.Vector3(p.x, p.y, p.z),
-        radius: 6.5,
-        damage: 120,
-        source: g.agent,
-      });
+      const e = this._explosionEvent;
+      e.position.set(p.x, p.y, p.z);
+      e.source = g.agent;
+      this.ctx.events.emit('explosion', e);
       this.phys?.removeRigidBody(g.body);
       this.root.remove(g.mesh);
-      this._grenades.splice(i, 1);
+      // Swap-pop: fuses are independent so order carries nothing, and splice
+      // allocates the removed-elements array.
+      this._grenades[i] = this._grenades[this._grenades.length - 1];
+      this._grenades.pop();
     }
   }
 

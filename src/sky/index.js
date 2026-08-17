@@ -57,6 +57,17 @@ const SKY_AMBIENT_FRACTION = 0.15;
 /** Cool night hue for the published ambient — moonlight after the Purkinje shift. */
 const NIGHT_AMBIENT_HUE = [0.35, 0.5, 1.0];
 
+/** The solar spectrum is a touch warm of D65 even before the atmosphere. */
+const SUN_TINT = [1.0, 0.975, 0.94];
+
+/**
+ * Moonlight is physically warm (lunar regolith is reddish) but reads cool
+ * because scotopic vision peaks blue — the Purkinje shift. Cinema has rendered
+ * night blue for a century; we follow it, and modulate the tint by the real
+ * atmospheric reddening so a low moon still goes amber.
+ */
+const MOON_COOL = [0.66, 0.8, 1.0];
+
 /**
  * OVERWATCH sky, atmosphere and global lighting.
  *
@@ -564,8 +575,7 @@ export class SkySystem {
     // snaps off at sunset instead of dimming through the last half degree.
     const discS = THREE.MathUtils.clamp(0.5 + muS / (2 * 0.004654), 0, 1);
     transmittanceToSpace(Math.max(muS, 0.0008), mie, this._sunT);
-    // The solar spectrum is a touch warm of D65 even before the atmosphere.
-    const tint = [1.0, 0.975, 0.94];
+    const tint = SUN_TINT;
     const T = this._sunT;
     // ---- the key is the disc PLUS its aureole -------------------------------
     // Transmittance alone is the extinction of the *disc*, and at four degrees of
@@ -645,11 +655,7 @@ export class SkySystem {
     const discM = THREE.MathUtils.clamp(0.5 + muM / (2 * 0.004516), 0, 1);
     transmittanceToSpace(Math.max(muM, 0.0008), mie, this._moonT);
     const MT = this._moonT;
-    // Moonlight is physically warm (lunar regolith is reddish) but reads cool
-    // because scotopic vision peaks blue — the Purkinje shift. Cinema has
-    // rendered night blue for a century; we follow it, and modulate that tint
-    // by the real atmospheric reddening so a low moon still goes amber.
-    const cool = [0.66, 0.80, 1.0];
+    const cool = MOON_COOL;
     const mr = MT[0] * cool[0];
     const mg = MT[1] * cool[1];
     const mb = MT[2] * cool[2];

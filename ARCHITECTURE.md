@@ -64,20 +64,23 @@ The other eleven are over the limit because ONE CLASS FILLS THE FILE:
 | `weapons/index.js` | 1390 | `WeaponSystem` | 94% |
 | `ai/index.js` | 1373 | `AiSystem` | 95% |
 | `physics/index.js` | 1310 | `PhysicsSystem` | 84% |
-| `physics/bvh.js` | 938 | `StaticWorld` | 95% |
+| `physics/bvh.js` | 938 | `StaticWorld` | 83% |
 | `audio/index.js` | 906 | `AudioSystem` | 92% |
 | `weapons/viewmodel.js` | 903 | `Viewmodel` | 89% |
 | `sky/index.js` | 876 | `SkySystem` | 85% |
 | `player/index.js` | 843 | `PlayerSystem` | 87% |
 
-Regenerate with `node tools/layering.mjs --sizes`. The numbers above went stale
-by up to 110 lines while nothing printed them, and `physics/bvh.js` was recorded
-at 84% when `StaticWorld` is 95% of it — a table maintained by hand drifts in
-exactly the direction that makes the argument for the exemption look weaker.
+Regenerate the line counts with `node tools/layering.mjs --sizes`. The `%`
+column the tool does NOT print, and it has now drifted twice — once to 84%,
+then "corrected" to 95% when the measured span (`StaticWorld` is lines 47–827
+of 937) is 83%. A hand-maintained column drifts in whichever direction the last
+editor expected; treat the percentages as the shape of the argument and the
+class spans in the files as the truth.
 
-There is no file split that helps here, and the arithmetic says so before the
-judgement does: `Viewmodel` is 801 lines, so `weapons/viewmodel.js` cannot reach
-800 even if everything else in it were deleted. The same holds for the rest.
+There is no file split that helps here: in every row the class alone is at or
+near the limit (`Viewmodel` is 796 of `weapons/viewmodel.js`'s 903 lines), so
+deleting everything around it would still leave a file this table has to
+explain.
 
 Two shapes, and they want different things:
 
@@ -383,7 +386,7 @@ alone gives grey glyphs on white sky.
 ### Hitmarkers gate on `source`, not on `target`
 
 Upstream asked "is the target NOT the player", which is correct in a game with
-one shooter and wrong in one with sixteen: every round a bot lands on another
+one shooter and wrong in one with a roster of them: every round a bot lands on another
 bot would draw the player a hitmarker for a fight across the map. Same for the
 killfeed, which is now built from one event (`combatant:death`, emitted by the
 only thing that knows both ends of a kill) rather than from two de-duplicated
@@ -424,22 +427,28 @@ Proven by `npm run test:hud`.
 
 Emit and listen via `ctx.events`. Payloads are plain objects.
 
-**The names below are load-bearing.** `fx` subscribes to 8 of them and `audio` to
-12. The EventBus does not warn on an unknown type (`registry.js`), so renaming one
-does not throw — it silently kills every effect and sound hanging off it.
+**The names below are load-bearing** — `fx` and `audio` hang a dozen effects and
+sounds each off them. The EventBus does not warn on an unknown type
+(`registry.js`), so renaming one does not throw — it silently kills every effect
+and sound hanging off it. Payloads here are the fields a consumer may rely on;
+emitters may carry more.
 
 | event | payload | emitted by |
 |---|---|---|
 | `weapon:fire` | `{ weapon, origin, dir, seed }` | weapons |
 | `weapon:reload` | `{ weapon, phase: 'start'\|'magout'\|'magin'\|'end' }` | weapons |
 | `weapon:shell` | `{ position, velocity, weapon }` | weapons |
-| `bullet:impact` | `{ point, normal, surface, energy }` | physics |
+| `bullet:impact` | `{ point, normal, surface, damage, exit, actor, part, friendly }` | physics |
 | `bullet:tracer` | `{ from, to, speed }` | weapons |
 | `damage:dealt` | `{ target, source, amount, part, headshot, team, point, killed }` | physics |
-| `damage:taken` | `{ amount, health, direction }` | player |
-| `combatant:death` | `{ combatant, source, headshot }` | match |
-| `actor:death` | `{ actor, position, impulse }` | ai / player |
-| `player:land` / `player:footstep` | `{ position, surface, energy }` | player |
+| `damage:taken` | `{ amount, health, direction, critical, from }` | player |
+| `combatant:spawn` | `{ combatant }` | match |
+| `combatant:death` | `{ combatant, source, part, headshot }` | match |
+| `actor:death` | `{ actor, point, impulse, headshot }` | ai / player |
+| `player:land` | `{ position, surface, velocity }` | player |
+| `player:footstep` | `{ position, surface, running, left, speed, stance }` — `fx` draws nothing unless `running` | player |
+| `player:jump` / `player:respawn` | `{ position }` — respawn is what refills every magazine (`weapons`) | player |
+| `player:state` | `{ state, stance, grounded, airborne, speed, health, healthFraction }`, on discrete change only | player |
 | `round:phase` | `{ phase, round, remaining, scores }` | match |
 | `round:start` | `{ round, scores }` | match |
 | `round:end` | `{ round, winner, reason: 'elimination'\|'time'\|'draw', scores }` | match |
@@ -450,6 +459,12 @@ does not throw — it silently kills every effect and sound hanging off it.
 other, "the target is not me" is no longer the same question as "I landed this
 shot" — anything that reacts to a hit (hitmarkers, killfeed, hit sounds) must gate
 on `source`.
+
+`damage:dealt.killed` is emitted as `false` and **back-filled by the target's own
+listener** (`ai` patches it once `applyDamage` lands), so it is only truthful for
+subscribers registered *after* the gameplay layer. Anything wired earlier —
+engine-layer audio, for instance — must take its kill signal from
+`combatant:death` instead, which `match` emits knowing both ends.
 
 ## Shared surface types
 

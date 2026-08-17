@@ -253,7 +253,7 @@ export class PlayerSystem {
   }
 
   _resolveSpawn() {
-    const world = this.ctx.peek('world');
+    const world = this.ctx.get('world');
     const out = { feet: new THREE.Vector3(0, 0.2, 0), yaw: 0, team: null };
     const sp = world?.spawn?.(0);
     if (sp?.position) {
@@ -760,7 +760,7 @@ export class PlayerSystem {
    * @param {number|{position: THREE.Vector3, yaw: number}} [where]
    */
   respawn(where = 0) {
-    const world = this.ctx.peek('world');
+    const world = this.ctx.get('world');
     const sp = typeof where === 'object' && where?.position
       ? where
       : world?.spawn?.(where | 0);

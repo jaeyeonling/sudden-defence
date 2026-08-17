@@ -712,7 +712,9 @@ export class AiSystem {
   }
 
   get phys() {
-    return this._phys ?? (this._phys = this.ctx.peek('physics'));
+    // `get`, not `peek`: physics is a declared dep, so a missing one is a boot
+    // bug that should fail loudly, not degrade into bots with no raycasts.
+    return this._phys ?? (this._phys = this.ctx.get('physics'));
   }
 
   /* ================================================================== */
@@ -721,7 +723,7 @@ export class AiSystem {
 
   _buildNav() {
     const phys = this.phys;
-    const world = this.ctx.peek('world');
+    const world = this.ctx.get('world');
     if (!phys) return;
     if (phys.staticWorld.dirty) phys.rebuildStatic();
     if (phys.triangleCount <= 0) return; // level not registered yet — retry next frame
@@ -768,7 +770,11 @@ export class AiSystem {
     if (!phys) return 0;
     const h = phys.raycast(x, fromY, z, 0, -1, 0, 80, phys.MASK.WORLD);
     if (h.hit) return h.point.y;
-    return this.ctx.peek('world')?.groundHeight?.(x, z) ?? 0;
+    // No second probe: `world` never had a groundHeight — the old fallback
+    // optional-chained a method that does not exist and always produced 0.
+    // A ray from y=40 only misses outside the playable volume, where 0 is as
+    // honest a floor as any.
+    return 0;
   }
 
   /**
@@ -796,6 +802,11 @@ export class AiSystem {
    * Build one bot and enlist it. `opts.team` decides which side it fights for
    * and which camo it wears; both come from the same `match` table, so a bot
    * cannot end up dressed as one team and scored as the other.
+   *
+   * `yaw` is in the AI convention (0 faces +Z) — every other gameplay-facing
+   * yaw in the codebase is the WORLD one, and they differ by exactly PI.
+   * Handing this a `world.spawnPoints[].yaw` unconverted spawns the bot facing
+   * its own back wall; wrap it in `aiYaw()` first, the way populate() does.
    */
   spawn(variantName, position, yaw = 0, opts = {}) {
     const a = new Agent(this, { variant: variantName, position, yaw, ...opts });
@@ -826,7 +837,7 @@ export class AiSystem {
    * not bots, which is the number a scoreboard has to agree with.
    */
   populate(opts = {}) {
-    const world = this.ctx.peek('world');
+    const world = this.ctx.get('world');
     if (!world || !this.grid) return 0;
 
     const perTeam = opts.perTeam ?? 4;

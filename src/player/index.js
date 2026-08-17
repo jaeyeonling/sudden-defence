@@ -84,6 +84,7 @@ import { Health } from './health.js';
 import { Spectator } from './spectate.js';
 import { STANCE, CAMERA, HEALTH, FOOTSTEP, JUMP_SPEED } from './tuning.js';
 import { clamp, clamp01, DEG } from './springs.js';
+import { BASE_SENSITIVITY } from '../core/config.js';
 import { dpow } from '../core/dmath.js';
 
 /**
@@ -289,7 +290,13 @@ export class PlayerSystem {
     // One sensitivity, always. With no ADS there is no second zoom level to
     // scale against, and a sensitivity that changes underfoot is the fastest
     // way to break aim muscle memory.
-    const sens = cfg.sensitivity ?? 1;
+    //
+    // The stick wants the user's unitless MULTIPLIER, not rad/count: dividing
+    // by BASE_SENSITIVITY recovers it. The old `cfg.sensitivity ?? 1` read the
+    // raw 0.0022 as the multiplier — full deflection turned 0.007 rad/s — and
+    // its fallback (1) was ~450x the configured value, so a harness with a bare
+    // config got an unusable look speed instead of a visible failure.
+    const sens = (cfg.sensitivity ?? BASE_SENSITIVITY) / BASE_SENSITIVITY;
 
     // NOT scaled by `sens` again. `input.look` is ALREADY in radians — `Input`
     // multiplies the raw pointer delta by `config.sensitivity` in its own

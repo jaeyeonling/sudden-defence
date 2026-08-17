@@ -1,174 +1,181 @@
-# sudden-claude
+# SUDDEN CLAUDE
 
-A round-based team elimination FPS that runs in a browser tab. First to five
-rounds, best of nine. Four fighters a side — you and three bots against four —
-in one mirrored warehouse. WebGL2 and Three.js, and nothing else.
+A round-based team elimination FPS that runs in a browser tab. WebGL2 and
+Three.js r180, sixteen fighters, no netcode — and **not one art asset**. Every
+texture, mesh, animation and sound in the screenshot below is generated at load
+time from code.
 
-![The centre hall, first person](docs/hero.jpg)
+![The warehouse, mid-round](docs/hero.jpg)
 
 ```bash
 npm install
-npm run dev        # http://127.0.0.1:5173
+npm run dev
 ```
 
-| | | | |
-|---|---|---|---|
-| move | `WASD` | reload | `R` |
-| look / fire | mouse | throw | `G` |
-| jump | `Space` | weapons | `1` `2` `3`, `Q` to swap |
-| crouch | `Ctrl` / `C` | fire mode | `B` |
-| scoreboard | `Tab` | pause | `Esc` |
-
-No sprint, no ADS, no lean, no slide. Accuracy is the hipfire cone plus a recoil
-pattern you learn to pull down; the crosshair lives in the HUD.
+`three` is the only dependency. Nothing is fetched at runtime — no CDN, no
+HDRIs, no model files, no audio files. The game runs with the network cable out.
 
 ---
 
-## No assets
+## Three JavaScript engines simulate this world bit for bit
 
-There is no `assets/` directory. Every texture, mesh, animation, material and
-sound in the screenshot above is generated at load time — the concrete, the
-hazard stripes, the rifle, the gloves on the hands holding it, the soldiers, the
-sky.
+That is the part worth reading about, and it was not free.
 
-![Cover in the centre hall](docs/hall.jpg)
+The question is the one that picks a netcode architecture. If two engines agree,
+peers can exchange **commands** and each re-simulate — a few bytes per tick. If
+they disagree, that design is dead on arrival, because divergence compounds and
+lockstep has no reconciliation step. IEEE 754 pins `+ - * /` and `sqrt` to a
+correctly-rounded result everywhere, but it leaves the transcendentals
+implementation-approximated: `sin`, `cos`, `atan2`, `exp`, `pow`, `acos` — and
+`hypot`, which surprises people because it sits next to `sqrt` in the docs. V8,
+SpiderMonkey and JavaScriptCore implement those differently, so where they
+differ is where two players on two machines would.
 
-The repository contains 183 JavaScript files and one runtime dependency:
+`tools/crossengine.mjs` drives the same fixed steps in all three and compares
+the simulation state as **bit patterns**, not as numbers — a tolerance there
+would hide exactly the last-bit disagreement the tool exists to find.
 
-```json
-"dependencies": { "three": "^0.180.0" }
-```
-
-That constraint is a hard rule rather than a boast (see
-[ARCHITECTURE.md](ARCHITECTURE.md)), and it is why the game runs offline, boots
-without a loading bar, and diffs as text.
-
-## Three JavaScript engines agree, bit for bit
-
-This is the part worth reading about.
-
-The question was which netcode is available. If two engines simulate the same
-world identically, peers can exchange *commands* — a few bytes per tick — and
-each re-simulate. If they don't, that design is dead on arrival, because
-divergence compounds and lockstep has no reconciliation step.
-
-That is not a preference. It is a measurement, and `tools/crossengine.mjs` makes
-it. Today, across Chromium (V8), Firefox (SpiderMonkey) and Safari
-(JavaScriptCore), 3600 ticks, four recorded seeds:
+It read `190/1777 leaves differ` when it was first built. It now reads:
 
 ```
-CROSSENGINE IDENTICAL
+chromium vs chromium#control   IDENTICAL   (3600 ticks)
+chromium vs firefox            IDENTICAL   (3600 ticks)
+chromium vs webkit             IDENTICAL   (3600 ticks)
 ```
 
-Getting there took three rounds of work, and the shape of it is the interesting
-part. IEEE 754 pins `+ - * /` and `sqrt` to a correctly-rounded result. It does
-**not** pin the transcendentals: `sin`, `cos`, `atan2`, `exp`, `pow`, `acos` are
-"implementation-approximated" in the spec, and every engine is free to be
-slightly different.
+Thirty seconds of driven combat — two deaths, ragdolls settling, grenades in
+flight at the dump — across four seeds. The route there was five rounds of
+substitution, each one made only after a measurement **convicted** a specific
+call site:
 
-1. **The control was noise.** The first run read 190 differing leaves out of
-   1777 — until it turned out two browsers were building *different worlds*,
-   because the engine drew its master seed from `Math.random()`. With `?seed=`
-   and `?lockstep=1` the control went to zero, and the real number was **one**
-   leaf: `ai.agents[2].s.animator.phase`.
+| | what it was | how it was found |
+|---|---|---|
+| 1 | `hypot(x,y,z)` respelt as `sqrt(x*x+y*y+z*z)` | the audit's own text: that spelling is correctly rounded everywhere, so 84 call sites were never part of the "permanent tax" the header warned about |
+| 2 | fdlibm `atan2` ported into `dmath.js` | webkit's residue was `targetYaw`, and `atan2` has no cheap respelling |
+| 3 | `dsin` `dcos` `dexp` `dlog` `dpow` `dtan` everywhere in the sim | **fifteen leaves did not move.** Bit-identical divergence across five substitution generations — which acquitted every one of our call sites |
+| 4 | `dquatFromEuler` over three.js's internals | the door was a grenade in flight, thrown from a posed bone; `setFromEuler` calls the engine's own `Math.sin` *inside the library* |
+| 5 | `group.rotation.y = yaw` → `dquatFromEuler` | a seed sweep, not a code review. Seed 1 broke agreement on corpses only |
 
-2. **`hypot` was the cheap half.** It sits among the approximated functions in
-   the spec, but `hypot(x, y, z)` is `sqrt(x² + y² + z²)` up to overflow
-   handling, and that spelling is correctly rounded everywhere. 84 call sites
-   re-spelled in `src/core/dmath.js`, and Firefox went identical.
+Row 3 is the one to notice. "We changed it and nothing moved" was not a failed
+fix — it was the evidence that ruled out everything we controlled and pointed
+inside the library.
 
-3. **The rest was fdlibm.** `sin`, `cos` and `atan2` were ported from fdlibm so
-   every engine evaluates the same polynomial. The last holdout was inside
-   Three.js — `Quaternion.setFromEuler` calls the engine's own trig, so the root
-   yaw of every agent had to be routed through the ported versions too.
+`dmath.js` keeps the rule that produced this: **a function is ported when a
+measurement convicts it**, and every function in it was.
 
-`tools/replay.mjs` gates the other half of the same property: snapshot a tick,
-replay the same commands, arrive at bit-identical state. And
-`tools/headless.mjs` boots the simulation with no renderer at all, which is what
-makes a server an option rather than a rewrite.
+---
 
-No netcode is implemented. What exists is the evidence that either architecture
-would work, and the seams — `ctx.commands.override`, `captureState` /
-`restoreState` on six subsystems — for whichever gets chosen.
+## Everything is generated
 
-## Gates, not unit tests
+No `assets/` directory, because there is nothing to put in one.
 
-40 harnesses live in `tools/`; 21 of them run in `npm test`. Almost none of them
-assert that a function returns a value. They measure whether the game
-*perceives* and *behaves* correctly, from inside a real browser:
+- **Materials** — procedural PBR bakes: albedo, roughness, normal, AO, plus
+  grime, dust and wear layers. Concrete, metal, cloth, skin, glass.
+- **The level** — a 48 × 36 m warehouse, 20,152 triangles in 17 draw calls,
+  built from a parametric kit of walls, windows, doors, shopfronts, stairs and
+  damage. 1,164 triangles of collision under a BVH.
+- **The soldiers** — skinned characters assembled from a part library (helmet,
+  plate carrier, pouches, boots, goggles) over a 25-bone rig, with animation
+  clips synthesised rather than authored.
+- **The weapons** — three, modelled from a shared parts vocabulary: optics,
+  receivers, furniture, barrels, magazines.
+- **The sky** — physical atmosphere with a time of day, volumetrics, and an IBL
+  probe the whole scene lights from.
+- **The sound** — synthesised. Weapon reports, foley, impacts, spatialisation
+  and reverb, generated in the audio graph.
 
-| | |
+Render path: HDR, 4×2048 CSM shadows, TAA, GTAO, SSR, motion blur, and a
+tone-mapped composite. It holds **62 fps median with zero stalls and zero heap
+growth** over 840 frames — "allocate nothing per frame" is a hard rule here, and
+the profiler checks it rather than trusting it.
+
+---
+
+## The gates
+
+Forty tools live in `tools/`, and twenty-eight of them are gates that `npm test`
+runs. Almost none of them are unit tests. They ask questions about the
+*experience*, because that is what can actually break:
+
+| gate | the question |
 |---|---|
-| `legibility` | can you tell a soldier from the wall — and from clutter — at 24 m? |
-| `friendfoe` | is the team mark separable from the enemy's at 9 m? |
-| `ballistics` | how many rounds does a kill take, and does the spray pattern climb? |
-| `kick` | how far does the *view* move — the number `ballistics` cannot see¹ |
-| `botfight` | do bots actually kill each other, and is every death attributed? |
-| `matchsim` | do five rounds complete, with the right winners and no drift? |
-| `vault` | does every accepted vault have headroom to land in? |
-| `reach` | is the floor one connected region with no free sightline at the bell? |
-| `aim` | do bob, breath and shake move the camera without moving the round? |
-| `firerate` | is the printed RPM the RPM you get at 30 and at 144 fps? |
+| `friendfoe` | can you tell which team a man belongs to before he shoots you? |
+| `legibility` | is an enemy body readable against the wall behind it? |
+| `symmetry` | is the map actually fair? |
+| `phasecue` | can a player tell that the round phase just changed? |
+| `converge` | two survivors, no line of sight — how long until they find each other? |
+| `firerate` | does the rate of fire depend on the frame rate? |
 | `debris` | does anything stay in the air after the round has gone? |
-| `pixelgate` | did the picture change without the manifest changing? |
-| `determinism` | are two capture passes byte-identical? |
-| `crossengine` | do three JS engines simulate the same world? |
-| `layering` | did anyone break the architecture's hard rules? |
-
-¹ `kick` reports and does not gate. Feel is a judgement, and a threshold on it
-would be a threshold on somebody's taste — what the tool is for is making a
-change to that taste visible, so the argument happens over four figures instead
-of two adjectives. It earned its place immediately: `ballistics` had been
-reporting 15.4° of recoil climb for the M4A1 by summing the pattern array, while
-the view actually moved 1.18° over ten rounds *and 1.18° over twenty-eight*. The
-spray had no shape at all, and the design comments, the documentation and the
-gate all agreed with each other about a mechanic no player was ever subject to.
+| `roundreset` | does a new round hand back a full magazine — and the grenades? |
+| `vault` | can a bot vault into solid geometry? |
+| `reach` | can alpha actually walk to bravo? |
+| `replay` | snapshot a tick, run on, restore, replay — same state? |
+| `crossengine` | do three JavaScript engines simulate the same world? |
+| `pixelgate` | did this commit change the picture, and did anyone mean it? |
 
 ```bash
-npm test              # everything
-npm run test:logic    # headless + simulation gates, no GPU opinion
-npm run test:render   # pixels, determinism, cross-engine
-npm run test:perf     # frame time; run it on hardware you control
+npm test              # all 28
+npm run test:logic    # 20 that read engine state only — no pixels, no timing
+npm run test:render   # the ones that sample the framebuffer or compare bits
+npm run test:perf     # frame time and stalls; wants an idle machine
 ```
 
-The split matters: `test:logic` asks questions whose answer is a property of the
-**code**, and `test:render` and `test:perf` ask questions whose answer is partly
-a property of the **machine**. Only the first belongs on a shared CI runner.
+`test:render` and `test:perf` are pinned to the reference machine, and they say
+so instead of going red elsewhere. Pixel hashes are hashes of a *renderer*, and
+a gate that cries wolf on a different GPU is a gate people learn to skip.
 
-Several of these were written because something had already gone wrong and
-nothing had caught it. `pixelgate` exists because a material-slot ordering defect
-shipped and survived: the only tool that compared against a *stored* picture was
-wired to nothing, and `determinism` passes happily when both passes are equally
-wrong.
+### The thresholds have reasons, and the reasons are written down
 
-## Layout
+`profile`'s stall ceiling was 250 ms and is now 100 ms. The commit explains why:
+the first thrown grenade cost 122–142 ms on about one run in four, and **every
+occurrence passed the 250 ms gate while being plainly visible to play**. A bound
+set at the size of the worst bug you happened to measure is a bound that only
+ever catches that bug again.
 
-```
-src/
-  core/       engine, registry, fixed-step clock, RNG, command stream, dmath
-  render/     depth prepass, cascaded shadows, GTAO, SSR, TAA, bloom, exposure
-  materials/  procedural material library and its GLSL
-  sky/        atmosphere
-  physics/    swept capsules, rigid bodies, ragdolls, penetration
-  fx/         particles, decals, impacts
-  audio/      Web Audio synthesis — not one audio file in the project
-  world/      the warehouse and its kit of parts
-  player/     movement, camera rig, health
-  weapons/    three guns, viewmodel, ballistics
-  ai/         bots — perception, cover, combat
-  ui/         HUD
-  match/      rounds, teams, scoring
-  dev/        named camera poses and the deterministic frame pump
-tools/        the harnesses above
-```
+`compiledDuringPlay` is required to be exactly `0`. It was bounded at 1 while
+the job was unfinished, and the bound is 0 now because a residue nobody can
+attribute is precisely what a bound of 1 lets back in.
 
-Thirteen subsystems, each owning one directory, none importing another's
-modules. They find each other at runtime through a registry. That rule is what
-let 31k lines of engine code move here from another project untouched, and
-`tools/layering.mjs` enforces it on every run.
+---
 
-[ARCHITECTURE.md](ARCHITECTURE.md) is the contract — read it before writing code.
+## Deliberate omissions
 
-## License
+Ported from a Call-of-Duty-style sandbox and then cut back on purpose:
 
-ISC. See [LICENSE](LICENSE).
+**No ADS.** Hipfire only; accuracy is a spread model, not a sight picture.
+**Deterministic spray.** A fixed seeded recoil pattern you can memorise, and one
+you have to pull down against: the climb is on the aim, so it moves the round.
+Bob, breath and trauma shake are *not* — those move the camera and nothing else,
+and `tools/aim.mjs` gates the difference. **Hitscan.** No travel
+time, no drop. **No sprint, slide, mantle, lean or prone** — stand, crouch,
+jump, and that is the whole movement vocabulary. **No health regen.** Damage is
+permanent for the round. **Headshots are lethal**, and the player carries the
+same part capsules a bot does. **No respawns** — death is final until the round
+ends, and you spectate a living team-mate over the shoulder rather than free-cam
+through walls.
+
+A minimap was deleted too, along with a compass. A 48 × 36 m symmetric depot
+with three lanes is a map you learn in two rounds; a minimap of it is a second
+screen showing what the first already does.
+
+---
+
+## Working on it
+
+`ARCHITECTURE.md` is the contract, and it is worth reading before touching
+anything. The short version:
+
+1. You own your directory. Subsystems never import each other — they meet at
+   runtime through `ctx.get(id)`. This is what let 31k lines of engine move here
+   from another project untouched.
+2. The engine layer (`render`, `materials`, `sky`, `physics`, `fx`, `audio`,
+   `core`) may never *name* gameplay. When it needs something gameplay knows,
+   gameplay pushes it down.
+3. No `Math.random()` — `ctx.rng`, or a fork you keep.
+4. Allocate nothing per frame.
+5. `npm run build` passes and `node tools/capture.mjs --shot=boot` produces a
+   frame, or nobody else can work.
+
+## Licence
+
+ISC — see [LICENSE](LICENSE).

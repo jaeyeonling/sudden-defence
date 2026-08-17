@@ -85,9 +85,18 @@ No `assets/` directory, because there is nothing to put in one.
   and reverb, generated in the audio graph.
 
 Render path: HDR, 4×2048 CSM shadows, TAA, GTAO, SSR, motion blur, and a
-tone-mapped composite. It holds **62 fps median with zero stalls and zero heap
-growth** over 840 frames — "allocate nothing per frame" is a hard rule here, and
-the profiler checks it rather than trusting it.
+tone-mapped composite. Over 840 frames it holds **zero stalls and zero heap
+growth** — "allocate nothing per frame" is a hard rule here, and the profiler
+measures it rather than trusting it.
+
+The median frame rate is deliberately not quoted as a number here. It is a
+property of the machine at least as much as of the code: `tools/profile.mjs`
+records the same commit measuring p50 57 fps and p50 13 fps within an hour, and
+spending a day catching a security agent rather than a regression. Recent runs
+on the reference laptop sit between 49 and 62 fps at dpr 2, with the frame
+render-bound — 19.7 ms of a 20.4 ms frame is `render.render`, and no simulation
+phase clears the reporting threshold. Run `npm run test:perf` on hardware you
+control and believe that instead.
 
 ---
 

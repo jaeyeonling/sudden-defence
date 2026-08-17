@@ -51,7 +51,7 @@
  *                              position, dead }
  *   player.spectateTarget -> Combatant | null
  *   match                 -> phase, scores, round, combatants, TEAMS
- *   audio.playUi(id, gain)
+ *   audio.ui(id, gain, opts?)
  *
  * `match` is a hard dependency, not a peek. Everything at the top of the screen
  * comes from it, and a HUD that silently renders 0-0 forever because a `peek`
@@ -426,17 +426,20 @@ export class UiSystem {
 
   sfx(id, gain = 1, opts = null) {
     const a = this.ctx.peek('audio');
-    if (!a) return;
+    if (typeof a?.ui !== 'function') return;
     try {
-      // `opts` is optional and only the newest adapter takes it, so it is passed
-      // through the richest path available and dropped by the others rather than
-      // making a caller check which audio system it got.
-      if (typeof a.ui === 'function' && opts) a.ui(id, gain, opts);
-      else if (typeof a.playUi === 'function') a.playUi(id, gain);
-      else if (typeof a.play === 'function') a.play(id, { gain });
-      else if (typeof a.sfx === 'function') a.sfx(id, gain);
-    } catch {
-      /* audio is optional feedback — never let it break the HUD */
+      // One method, one call site: the old four-way duck-type probed adapter
+      // shapes with exactly one implementation in the repo, three of which
+      // were unreachable — and `a.ui` was only tried when `opts` was present,
+      // so the normal path went through a shim that dropped the opts.
+      a.ui(id, gain, opts);
+    } catch (e) {
+      // Audio is optional feedback and must never break the HUD — but a
+      // permanently broken path should not be invisible either.
+      if (!this._sfxWarned) {
+        this._sfxWarned = true;
+        console.warn('[ui] audio feedback failing; further errors muted', e);
+      }
     }
   }
 

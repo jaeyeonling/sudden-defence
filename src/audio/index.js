@@ -479,11 +479,6 @@ export class AudioSystem {
     return this._playDry(k, o, BUS_FOR[k] ?? 'ui', k === 'heartbeat' ? 0.1 : 0);
   }
 
-  /** Adapter the `ui` subsystem probes for: playUi(id, gain). */
-  playUi(id, gain = 1) {
-    return this.ui(id, gain);
-  }
-
   /** Adapter the `fx` subsystem probes for: playShell(position, gain). */
   playShell(position, gain = 1) {
     if (!isVec(position)) return false;
@@ -727,9 +722,9 @@ export class AudioSystem {
     // "the thing that got hit isn't me, therefore I hit it" — which is a correct
     // test in a game with one shooter and wrong in one with fifteen bots. Every
     // round a bot landed on another bot across the map ticked in the player's
-    // ear. `ui/index.js:192` was fixed for the same reason and this half was
-    // left behind; the old TODO here was waiting for `damage:dealt` to carry
-    // `source`, which physics has done since M3 (`physics/index.js:794`).
+    // ear. `ui`'s damage:dealt handler was fixed for the same reason and this
+    // half was left behind; the old TODO here was waiting for `damage:dealt`
+    // to carry `source`, which physics has done since M3.
     //
     // The hurt bark is diegetic: it is the victim's voice at the victim's
     // position, and it belongs in the world whoever pulled the trigger. So it
@@ -750,7 +745,8 @@ export class AudioSystem {
    *
    * `audio` has no gameplay dependency and this is not the place to introduce
    * one: the flag rides on the combatant that physics already handed us
-   * (`player/index.js:107`), so the question is answerable from the event alone.
+   * (`player` sets `isPlayer` when it registers), so the question is
+   * answerable from the event alone.
    * The string form is the pre-Combatant spelling, still emitted by
    * `physics/selftest.js`.
    */

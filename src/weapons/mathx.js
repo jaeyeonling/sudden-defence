@@ -22,11 +22,6 @@ export function lerp(a, b, t) {
   return a + (b - a) * t;
 }
 
-export function smoothstep(a, b, x) {
-  const t = clamp01((x - a) / (b - a || 1e-6));
-  return t * t * (3 - 2 * t);
-}
-
 /** 5th-order smootherstep — zero 1st AND 2nd derivative at both ends. */
 export function smootherstep(a, b, x) {
   const t = clamp01((x - a) / (b - a || 1e-6));

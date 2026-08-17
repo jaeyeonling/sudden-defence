@@ -22,17 +22,6 @@ export function lerp(a, b, t) {
   return a + (b - a) * t;
 }
 
-export function smoothstep(t) {
-  t = clamp01(t);
-  return t * t * (3 - 2 * t);
-}
-
-/** C2-continuous ease — used for rooted mantle curves where velocity must not pop. */
-export function smootherstep(t) {
-  t = clamp01(t);
-  return t * t * t * (t * (t * 6 - 15) + 10);
-}
-
 export function easeOutCubic(t) {
   t = clamp01(t);
   const u = 1 - t;

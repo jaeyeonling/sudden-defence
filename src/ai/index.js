@@ -87,7 +87,7 @@ export class AiSystem {
     'inspect', 'debugLog', 'forcePopulate', 'stats', '_navPending', 'pathsPerFrame',
     '_grenadeGeo', '_grenadeMat', '_warmGrenade', '_prewarmed', '_off', '_phys', '_sky',
     '_v', '_v2', '_v3', '_probe', '_tracerFrom', '_tracerTo',
-    '_fireEvent', '_shellEvent', '_tracerEvent',
+    '_fireEvent', '_shellEvent', '_tracerEvent', '_explosionEvent',
     '_frustum', '_mvp', '_sphere', '_sweep', '_sun', '_lodStats',
   ];
 

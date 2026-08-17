@@ -102,7 +102,7 @@ control and believe that instead.
 
 ## The gates
 
-Forty tools live in `tools/`, and twenty-eight of them are gates that `npm test`
+Forty tools live in `tools/`, and twenty-nine of them are gates that `npm test`
 runs. Almost none of them are unit tests. They ask questions about the
 *experience*, because that is what can actually break:
 
@@ -123,8 +123,8 @@ runs. Almost none of them are unit tests. They ask questions about the
 | `pixelgate` | did this commit change the picture, and did anyone mean it? |
 
 ```bash
-npm test              # all 28
-npm run test:logic    # 20 that read engine state only — no pixels, no timing
+npm test              # all 29
+npm run test:logic    # 21 that read engine state only — no pixels, no timing
 npm run test:render   # the ones that sample the framebuffer or compare bits
 npm run test:perf     # frame time and stalls; wants an idle machine
 ```

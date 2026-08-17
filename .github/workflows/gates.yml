@@ -1,11 +1,11 @@
-# The 28 gates, split by what each one actually depends on.
+# The 29 gates, split by what each one actually depends on.
 #
 # The split is not by speed. It is by whether a gate's verdict is a property of
 # the CODE or a property of the MACHINE, because those two need different
 # runners and mixing them produces a suite that is red for reasons nobody can
 # act on — which is how a gate stops being read.
 #
-#   logic    20 gates that read engine state through page.evaluate and never
+#   logic    21 gates that read engine state through page.evaluate and never
 #            look at a pixel. The simulation is CPU-side JS, so SwiftShader on a
 #            shared runner answers the same as Metal does. Cheap, parallel,
 #            always available: this is the one that should block a PR fastest.
@@ -46,13 +46,16 @@ on:
     - cron: '17 4 * * *'
   workflow_dispatch:
 
+# The event name is part of the key: a schedule run resolves github.ref to
+# refs/heads/main, so without it a push to main during the 04:17 window would
+# cancel the nightly perf run — the one job with no other trigger.
 concurrency:
-  group: gates-${{ github.ref }}
+  group: gates-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   logic:
-    name: logic (20 gates)
+    name: logic (21 gates)
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -125,6 +128,17 @@ jobs:
         env:
           OW_NO_HMR: '1'
         run: npm run test:render
+      # legibility/markings/friendfoe write their evidence PNGs to shots/, and a
+      # red pixel gate on a runner nobody is sitting at leaves nothing to look
+      # at without this.
+      - name: Upload shots on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: render-shots
+          path: shots/
+          if-no-files-found: ignore
+          retention-days: 14
 
   perf:
     name: perf (nightly)

@@ -192,11 +192,14 @@ export class AudioSystem {
   }
 
   _teardown() {
+    // One guard per disposal, the way spatial.js detach() does it: a single
+    // try means the first throw silently skips everything after it, and the
+    // AudioContext at the end is the one leak that actually costs something.
+    try { this.ambience?.dispose(); } catch { /* nothing useful to do */ }
+    try { this.field?.dispose(); } catch { /* nothing useful to do */ }
+    try { this.mixer?.dispose(); } catch { /* nothing useful to do */ }
+    try { this.bank?.dispose(); } catch { /* nothing useful to do */ }
     try {
-      this.ambience?.dispose();
-      this.field?.dispose();
-      this.mixer?.dispose();
-      this.bank?.dispose();
       if (this.actx && this.actx.state !== 'closed') this.actx.close();
     } catch { /* nothing useful to do */ }
     this.ambience = this.field = this.mixer = this.bank = null;
@@ -714,7 +717,7 @@ export class AudioSystem {
   _onDamageDealt(p) {
     if (!this.running || !p) return;
     const t = p.target;
-    const targetIsPlayer = t === 'player' || t?.isPlayer === true;
+    const targetIsPlayer = this._isPlayer(t);
 
     // Two different sounds live in this one event and they answer two different
     // questions, which is why they are gated separately.

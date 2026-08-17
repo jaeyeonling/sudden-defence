@@ -44,6 +44,9 @@ import { DEG } from './mathx.js';
  *   wp.nextWeapon()
  *   wp.cycleFireMode()
  *   wp.reload()           no-op if full or empty of reserve
+ *   wp.refillAll()        reissue every magazine + the frags (round scope)
+ *   wp.grenades           frags left this round
+ *   wp.throwGrenade()     lob one along the aim; returns true if one left
  *   wp.inspect()
  *   wp.tryFire()          honours fire mode + rpm; returns true if a shot left
  *   wp.viewmodel          the rig (fx/ui may read muzzle/eject transforms)
@@ -68,6 +71,22 @@ import { DEG } from './mathx.js';
  * OVER THE 800-LINE LIMIT as a subsystem entry point: the line count is API
  * area, not depth. See ARCHITECTURE.md, "File size".
  */
+
+/**
+ * The player's frag loadout, reissued by `refillAll` on every respawn — the
+ * same round scope as the magazine, for the same reason.
+ *
+ * Two, not four: a grenade that clears a room costs the thrower nothing to
+ * throw, so the count is what stops it from being the primary weapon.
+ */
+const GRENADES_PER_ROUND = 2;
+/** m/s along the aim. A hard throw crosses the warehouse's 14.4 m median. */
+const THROW_SPEED = 15.5;
+/** m/s of loft added on top, so the arc clears cover instead of hugging it. */
+const THROW_LOFT = 2.6;
+/** Seconds. Matches the bot fuse — one grenade, one behaviour. */
+const GRENADE_FUSE = 2.35;
+
 export class WeaponSystem {
   static id = 'weapons';
   static deps = ['materials', 'physics'];
@@ -92,14 +111,14 @@ export class WeaponSystem {
    * to skip), and restoring a derived field costs nothing.
    */
   static snapshotState = [
-    'states', 'activeId', 'rng',
+    'states', 'activeId', 'rng', 'grenades',
     '_fireTimer', '_burstLeft', '_burstCooldown', '_semiLatch',
     '_spread', '_shotIndex', '_sinceShot', '_fireSeed',
     '_switchTimer', '_switchTo', '_reloadPhase', '_pendingReloadEmpty',
     '_pendingShots', '_pendingFirst', '_state',
   ];
   static excludedState = [
-    'ctx', 'fxRng', 'mats', 'player', 'fx', 'physics', 'viewmodel', 'stats', '_off',
+    'ctx', 'fxRng', 'mats', 'player', 'ai', 'fx', 'physics', 'viewmodel', 'stats', '_off',
     'debugMode', '_debugFrame', '_scriptFrames', '_aimOverride',
     '_shellQueue', '_droppedMags', '_magPools', '_disc', '_hudState',
     '_muzzle', '_eye', '_dir', '_tracerTo', '_right', '_up', '_tmp',
@@ -137,6 +156,8 @@ export class WeaponSystem {
     this.viewmodel = null;
     this.states = new Map();
     this.activeId = 'rifle';
+    this.grenades = GRENADES_PER_ROUND;
+    this.ai = null;
     this.debugMode = null;
 
     this._fireTimer = 0;
@@ -230,7 +251,7 @@ export class WeaponSystem {
     // Preallocated HUD snapshot handed to `ui` (see getHudState).
     this._hudState = {
       name: '', mode: 'auto', ammo: 0, reserve: 0, magSize: 0,
-      reloading: false, reloadProgress: 0, spread: 0, firing: false,
+      reloading: false, reloadProgress: 0, spread: 0, firing: false, grenades: 0,
     };
   }
 
@@ -296,6 +317,7 @@ export class WeaponSystem {
       ctx.events.on('player:land', (e) => this.viewmodel.land(Math.abs(e?.velocity ?? 3)))
     );
     this._off.push(ctx.events.on('player:jump', () => this.viewmodel.jump()));
+    this._off.push(ctx.events.on('player:respawn', () => this.refillAll()));
 
     this.stats = { tris, drawCalls: 0, live: 0, fired: 0 };
     console.info(
@@ -395,6 +417,7 @@ export class WeaponSystem {
     // normalised 0..1 rather than raw degrees.
     h.spread = Math.min(1, Math.max(0, this._spread / 6));
     h.firing = this.firing;
+    h.grenades = this.grenades;
     return h;
   }
 
@@ -422,6 +445,76 @@ export class WeaponSystem {
     s.mode = s.def.modes[s.modeIndex];
     this._burstLeft = 0;
     return s.mode;
+  }
+
+  /**
+   * Every weapon back to a full magazine and its issued reserve.
+   *
+   * The rules table has always said ammo is round-scoped and "cleared by
+   * `respawn()`", and nothing did it: `player.respawn` restored health and the
+   * seat, `weapons` subscribed to no round event at all, and a fighter walked
+   * into round four with whatever three rounds they finished round three on.
+   *
+   * Fire mode is deliberately NOT reset. It is a preference a player sets once
+   * and expects to survive, not a resource they spend — and the same argument
+   * applies to which weapon is in their hands, which is why `activeId` is left
+   * alone too.
+   *
+   * In-flight actions ARE cancelled: a reload that was half-finished when the
+   * round ended would otherwise complete into a magazine that is already full,
+   * and a queued weapon switch would fire on the first live frame.
+   */
+  /**
+   * Throw one, along the aim, on the tick.
+   *
+   * The pool lives in `ai` because bots got grenades first; this borrows it
+   * rather than starting a second one that would fuse and explode on its own
+   * terms. See `AiSystem.spawnGrenade`.
+   *
+   * Thrown from the aim origin, not the muzzle: the muzzle is a viewmodel node
+   * and the viewmodel is presentation. A grenade that left from where the gun
+   * is drawn would leave from a different place at 240 fps than at 60.
+   *
+   * The arc is a fixed lob rather than a solve. A bot throws AT a point it has
+   * picked and can solve for; a player throws WHERE THEY ARE LOOKING, and a
+   * throw whose arc changed with the distance to whatever happened to be under
+   * the crosshair would be unlearnable.
+   */
+  throwGrenade() {
+    if (this.grenades <= 0 || this.reloading || this.switching) return false;
+    const ai = this.ai ?? (this.ai = this.ctx.peek('ai'));
+    const player = this.player;
+    if (!ai?.spawnGrenade || !player) return false;
+
+    const o = player.aimOrigin;
+    const d = player.aimForward;
+    if (!o || !d) return false;
+    const thrown = ai.spawnGrenade(
+      { x: o.x + d.x * 0.35, y: o.y + d.y * 0.35, z: o.z + d.z * 0.35 },
+      { x: d.x * THROW_SPEED, y: d.y * THROW_SPEED + THROW_LOFT, z: d.z * THROW_SPEED },
+      GRENADE_FUSE,
+      player
+    );
+    if (!thrown) return false;
+    this.grenades--;
+    this.viewmodel.play('inspect');
+    return true;
+  }
+
+  refillAll() {
+    for (const s of this.states.values()) {
+      s.mag = s.def.magSize;
+      s.chambered = true;
+      s.reserve = s.def.reserve;
+    }
+    this.grenades = GRENADES_PER_ROUND;
+    this._reloadPhase = null;
+    this._switchTimer = 0;
+    this._switchTo = null;
+    this._burstLeft = 0;
+    this._semiLatch = false;
+    this._spread = 0;
+    this._shotIndex = 0;
   }
 
   reload() {
@@ -936,6 +1029,7 @@ export class WeaponSystem {
     const pressed = (cmd.edge & BTN.fire) !== 0;
 
     if (cmd.edge & BTN.reload) this.reload();
+    if (cmd.edge & BTN.grenade) this.throwGrenade();
     this._runTrigger(h, held, pressed, def, s);
     st.trigger = held && this.canFire();
     // Auto-reload on a dry trigger pull, like every modern shooter.

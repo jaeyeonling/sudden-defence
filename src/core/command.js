@@ -51,6 +51,13 @@ export const BTN = Object.freeze({
   crouch: 1 << 1,
   fire: 1 << 2,
   reload: 1 << 3,
+  /**
+   * A thrown grenade leaves the hand on a TICK, like a round leaves the bore.
+   * It was the last piece of gameplay still reading the device directly — the
+   * binding existed in `input.js` and nothing consumed it, so the player could
+   * not throw at all while bots could.
+   */
+  grenade: 1 << 4,
 });
 
 /**
@@ -174,12 +181,14 @@ export class CommandStream {
     // `fire` is the mouse, not an action binding — see `Input.fire`.
     if (input.fire) held |= BTN.fire;
     if (input.action('reload')) held |= BTN.reload;
+    if (input.action('grenade')) held |= BTN.grenade;
     this._held = held;
 
     // OR, not assign. A frame that produces no tick must hand its press to the
     // frame that does, or fast machines quietly eat inputs.
     if (input.actionPressed('jump')) this._edge |= BTN.jump;
     if (input.actionPressed('crouch')) this._edge |= BTN.crouch;
+    if (input.actionPressed('grenade')) this._edge |= BTN.grenade;
     // The one that made a semi-automatic worth doing this for: a click that
     // began and ended inside a frame with no tick used to be a round that never
     // left. `firePressed` is a frame-scoped edge, so it has to be caught here.

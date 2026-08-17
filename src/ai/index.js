@@ -1104,6 +1104,24 @@ export class AiSystem {
     agent.animator.fire(0.35);
   }
 
+  /**
+   * Throw one from an arbitrary origin along an arbitrary velocity.
+   *
+   * The pool, the rigid body, the fuse and the explosion all live here because
+   * bots got grenades first — not because throwing is an AI concern. `weapons`
+   * calls this for the player rather than growing a second pool that would
+   * fuse, explode and rewind on its own terms.
+   *
+   * `thrower` is whatever the explosion should be attributed to; it is handed
+   * straight back out on the event and never posed or animated here, which is
+   * what lets a player pass themselves in without being an Agent.
+   */
+  spawnGrenade(from, velocity, fuse = 2.35, thrower = null) {
+    if (!this.phys) return false;
+    this._spawnGrenade(from, velocity, fuse, thrower);
+    return true;
+  }
+
   _updateGrenades(dt) {
     for (let i = this._grenades.length - 1; i >= 0; i--) {
       const g = this._grenades[i];

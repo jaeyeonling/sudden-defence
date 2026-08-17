@@ -46,7 +46,7 @@
  * WHAT THIS SUBSYSTEM READS (all optional, all duck-typed)
  * ---------------------------------------------------------------------------
  *   weapons.getHudState() -> { name, mode, ammo, reserve, magSize, reloading,
- *                              reloadProgress, spread }
+ *                              reloadProgress, spread, grenades }
  *   player.getHudState()  -> { health, maxHealth, move, crouch, airborne,
  *                              position, dead }
  *   player.spectateTarget -> Combatant | null
@@ -77,6 +77,21 @@ import { SpectateOverlay } from './spectate.js';
 import { WorldMarkers } from './markers.js';
 import { Prompt, Banner } from './prompts.js';
 import { PauseMenu } from './menu.js';
+
+/**
+ * Seconds of freeze the countdown covers.
+ *
+ * `TEMPO.freeze` is 5, so this counts the WHOLE phase — 5, 4, 3, 2, 1 — rather
+ * than appearing three seconds in. It was 3, which read as the number arriving
+ * late: a player watching a doorway saw nothing, nothing, then a 3, and the two
+ * seconds that would have let them settle on the door were spent wondering
+ * whether the round had started.
+ *
+ * Tied to the freeze length by intent rather than by import: if freeze grows,
+ * a countdown that starts at the top of it stops being a countdown and becomes
+ * a clock. Raise both together and only on purpose.
+ */
+const COUNTDOWN_FROM = 5;
 
 /** Phase -> what the round-end banner says when a side takes the round. */
 const RESULT = {
@@ -116,7 +131,8 @@ export class UiSystem {
     this.prompt = new Prompt(this.chromeLayer);
     this.banner = new Banner(this.chromeLayer);
     /**
-     * The freeze countdown: one big number, dead centre, last three seconds.
+     * The freeze countdown: one big number, dead centre, counting the whole
+     * freeze out — see COUNTDOWN_FROM.
      *
      * On the CENTRE layer rather than with the banner, because it has to sit
      * where the crosshair is — a player waiting for a round to start is looking
@@ -139,6 +155,7 @@ export class UiSystem {
       ammo: 30,
       reserve: 210,
       magSize: 30,
+      grenades: 0,
       reloading: false,
       reloadProgress: 0,
       weaponName: 'M4A1',
@@ -274,7 +291,7 @@ export class UiSystem {
      * Three cues, in rising order of how much they interrupt:
      *
      *   banner     every transition gets a title, so the change is named
-     *   countdown  the last 3 s of freeze get a big centred number and a tick
+     *   countdown  the freeze gets a big centred number and a tick
      *              that climbs — the boundary is visible BEFORE it arrives,
      *              which is what makes it possible to be ready for it
      *   bell       live gets its own sound and a crosshair kick, so the moment
@@ -376,7 +393,7 @@ export class UiSystem {
 
   /** Fire-and-forget audio; the audio subsystem may not exist yet. */
   /**
-   * The last three seconds of freeze, counted out loud and in the middle of the
+   * The freeze, counted out loud and in the middle of the
    * screen.
    *
    * This is the part that actually answers "the boundaries are hard to feel".
@@ -392,7 +409,7 @@ export class UiSystem {
   _updateCountdown(s) {
     const arm = s.phase === 'freeze' || s.phase === 'warmup';
     const left = s.timeLeft ?? 0;
-    if (!arm || left > 3.001 || left <= 0) {
+    if (!arm || left > COUNTDOWN_FROM + 0.001 || left <= 0) {
       // Hidden unconditionally, NOT guarded on `_countdownAt`.
       //
       // Two places were using that field for two different things: this one as
@@ -411,7 +428,11 @@ export class UiSystem {
     setText(this.countdown, String(n));
     // `step` rises 0,1,2 as the count falls 3,2,1, so the pitch climbs into the
     // bell rather than sitting flat under it.
-    this.sfx('round_tick', 0.55 + (3 - n) * 0.12, { step: 3 - n });
+    // The pitch climbs as the number falls, so the last tick sits under the
+    // bell rather than beside it. Steps are counted from the top of the count,
+    // not from a literal, or lengthening the countdown flattens it.
+    const step = COUNTDOWN_FROM - n;
+    this.sfx('round_tick', 0.55 + step * 0.12, { step });
   }
 
   sfx(id, gain = 1, opts = null) {
@@ -549,6 +570,7 @@ export class UiSystem {
       if (ws.ammo !== undefined) s.ammo = ws.ammo;
       if (ws.reserve !== undefined) s.reserve = ws.reserve;
       if (ws.magSize !== undefined) s.magSize = ws.magSize;
+      if (ws.grenades !== undefined) s.grenades = ws.grenades;
       if (ws.reloading !== undefined) s.reloading = !!ws.reloading;
       if (ws.reloadProgress !== undefined) s.reloadProgress = ws.reloadProgress;
       if (ws.spread !== undefined) s.baseSpread = 4 + ws.spread * 40;

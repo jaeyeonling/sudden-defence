@@ -69,6 +69,9 @@
  *   player:health     { health, fraction, low, critical, dead }
  *   player:jump       { position }
  *   player:death      { position, part, headshot, source }
+ *   player:respawn    { position } — the round-scoped reset. `weapons` refills
+ *                     on it, because the rules table says respawn clears ammo
+ *                     and ammo does not live here.
  *
  * OVER THE 800-LINE LIMIT as a subsystem entry point: the line count is API
  * area, not depth. See ARCHITECTURE.md, "File size".
@@ -127,7 +130,8 @@ export class PlayerSystem {
   static excludedState = [
     'isPlayer', 'combatant', 'ctx', 'physics', 'match', 'spectator',
     '_lookFrame', '_prev', '_offEvents', '_tmp',
-    '_statePayload', '_landPayload', '_stepPayload', '_jumpPayload', '_hudState',
+    '_statePayload', '_landPayload', '_stepPayload', '_jumpPayload', '_respawnPayload',
+    '_hudState',
   ];
 
   captureState(out = {}) {
@@ -174,6 +178,7 @@ export class PlayerSystem {
       left: false, speed: 0, stance: 'stand',
     };
     this._jumpPayload = { position: new THREE.Vector3() };
+    this._respawnPayload = { position: new THREE.Vector3() };
     // Preallocated HUD snapshot polled by `ui` (see getHudState).
     this._hudState = {
       health: HEALTH.max, maxHealth: HEALTH.max, dead: false,
@@ -757,6 +762,20 @@ export class PlayerSystem {
     this.movement.teleport(sp.position.x, feetY, sp.position.z);
     this.rig.reset(STANCE.stand.eye);
     this.rig.stepAim(0, this.movement);
+    /**
+     * Announce it, because the rules table says respawn clears more than this
+     * file owns.
+     *
+     * "Health, ammo, perception and cover claims are round-scoped and cleared
+     * by respawn()" — and ammo lives in `weapons`, which this subsystem does
+     * not know about and should not. It reaches `player`, not the other way
+     * round; an event is how the direction stays that way.
+     *
+     * Emitted last, so a listener reading `player.position` gets the seat this
+     * fighter is actually standing on rather than the one they died at.
+     */
+    this._respawnPayload.position.copy(this.movement.position);
+    this.ctx.events.emit('player:respawn', this._respawnPayload);
   }
 
   /** Named states for dev overlays and future shots. */

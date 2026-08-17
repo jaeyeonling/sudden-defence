@@ -29,7 +29,9 @@ const portOpen = (p) => new Promise((r) => {
 
 let vite;
 if (!(await portOpen(5173))) {
-  vite = spawn('npx', ['vite', '--port', '5173'], { stdio: 'ignore', detached: true });
+  vite = spawn('npx', ['vite', '--port', '5173'], {
+    stdio: 'ignore', detached: true, env: { ...process.env, OW_NO_HMR: '1' },
+  });
   for (let i = 0; i < 60 && !(await portOpen(5173)); i++) await new Promise(r => setTimeout(r, 250));
 }
 

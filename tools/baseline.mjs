@@ -52,7 +52,11 @@ const portOpen = (p) => new Promise((res) => {
 
 let server = null;
 if (!(await portOpen(PORT))) {
-  server = spawn(resolve(ROOT, 'node_modules/.bin/vite'), ['--port', String(PORT), '--strictPort'], { cwd: ROOT, stdio: 'ignore' });
+  // OW_NO_HMR: this server feeds pixelgate and determinism — the two
+  // byte-identity gates. A file saved mid-run must not reload the page.
+  server = spawn(resolve(ROOT, 'node_modules/.bin/vite'), ['--port', String(PORT), '--strictPort'], {
+    cwd: ROOT, stdio: 'ignore', env: { ...process.env, OW_NO_HMR: '1' },
+  });
   let up = false;
   for (let i = 0; i < 160 && !up; i++) { await new Promise((r) => setTimeout(r, 250)); up = await portOpen(PORT); }
   if (!up) { server.kill(); throw new Error('vite failed to start'); }
@@ -109,6 +113,11 @@ for (const name of wanted) {
     if (!reset?.ok) {
       console.error(`BASELINE FAILED — render.resetTemporal() unavailable for shot "${name}";`
         + ' temporal accumulators would carry across the settle window.');
+      // Tear down before exiting: determinism.mjs runs this file twice on the
+      // same port, and an orphaned vite from pass A would be silently reused by
+      // pass B — the two passes would no longer be independent.
+      await browser.close();
+      if (server) server.kill();
       process.exit(1);
     }
 

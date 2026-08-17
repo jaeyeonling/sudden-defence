@@ -39,7 +39,6 @@
  * is inside — see world/index.js.
  */
 
-import * as THREE from 'three';
 import { Rng } from '../core/rng.js';
 import { BOX, BOX_FINE } from './kit-base.js';
 import { dcos, dsin } from '../core/dmath.js';
@@ -51,8 +50,6 @@ export const HALL = { w: 48, d: 36, h: 6 };
 const WALL_T = 0.5;
 /** Centre hall footprint — the partition walls run down x = +-CENTRE.hw. */
 const CENTRE = { hw: 9.5, hd: 11 };
-
-const _m = new THREE.Matrix4();
 
 /**
  * Build the level into `A` (an Assembler). Returns the interior volumes for

@@ -82,7 +82,7 @@ import { Movement } from './movement.js';
 import { CameraRig } from './camera.js';
 import { Health } from './health.js';
 import { Spectator } from './spectate.js';
-import { STANCE, CAMERA, HEALTH, FOOTSTEP, JUMP_SPEED } from './tuning.js';
+import { STANCE, CAMERA, HEALTH, FOOTSTEP, JUMP_APEX, JUMP_SPEED } from './tuning.js';
 import { clamp, clamp01, DEG } from './springs.js';
 import { BASE_SENSITIVITY } from '../core/config.js';
 import { dpow } from '../core/dmath.js';
@@ -248,7 +248,7 @@ export class PlayerSystem {
     console.info(
       `[player] spawn ${spawn.feet.x.toFixed(1)}, ${spawn.feet.y.toFixed(2)}, ` +
       `${spawn.feet.z.toFixed(1)} · walk ${STANCE.stand.speed} crouch ` +
-      `${STANCE.crouch.speed} m/s · jump ${JUMP_SPEED.toFixed(2)} m/s (apex 0.60 m)`
+      `${STANCE.crouch.speed} m/s · jump ${JUMP_SPEED.toFixed(2)} m/s (apex ${JUMP_APEX.toFixed(2)} m)`
     );
   }
 

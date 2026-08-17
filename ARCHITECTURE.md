@@ -61,14 +61,14 @@ The other eleven are over the limit because ONE CLASS FILLS THE FILE:
 | `ai/agent.js` | 2371 | `Agent` | 97% |
 | `render/index.js` | 1776 | `RenderSystem` | 93% |
 | `fx/index.js` | 1461 | `FxSystem` | 97% |
-| `weapons/index.js` | 1390 | `WeaponSystem` | 94% |
-| `ai/index.js` | 1373 | `AiSystem` | 95% |
+| `weapons/index.js` | 1391 | `WeaponSystem` | 94% |
+| `ai/index.js` | 1377 | `AiSystem` | 95% |
 | `physics/index.js` | 1310 | `PhysicsSystem` | 84% |
 | `physics/bvh.js` | 938 | `StaticWorld` | 83% |
-| `audio/index.js` | 906 | `AudioSystem` | 92% |
-| `weapons/viewmodel.js` | 903 | `Viewmodel` | 89% |
-| `sky/index.js` | 876 | `SkySystem` | 85% |
-| `player/index.js` | 843 | `PlayerSystem` | 87% |
+| `audio/index.js` | 919 | `AudioSystem` | 92% |
+| `weapons/viewmodel.js` | 900 | `Viewmodel` | 88% |
+| `sky/index.js` | 882 | `SkySystem` | 85% |
+| `player/index.js` | 850 | `PlayerSystem` | 87% |
 
 Regenerate the line counts with `node tools/layering.mjs --sizes`. The `%`
 column the tool does NOT print, and it has now drifted twice — once to 84%,
@@ -78,7 +78,7 @@ editor expected; treat the percentages as the shape of the argument and the
 class spans in the files as the truth.
 
 There is no file split that helps here: in every row the class alone is at or
-near the limit (`Viewmodel` is 796 of `weapons/viewmodel.js`'s 903 lines), so
+near the limit (`Viewmodel` is 796 of `weapons/viewmodel.js`'s 900 lines), so
 deleting everything around it would still leave a file this table has to
 explain.
 

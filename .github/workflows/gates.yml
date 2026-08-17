@@ -33,6 +33,10 @@
 
 name: gates
 
+# The gates only read the tree; nothing here pushes, comments or releases.
+permissions:
+  contents: read
+
 on:
   push:
     branches: [main]
@@ -67,10 +71,10 @@ jobs:
           key: pw-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
       - run: npx playwright install --with-deps chromium
 
-      # One server for all sixteen. Every harness checks the port first and only
+      # One server for every gate. Each harness checks the port first and only
       # spawns when nothing answers, so starting it here means none of them do —
-      # worth 2-5 s per gate, and it removes sixteen spawn/kill races from the
-      # run. --strictPort so a silent rebind cannot serve a different tree.
+      # worth 2-5 s per gate, and it removes a spawn/kill race per browser-driving
+      # gate. --strictPort so a silent rebind cannot serve a different tree.
       - name: Start vite
         env:
           OW_NO_HMR: '1'
@@ -94,7 +98,13 @@ jobs:
 
   render:
     name: render + determinism
-    if: github.event_name != 'schedule'
+    # The fork guard is not optional: this job runs `npm ci` and arbitrary
+    # tools/*.mjs on the self-hosted reference laptop, so a fork PR must never
+    # reach it. Hosted runners (the logic job) are disposable; this one is not.
+    if: >-
+      github.event_name != 'schedule' &&
+      (github.event_name != 'pull_request' ||
+       github.event.pull_request.head.repo.full_name == github.repository)
     # Adjust the labels to match your runner. It must be macOS: baseline.mjs and
     # profile.mjs launch chromium with --use-angle=metal, and pixelgate.json
     # records `"angle": "metal"` so the gate SKIPS rather than lying if it ever

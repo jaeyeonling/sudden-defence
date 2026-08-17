@@ -153,7 +153,7 @@ export default [
     rules: RULES,
   },
   {
-    files: ['tools/**/*.mjs', 'eslint.config.js', 'vite.config.js'],
+    files: ['tools/**/*.mjs', 'src/**/*.mjs', 'eslint.config.js', 'vite.config.js'],
     languageOptions: {
       ecmaVersion: 2024,
       sourceType: 'module',

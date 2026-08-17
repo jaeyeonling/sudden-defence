@@ -146,7 +146,14 @@ const out = await page.evaluate(async (rounds) => {
     seen.push({ surface: ev.surface, friendly: !!ev.friendly, actor: !!ev.actor, exit: !!ev.exit });
   });
   if (mate) {
-    const eye = player.aimOrigin;
+    // Fired from two metres in front of the fighter at chest height, not from
+    // the player's eye. The eye is where a player shoots from and it is also
+    // behind whatever the bot has just walked behind: three runs in, the probe
+    // reported a clean zero because every round had stopped in a shelf. The
+    // damage filter keys on `source`, not on where the round started, so the
+    // friendly path is the same one either way — and a muzzle two metres from
+    // the chest cannot miss.
+    const RANGE = 2;
     // Count by POSITION, not by tally. Rounds that pass through a fighter go on
     // to mark the concrete behind them, and those decals are correct — a count
     // cannot tell them apart from one written on the fighter. Recording where
@@ -159,9 +166,8 @@ const out = await page.evaluate(async (rounds) => {
       // direction solved once put every round into the wall behind it — which
       // reported a clean zero and proved nothing at all.
       const t = mate.position;
-      const d = { x: t.x - eye.x, y: t.y + 1.1 - eye.y, z: t.z - eye.z };
-      const len = Math.hypot(d.x, d.y, d.z);
-      d.x /= len; d.y /= len; d.z /= len;
+      const eye = { x: t.x + RANGE, y: t.y + 1.1, z: t.z };
+      const d = { x: -1, y: 0, z: 0 };
       phys.fireBullet({
         origin: eye, dir: d, damage: 33, penetration: 0.6, dropoff: 0.5,
         falloffRange: 200, maxDist: 200, source: player, mask: phys.MASK.BULLET,
@@ -169,9 +175,12 @@ const out = await page.evaluate(async (rounds) => {
       await frame();
     }
     // Anything inside a 0.6 m column around the fighter, at body height.
+    // Inside a 0.45 m column at body height. Tighter than the fighter's reach
+    // on purpose: a wall directly behind them is a legitimate mark and must not
+    // be counted, and 0.45 m clears the torso without reaching past it.
     const t = mate.position;
     decals.onMate = marks.filter((m) =>
-      Math.hypot(m.x - t.x, m.z - t.z) < 0.6 && m.y > t.y + 0.3 && m.y < t.y + 2
+      Math.hypot(m.x - t.x, m.z - t.z) < 0.45 && m.y > t.y + 0.3 && m.y < t.y + 2
     ).length;
     decals.through = marks.length - decals.onMate;
 
@@ -180,7 +189,7 @@ const out = await page.evaluate(async (rounds) => {
     const before3 = fx.stats.decals;
     for (let i = 0; i < 6; i++) {
       phys.fireBullet({
-        origin: eye, dir: { x: 0, y: -1, z: 0 }, damage: 33, penetration: 0.6,
+        origin: player.aimOrigin, dir: { x: 0, y: -1, z: 0 }, damage: 33, penetration: 0.6,
         dropoff: 0.5, falloffRange: 200, maxDist: 200, source: player, mask: phys.MASK.BULLET,
       });
       await frame();

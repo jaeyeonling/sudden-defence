@@ -27,6 +27,10 @@ export class Registry {
     if (!id) throw new Error(`${system.constructor.name} is missing a static id`);
     if (this.#systems.has(id)) throw new Error(`duplicate subsystem id "${id}"`);
     this.#systems.set(id, system);
+    // Runtime system churn is unsupported (ARCHITECTURE.md rule 8), but if it
+    // happens anyway the method cache must not keep serving the old roster —
+    // invalidate() existed for exactly this and nothing called it.
+    this.invalidate();
     return this;
   }
 

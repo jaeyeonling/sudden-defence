@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-import { hdrTarget, blit } from './pass.js';
+import { hdrTarget, blit, disposeFullScreen } from './pass.js';
 import { CascadedShadowMaps } from './csm.js';
 import { MaterialPatcher } from './materialpatch.js';
 import { GBuffer } from './prepass.js';
@@ -1770,6 +1770,9 @@ export class RenderSystem {
     }
     this._debugPass?.dispose();
     this.patcher.dispose();
+    // The module-level fullscreen triangle in pass.js — its disposer existed
+    // and nothing called it, which is the worst state for a dispose to be in.
+    disposeFullScreen();
     this.renderer.dispose();
   }
 }

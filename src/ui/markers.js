@@ -13,7 +13,7 @@ const _v = new THREE.Vector3();
  */
 const DN_MERGE = 0.4;
 /** Escalation order: a burst's number takes the strongest kind it has seen. */
-const RANK = { armour: 0, hit: 1, hs: 2, kill: 3 };
+const RANK = { hit: 1, hs: 2, kill: 3 };
 
 /**
  * Projects a world point into HUD pixels.
@@ -250,10 +250,10 @@ export class WorldMarkers {
    * headshot inside a body burst stays marked as one, and the killing blow
    * always wins, because "you killed it" is the part nobody should miss.
    *
-   * Without a `key` (`armour` pings, self-test callers) it spawns per call as
-   * before, since there is nothing to accumulate against.
+   * Without a `key` (self-test callers) it spawns per call as before, since
+   * there is nothing to accumulate against.
    *
-   * @param {'hit'|'hs'|'kill'|'armour'} kind
+   * @param {'hit'|'hs'|'kill'} kind
    * @param {object} [key] victim identity; hits sharing one accumulate
    */
   spawnDamage(position, amount, kind = 'hit', key = null) {
@@ -281,7 +281,6 @@ export class WorldMarkers {
     setText(it.node, Math.round(it.total));
     setClass(it.node, 'hs', it.kind === 'hs');
     setClass(it.node, 'kill', it.kind === 'kill');
-    setClass(it.node, 'armour', it.kind === 'armour');
     return it;
   }
 

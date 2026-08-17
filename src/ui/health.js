@@ -7,7 +7,6 @@ import { el, setText, setStyle, setClass, clamp01, damp, ease, lerp } from './ut
  *   25-60%       blood vignette blooms in, world desaturates
  *   60-100%      heartbeat pulses the vignette, saturation drops hard
  *   on hit       a 180ms directional-agnostic red flash
- *   regen        vignette breathes out over ~2s and saturation returns
  *
  * The vignette is two stacked layers pushed through an feTurbulence
  * displacement filter (see style.js) so its edge is organic; a clean radial
@@ -18,8 +17,7 @@ import { el, setText, setStyle, setClass, clamp01, damp, ease, lerp } from './ut
  * it has to be findable. It was previously a 90px unlabelled 4-segment bar dead
  * centre bottom, half behind the viewmodel sleeve, with a track so faint it
  * vanished over gravel: it read as leftover debug UI. Now: label, numeric
- * readout, a genuinely dark track behind the empty segments, and a visually
- * distinct armour row underneath.
+ * readout, and a genuinely dark track behind the empty segments.
  *
  * @param {HTMLElement} parent      full-screen layer for the hurt overlays
  * @param {HTMLElement} [chrome]    layer for the widget (fades with the HUD)
@@ -44,23 +42,12 @@ export class HealthFx {
     this.hpFill = el('i', null, track);
     el('u', null, track); // segment dividers, drawn over the fill
 
-    this.armour = el('div', 'ow-armour', this.vitals);
-    el('div', 'ow-vt-lbl', this.armour, 'Armour');
-    const plates = el('div', 'ow-arm-plates', this.armour);
-    this.plates = new Array(3);
-    for (let i = 0; i < 3; i++) {
-      const p = el('div', 'ow-plate', plates);
-      this.plates[i] = el('i', null, p);
-    }
-
     this.hpShown = 1;
     this._lastHp = -1;
     this.hurt = 0;
     this.flashT = 1;
     this.beatPhase = 0;
     this.beatEnergy = 0;
-    this.regenT = 1;
-    this.armourShown = 0;
     this._lastBeat = 0;
     this.onBeat = null; // set by index for the audio cue
 
@@ -75,11 +62,7 @@ export class HealthFx {
     this.flashPeak = 0.35 + 0.65 * clamp01(intensity);
   }
 
-  onRegenStart() {
-    this.regenT = 0;
-  }
-
-  /** @param {object} s { health, maxHealth, armour, maxArmour, regen:bool } */
+  /** @param {object} s { health, maxHealth } */
   update(dt, s) {
     const h = clamp01((s.health ?? 100) / (s.maxHealth || 100));
     const targetHurt = clamp01((0.78 - h) / 0.78) ** 1.3;
@@ -106,14 +89,10 @@ export class HealthFx {
       this.beatPhase = 0;
     }
 
-    // --- regeneration breath ---------------------------------------------
-    if (this.regenT < 1) this.regenT = Math.min(1, this.regenT + dt / 1.8);
-    const regenPulse = s.regen ? 0.12 * (1 - ease.outCubic(this.regenT)) : 0;
-
     const bloodA = clamp01(hurt * 1.05 + this.beatEnergy * 0.16);
     setStyle(this.bloodWrap, 'opacity', bloodA.toFixed(3));
     setStyle(this.bloodWrap, 'display', bloodA < 0.004 ? 'none' : '');
-    const bs = 1 + this.beatEnergy * 0.022 + regenPulse * 0.12;
+    const bs = 1 + this.beatEnergy * 0.022;
     setStyle(this.bloodWrap, 'transform', `scale(${bs.toFixed(4)})`);
 
     const beatA = clamp01(this.beatEnergy * 0.55);
@@ -151,21 +130,6 @@ export class HealthFx {
     setClass(this.vitals, 'crit', h <= 0.28);
     // the numeral pulses on the same heartbeat as the vignette
     setStyle(this.hpNum, 'transform', `scale(${(1 + this.beatEnergy * 0.05).toFixed(3)})`);
-
-    // --- armour plates ----------------------------------------------------
-    const maxA = s.maxArmour || 150;
-    const armour = Math.max(0, s.armour ?? 0);
-    this.armourShown = damp(this.armourShown, armour > 0 ? 1 : 0, 10, dt);
-    setStyle(this.armour, 'opacity', this.armourShown.toFixed(3));
-    setStyle(this.armour, 'display', this.armourShown < 0.01 ? 'none' : '');
-    if (this.armourShown > 0.01) {
-      const per = maxA / 3;
-      for (let i = 0; i < 3; i++) {
-        const f = clamp01((armour - i * per) / per);
-        setStyle(this.plates[i], 'transform', `scaleX(${f.toFixed(3)})`);
-        setStyle(this.plates[i], 'opacity', f > 0.001 ? '1' : '0');
-      }
-    }
   }
 
   /**

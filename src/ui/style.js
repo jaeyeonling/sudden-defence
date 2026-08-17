@@ -35,7 +35,6 @@ const CSS = `
   --amber: #ffb02a;
   --red:   #ff3f31;
   --blood: #8d0f0a;
-  --cyan:  #79d2ff;
   --friend:#8fc8ff;
   --enemy: #ff7a63;
   --ok:    #a8e86a;
@@ -214,25 +213,6 @@ const CSS = `
 .ow-vitals.low .ow-vt-num { color: var(--amber); }
 .ow-vitals.crit .ow-vt-track > i { background: linear-gradient(to bottom, #ff8b7a, #e02414); }
 .ow-vitals.crit .ow-vt-num { color: var(--red); }
-
-/* armour: thinner, cyan, plate-segmented, its own label */
-.ow-armour {
-  display:flex; align-items:center; gap: calc(var(--u) * 1.4);
-  margin-top: calc(var(--u) * 1.5);
-}
-.ow-armour .ow-vt-lbl { color: rgba(150,206,238,.7); }
-.ow-arm-plates { display:flex; gap: calc(var(--u) * .8); flex:1; }
-.ow-plate {
-  flex:1; height: calc(5px * var(--k));
-  background: rgba(5,9,12,.7);
-  box-shadow: inset 0 0 0 1px rgba(0,0,0,.5), 0 0 0 1px rgba(121,190,230,.18);
-  position:relative; overflow:hidden;
-}
-.ow-plate i {
-  position:absolute; left:0; top:0; bottom:0; width:100%;
-  background: linear-gradient(to bottom, #bde9ff, #3ba6e2);
-  transform-origin: left center;
-}
 
 /* ================================================================== ammo
    The whole block is ONE column of fixed width (--ammo-w) pinned to the right
@@ -541,7 +521,6 @@ const CSS = `
 }
 .ow-dn.hs   { color: var(--amber); font-size: calc(21px * var(--k)); }
 .ow-dn.kill { color: var(--red);   font-size: calc(23px * var(--k)); }
-.ow-dn.armour { color: var(--cyan); }
 
 /* ================================================================ prompt */
 .ow-prompt {

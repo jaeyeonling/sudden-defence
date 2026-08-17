@@ -106,7 +106,7 @@ function shell(A, rng, hw, hd) {
   // ---- roof, split either side of the skylight run ----
   // The skylight strip is 5 m wide down the centreline; the roof is two slabs
   // rather than one with a hole, because a merged slab with a hole would need a
-  // wallPanel and this reads identically for a third of the triangles.
+  // hole-cut extrusion and this reads identically for a third of the triangles.
   const SKY_HW = 2.5;
   const roofZ = HALL.d;
   const roofW = hw - SKY_HW;

@@ -1,8 +1,6 @@
 import * as THREE from 'three';
 import { datan2, dcos, dsin } from '../core/dmath.js';
 import { _n, _v0, _v1, _v2, fbm3 } from './util-noise.js';
-import { paintMasks } from './util-accum.js';
-
 
 /**
  * WORLD — geometry toolkit.
@@ -21,7 +19,6 @@ import { paintMasks } from './util-accum.js';
  *  2. Geometry is authored in local space and merged with a matrix, so the
  *     whole level collapses into a handful of draw calls.
  */
-
 
 /**
  * Hard-surface geometry. Noise is in `util-noise.js`, instancing and mask
@@ -153,144 +150,13 @@ export function quad(w = 1, h = 1) {
   return g;
 }
 
-// ------------------------------------------------------------ wall panels --
-/**
- * Rectangular hole spec for wallPanel:
- *   { x, y, w, h, arch?:0..1, sill?:number, ragged?:number }
- * x/y is the hole centre in panel space (panel spans -w/2..w/2, 0..h).
- */
-export function holePath(o, rng) {
-  const p = new THREE.Path();
-  const x0 = o.x - o.w / 2;
-  const x1 = o.x + o.w / 2;
-  const y0 = o.y - o.h / 2;
-  const y1 = o.y + o.h / 2;
-  if (o.ragged) {
-    // Blown-out opening: irregular polygon around the nominal rect.
-    const n = 18;
-    const R = o.ragged;
-    const pts = [];
-    for (let i = 0; i < n; i++) {
-      const t = (i / n) * Math.PI * 2;
-      const cx = (x0 + x1) / 2;
-      const cy = (y0 + y1) / 2;
-      const rx = (x1 - x0) / 2;
-      const ry = (y1 - y0) / 2;
-      // square-ish superellipse so it still reads as a window hole
-      const c = dcos(t);
-      const s = dsin(t);
-      const k = 1 / Math.max(Math.abs(c), Math.abs(s)) ** 0.85;
-      const j = 1 + (rng ? rng.range(-R, R) : 0);
-      pts.push([cx + c * k * rx * j, cy + s * k * ry * j]);
-    }
-    p.moveTo(pts[0][0], pts[0][1]);
-    for (let i = 1; i < pts.length; i++) p.lineTo(pts[i][0], pts[i][1]);
-    p.closePath();
-    return p;
-  }
-  if (o.arch > 0) {
-    const r = (o.w / 2) * o.arch;
-    const yA = y1 - r;
-    p.moveTo(x0, y0);
-    p.lineTo(x1, y0);
-    p.lineTo(x1, yA);
-    // pointed-ish arch: two quadratics meeting at the apex reads Levantine
-    p.quadraticCurveTo(x1, y1, o.x, y1);
-    p.quadraticCurveTo(x0, y1, x0, yA);
-    p.lineTo(x0, y0);
-  } else {
-    p.moveTo(x0, y0);
-    p.lineTo(x1, y0);
-    p.lineTo(x1, y1);
-    p.lineTo(x0, y1);
-  }
-  p.closePath();
-  return p;
-}
-
-/**
- * A wall panel: a slab of real thickness with real holes, extruded so every
- * opening has depth and a chamfered reveal.
- *
- * @param {number} w   panel width  (x, centred)
- * @param {number} h   panel height (y, from 0 up)
- * @param {number} t   thickness    (z, from 0 to t)
- * @param {Array}  holes
- * @param {object} opts { bevel, top:'flat'|'ragged', raggedAmp, rng, jag }
- */
-export function wallPanel(w, h, t, holes = [], opts = {}) {
-  const { bevel = 0.02, rng = null, top = 'flat', raggedAmp = 0.5, jag = 0 } = opts;
-  const shape = new THREE.Shape();
-  const x0 = -w / 2;
-  const x1 = w / 2;
-  shape.moveTo(x0, 0);
-  shape.lineTo(x1, 0);
-  if (top === 'ragged') {
-    // A partially collapsed wall: stepped, broken masonry silhouette.
-    const steps = Math.max(4, Math.round(w / 0.55));
-    const pts = [];
-    for (let i = 0; i <= steps; i++) {
-      const x = x1 - (i / steps) * w;
-      const f = i / steps;
-      const drop = raggedAmp * h * (0.25 + 0.75 * fbm3(x * 0.6 + 11, 3.1, 2.7, 3)) * (0.35 + f);
-      pts.push([x, Math.max(0.4, h - drop)]);
-    }
-    shape.lineTo(x1, pts[0][1]);
-    for (let i = 0; i < pts.length; i++) {
-      const [x, y] = pts[i];
-      const nx = i < pts.length - 1 ? pts[i + 1][0] : x0;
-      shape.lineTo(x, y);
-      shape.lineTo(nx, y + (rng ? rng.range(-0.12, 0.12) : 0));
-    }
-    shape.lineTo(x0, pts[pts.length - 1][1]);
-  } else {
-    shape.lineTo(x1, h);
-    if (jag > 0) {
-      const steps = Math.max(3, Math.round(w / 1.2));
-      for (let i = steps - 1; i >= 1; i--) {
-        const x = x0 + (i / steps) * w;
-        shape.lineTo(x, h + (fbm3(x * 1.7, 5.5, 1.3, 2) - 0.5) * jag);
-      }
-    }
-    shape.lineTo(x0, h);
-  }
-  shape.lineTo(x0, 0);
-  for (const o of holes) shape.holes.push(holePath(o, rng));
-
-  const geo = new THREE.ExtrudeGeometry(shape, {
-    depth: Math.max(0.02, t - bevel * 2),
-    bevelEnabled: bevel > 0,
-    bevelThickness: bevel,
-    bevelSize: bevel,
-    bevelOffset: 0,
-    bevelSegments: 1,
-    curveSegments: opts.curveSegments ?? 6,
-    steps: 1,
-  });
-  if (bevel > 0) geo.translate(0, 0, bevel);
-  geo.computeVertexNormals();
-  geo.computeBoundingBox();
-
-  // Masks: reveals (normals in the panel plane) get crevice grime + AO, the
-  // bottom of the wall gets the dirt splash, chamfers get wear.
-  paintMasks(geo, (x, y, z, nx, ny, nz, out) => {
-    const face = Math.abs(nz);
-    const reveal = 1 - face;
-    const n = fbm3(x * 2.3, y * 2.1, z * 2.7, 2);
-    out[0] = Math.min(1, reveal * 0.55 * (0.4 + n) + Math.max(0, ny) * 0.3);
-    out[1] = Math.min(1, reveal * 0.42 * (0.5 + n) + Math.max(0, -ny) * 0.55);
-    out[2] = Math.min(1, reveal * 0.4 + Math.max(0, -ny) * 0.4);
-  });
-  return geo;
-}
-
 /**
  * A rain-runoff stain, as geometry.
  *
  * Every sill, ledge, bracket, balcony slab and AC unit sheds water, and the
  * 0.6-1.8 m dark run below it is one of the loudest signals that a building has
  * stood outside for thirty years. It cannot be done with the facade's own vertex
- * masks: `wallPanel` is an extruded shape, so its front face only has vertices
+ * masks: an extruded facade shape's front face only has vertices
  * on the outline and the hole rims — there is nowhere to put a mask halfway down
  * a wall.
  *
@@ -353,40 +219,6 @@ export function runoffStreak(rng, width, len, opts = {}) {
   return g;
 }
 
-/**
- * The solid rectangles left once the holes are cut — used for collision, so a
- * doorway is a real gap in the collision hull and not a triangle soup query.
- * Returns [{x, y, w, h}] in panel space.
- */
-export function solidSlabs(w, h, holes) {
-  // Split into vertical bands at every hole edge, then within each band into
-  // horizontal runs between holes that overlap that band.
-  const xs = new Set([-w / 2, w / 2]);
-  for (const o of holes) {
-    xs.add(Math.max(-w / 2, o.x - o.w / 2));
-    xs.add(Math.min(w / 2, o.x + o.w / 2));
-  }
-  const cuts = [...xs].sort((a, b) => a - b);
-  const out = [];
-  for (let i = 0; i < cuts.length - 1; i++) {
-    const bx0 = cuts[i];
-    const bx1 = cuts[i + 1];
-    if (bx1 - bx0 < 1e-4) continue;
-    const mid = (bx0 + bx1) / 2;
-    const spans = holes
-      .filter((o) => mid > o.x - o.w / 2 && mid < o.x + o.w / 2)
-      .map((o) => [Math.max(0, o.y - o.h / 2), Math.min(h, o.y + o.h / 2)])
-      .sort((a, b) => a[0] - b[0]);
-    let y = 0;
-    for (const [s0, s1] of spans) {
-      if (s0 > y) out.push({ x: (bx0 + bx1) / 2, y: (y + s0) / 2, w: bx1 - bx0, h: s0 - y });
-      y = Math.max(y, s1);
-    }
-    if (y < h) out.push({ x: (bx0 + bx1) / 2, y: (y + h) / 2, w: bx1 - bx0, h: h - y });
-  }
-  return out;
-}
-
 // -------------------------------------------------------------- primitives --
 /** Convex/simple polygon extruded along +Y. pts = [[x,z], ...] CCW. */
 export function polyPrism(pts, height, opts = {}) {
@@ -438,7 +270,6 @@ export function patchGeometry(rng, radius, opts = {}) {
   return g;
 }
 
-
 /** Noise-deformed rock / masonry chunk. */
 export function rockGeometry(rng, size = 0.3, detail = 1, squash = 0.7) {
   const g = new THREE.IcosahedronGeometry(size * 0.5, detail);
@@ -459,7 +290,6 @@ export function rockGeometry(rng, size = 0.3, detail = 1, squash = 0.7) {
   return g;
 }
 
-
 /** Bend a geometry's vertices around Y so long thin objects aren't perfect. */
 export function warpGeometry(geo, amp = 0.02, freq = 1.1, seed = 0) {
   const pa = geo.getAttribute('position');
@@ -473,4 +303,3 @@ export function warpGeometry(geo, amp = 0.02, freq = 1.1, seed = 0) {
   geo.computeBoundingBox();
   return geo;
 }
-

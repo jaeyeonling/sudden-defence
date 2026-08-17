@@ -12,7 +12,7 @@
     "shot": "node tools/capture.mjs",
     "test": "npm run test:logic && npm run test:render && npm run test:perf",
     "lint": "eslint .",
-    "test:logic": "npm run lint && node tools/layering.mjs && node tools/cmdstream.mjs && node tools/replay.mjs && node tools/reach.mjs && node tools/navsanity.mjs && node tools/symmetry.mjs && node tools/playtest.mjs && node tools/hitbox.mjs && node tools/vault.mjs && node tools/botfight.mjs && node tools/matchsim.mjs && node tools/hud.mjs && node tools/phasecue.mjs && node tools/ballistics.mjs && node tools/threat.mjs && node tools/firerate.mjs && node tools/aim.mjs",
+    "test:logic": "npm run lint && node tools/layering.mjs && node tools/headless.mjs && node tools/cmdstream.mjs && node tools/replay.mjs && node tools/reach.mjs && node tools/navsanity.mjs && node tools/symmetry.mjs && node tools/playtest.mjs && node tools/hitbox.mjs && node tools/vault.mjs && node tools/botfight.mjs && node tools/matchsim.mjs && node tools/hud.mjs && node tools/phasecue.mjs && node tools/ballistics.mjs && node tools/threat.mjs && node tools/firerate.mjs && node tools/aim.mjs",
     "test:render": "npm run test:legibility && npm run test:legibility:clutter && npm run test:markings && npm run test:friendfoe && npm run test:pixelgate && npm run test:crossengine && npm run test:determinism",
     "test:perf": "node tools/converge.mjs && npm run test:profile",
     "test:aim": "node tools/aim.mjs",
@@ -50,7 +50,8 @@
     "tool:imagediff": "node tools/imagediff.mjs",
     "tool:observe": "node tools/observe.mjs",
     "tool:sight": "node tools/sight.mjs",
-    "tool:zoom": "node tools/zoom.mjs"
+    "tool:zoom": "node tools/zoom.mjs",
+    "test:headless": "node tools/headless.mjs"
   },
   "dependencies": {
     "three": "^0.180.0"

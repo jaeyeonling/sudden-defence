@@ -505,7 +505,18 @@ export class FxSystem {
     if (!e.normal) return;
     let energy = clamp(0.7 + (e.damage ?? 25) / 55, 0.7, 1.7);
     if (e.exit === true) energy *= 0.75;
-    spawnImpact(this, e.point, e.normal, e.incident ?? this._defaultIncident(e), e.surface, energy);
+    /**
+     * A round into a team-mate hits cloth, not meat.
+     *
+     * `physics` reports the surface it actually struck — `flesh` — and flags
+     * that the damage filter vetoed the wound (`e.friendly`). The game has no
+     * friendly fire, so blood there is a lie about what happened; the rules
+     * table asks for the round to still impact and spray, which `fabric` does.
+     * The payload is left truthful for `audio` and `ai`, which want to know a
+     * body was hit.
+     */
+    const surface = e.friendly && e.surface === 'flesh' ? 'fabric' : e.surface;
+    spawnImpact(this, e.point, e.normal, e.incident ?? this._defaultIncident(e), surface, energy);
     this.stats.spawned++;
   }
 

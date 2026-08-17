@@ -121,8 +121,11 @@ export class Engine {
       if (ms > 50) console.info(`[engine] ${sys.constructor.id} init ${ms.toFixed(0)}ms`);
     }
     this.input.attach();
-    addEventListener('resize', this._onResize);
-    this.resize();
+    // A headless host has no window to resize. See tools/headless.mjs.
+    if (typeof addEventListener === 'function') {
+      addEventListener('resize', this._onResize);
+      this.resize();
+    }
     return this;
   }
 

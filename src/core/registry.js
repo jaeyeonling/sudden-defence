@@ -3,7 +3,10 @@
  *
  * CONTRACT — every subsystem is a class with:
  *   static id      : string, unique. Other systems fetch it via ctx.get(id).
- *   static deps    : string[] of subsystem ids that must init first.
+ *   static deps    : string[] of subsystem ids that must init first AND must
+ *                    exist. Pair with `ctx.get(id)`.
+ *   static optionalDeps : string[] that init first WHEN PRESENT and are skipped
+ *                    when they are not. Pair with `ctx.peek(id)`. Optional.
  *   async init(ctx): build resources. May await asset loads.
  *   update(dt,ctx) : variable-rate, once per frame, before render.
  *   fixedUpdate(h,ctx): fixed-rate (PHYSICS_HZ), 0..N times per frame. Optional.
@@ -42,7 +45,28 @@ export class Registry {
     return this.#systems.has(id);
   }
 
-  /** Topological sort over static deps; throws on cycles or missing deps. */
+  /**
+   * Topological sort over static deps; throws on cycles or missing REQUIRED
+   * deps.
+   *
+   * TWO KINDS, because `deps` was carrying two meanings and they came apart the
+   * first time anyone tried to boot without a renderer.
+   *
+   * `deps` says "init before me, and fail loudly if absent" — the right
+   * statement for `ctx.get(id)`, which throws. `optionalDeps` says "init before
+   * me IF you are here" — the right statement for `ctx.peek(id)`, which has
+   * returned null for optional dependencies since this file was written.
+   *
+   * The gap was `materials`. It reaches the renderer with `peek`, logs
+   * "deferring texture bake" when there is none, and retries on every
+   * `getTextureSet` — a subsystem built to degrade. It declared `deps:
+   * ['render']` anyway, because that was the only way to say "after render",
+   * and so a headless boot died in the topo-sort on a subsystem it was
+   * perfectly prepared to live without. Runtime could express optional; the
+   * declaration could not.
+   *
+   * See `tools/headless.mjs`, which is the measurement that found it.
+   */
   resolve() {
     const seen = new Map(); // id -> 0 visiting, 1 done
     const out = [];
@@ -54,6 +78,10 @@ export class Registry {
       if (!sys) throw new Error(`"${from}" depends on unregistered subsystem "${id}"`);
       seen.set(id, 0);
       for (const d of sys.constructor.deps ?? []) visit(d, id);
+      // Absent is not an error here — that is the whole point of the list.
+      for (const d of sys.constructor.optionalDeps ?? []) {
+        if (this.#systems.has(d)) visit(d, id);
+      }
       seen.set(id, 1);
       out.push(sys);
     };

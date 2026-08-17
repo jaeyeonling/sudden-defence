@@ -30,7 +30,14 @@ import { bakeMasks, setMask } from './masks.js';
  */
 export class MaterialSystem {
   static id = 'materials';
-  static deps = ['render'];
+  /**
+   * OPTIONAL, not required. The renderer is reached with `peek` and its absence
+   * is handled — `_tryBuild` defers the bake and retries on every
+   * `getTextureSet`. Declaring it required meant a headless boot died in the
+   * topo-sort on a subsystem this one is built to live without.
+   */
+  static deps = [];
+  static optionalDeps = ['render'];
 
   constructor(opts = {}) {
     /** Allows a standalone harness to drive the system without the engine. */

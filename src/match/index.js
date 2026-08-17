@@ -338,9 +338,12 @@ export class MatchSystem {
     return this.round.scores;
   }
 
-  /** Begin (or restart) the match. `tempo` overrides `round.js`'s TEMPO table. */
+  /** Begin (or restart) the match. `tempo` overrides `round.js`'s TEMPO table
+   *  for THIS match only — the table is rebuilt from TEMPO first, so a later
+   *  bare startMatch() does not inherit a previous caller's compressed numbers
+   *  (tools/hud.mjs and dev/shots.js both pass one). */
   startMatch(tempo) {
-    if (tempo) Object.assign(this.round.tempo, tempo);
+    Object.assign(this.round.tempo, TEMPO, tempo ?? {});
     this._started = true;
     this.round.start();
     return this.round;

@@ -2,7 +2,7 @@
 
 **Read this before writing code. It is the only coordination mechanism.**
 
-A browser FPS: round-based team elimination against bots. WebGL2 + Three.js r180,
+A browser FPS: round-based team elimination against bots. WebGL2 + Three.js r185,
 no external art assets — every texture, mesh, animation and sound is generated
 procedurally at load time. No netcode; both teams are filled locally.
 

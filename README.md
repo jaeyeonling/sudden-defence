@@ -1,7 +1,7 @@
 # SUDDEN CLAUDE
 
 A round-based team elimination FPS that runs in a browser tab. WebGL2 and
-Three.js r180, eight fighters by default, no netcode — and **not one art asset**. Every
+Three.js r185, eight fighters by default, no netcode — and **not one art asset**. Every
 texture, mesh, animation and sound in the screenshot below is generated at load
 time from code.
 

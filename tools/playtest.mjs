@@ -49,18 +49,34 @@ const snap = () => page.evaluate(() => {
   };
 });
 
+// SIMULATED seconds, not wall ones. These holds used to be waitForTimeout(),
+// which asserts "0.7 s of wall time walks you 2 m" — true only where the sim
+// keeps up with the wall. On the CI runner SwiftShader renders a handful of
+// frames a second, the accumulator's MAX_SUBSTEPS cap slows simulated time to
+// a fraction of wall time, and 700 wall-ms walked 0.179 m of a 2 m assertion.
+// The key is still held for real; only the clock the hold is measured on is
+// the simulation's own.
+const simWait = async (s) => {
+  const t0 = await page.evaluate(() => window.__ENGINE__.ctx.time.elapsed);
+  await page.waitForFunction(
+    ([t0, s]) => window.__ENGINE__.ctx.time.elapsed >= t0 + s,
+    [t0, s],
+    { timeout: 120000 }
+  );
+};
+
 const before = await snap();
 await page.keyboard.down('KeyW');
-await page.waitForTimeout(700);
+await simWait(0.7);
 const walking = await snap();
 await page.keyboard.up('KeyW');
-await page.waitForTimeout(250);
+await simWait(0.25);
 
 await page.keyboard.down('ControlLeft');
-await page.waitForTimeout(450);
+await simWait(0.45);
 const crouched = await snap();
 await page.keyboard.up('ControlLeft');
-await page.waitForTimeout(450);
+await simWait(0.45);
 const stoodBack = await snap();
 
 const dist = Math.hypot(walking.pos[0] - before.pos[0], walking.pos[2] - before.pos[2]);

@@ -58,7 +58,12 @@ jobs:
     name: logic (21 gates)
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # 90, measured, not guessed: the first page boot pays SwiftShader's shader
+    # compilation and vite's cold transform of the whole module graph (~16 min
+    # on this runner); the gates after it ride the warm caches at under a
+    # minute each, but the sim-driven ones (botfight, matchsim) run at the
+    # machine's own frame rate.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

@@ -1,11 +1,11 @@
-# The 29 gates, split by what each one actually depends on.
+# The 30 gates, split by what each one actually depends on.
 #
 # The split is not by speed. It is by whether a gate's verdict is a property of
 # the CODE or a property of the MACHINE, because those two need different
 # runners and mixing them produces a suite that is red for reasons nobody can
 # act on — which is how a gate stops being read.
 #
-#   logic    21 gates that read engine state through page.evaluate and never
+#   logic    22 gates that read engine state through page.evaluate and never
 #            look at a pixel. The simulation is CPU-side JS, so SwiftShader on a
 #            shared runner answers the same as Metal does. Cheap, parallel,
 #            always available: this is the one that should block a PR fastest.
@@ -55,7 +55,7 @@ concurrency:
 
 jobs:
   logic:
-    name: logic (21 gates)
+    name: logic (22 gates)
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     # 90, measured, not guessed: the first page boot pays SwiftShader's shader

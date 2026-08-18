@@ -100,11 +100,25 @@ const spawned = ai.agents?.length ?? 0;
 if (spawned < 4) fail.push(`spawned ${spawned} bots, wanted 4`);
 
 // Step the fixed clock by hand. No rAF, no frame loop.
+//
+// A millisecond CLOCK, not a dt: step(now) measures (now - _last), so passing
+// the tick duration as `now` froze the clock after the first call and this
+// gate spent its whole life green on ZERO ticks — `moved` was satisfied by the
+// spawn scatter alone, before a single fixedUpdate ran. The tick count below
+// is asserted now, so a drive that stops driving reads as what it is.
 let stepped = 0;
+let clock = 0;
+engine._last = 0;
+engine._accum = 0.5 / 120; // half-tick cushion — same reasoning as replay.mjs
 try {
-  for (let i = 0; i < TICKS; i++) { engine.step(1 / 120); stepped++; }
+  for (let i = 0; i < TICKS; i++) { clock += 1000 / 120; engine.step(clock); stepped++; }
 } catch (e) {
   fail.push(`step ${stepped} threw: ${e.message}`);
+}
+
+const ticked = ctx.time.tick + 1; // tick starts at -1
+if (stepped === TICKS && ticked !== TICKS) {
+  fail.push(`drove ${TICKS} steps but simulated ${ticked} ticks — the clock is not advancing the sim`);
 }
 
 const alive = ai.agents?.filter((a) => a.alive).length ?? 0;

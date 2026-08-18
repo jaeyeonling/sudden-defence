@@ -102,7 +102,7 @@ control and believe that instead.
 
 ## The gates
 
-Forty tools live in `tools/`, and twenty-nine of them are gates that `npm test`
+Forty-two files live in `tools/` (two are shared libraries), and thirty are gates that `npm test`
 runs. Almost none of them are unit tests. They ask questions about the
 *experience*, because that is what can actually break:
 
@@ -120,11 +120,12 @@ runs. Almost none of them are unit tests. They ask questions about the
 | `reach` | can alpha actually walk to bravo? |
 | `replay` | snapshot a tick, run on, restore, replay — same state? |
 | `crossengine` | do three JavaScript engines simulate the same world? |
+| `netsim` | do two independently booted sims agree, bit for bit, with no netcode? |
 | `pixelgate` | did this commit change the picture, and did anyone mean it? |
 
 ```bash
-npm test              # all 29
-npm run test:logic    # 21 that read engine state only — no pixels, no timing
+npm test              # all 30
+npm run test:logic    # 22 that read engine state only — no pixels, no timing
 npm run test:render   # the ones that sample the framebuffer or compare bits
 npm run test:perf     # frame time and stalls; wants an idle machine
 ```

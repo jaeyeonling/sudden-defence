@@ -44,7 +44,7 @@ function skyRadiance(dir, sunDir, out) {
   // Scaled so sky irradiance is ~20% of a 4.0-intensity sun, which is the
   // clear-daylight ratio. Ambient that overpowers the key light is the
   // single fastest way to make a scene look like a WebGL demo.
-  let scale = 0.34 * dayFactor;
+  const scale = 0.34 * dayFactor;
 
   if (dir.y < 0.0) {
     // ground bounce: dry concrete/dirt albedo, darker and warmer

@@ -58,17 +58,10 @@
  *
  *   node tools/threat.mjs
  */
-import { chromium } from 'playwright';
-import { spawn } from 'node:child_process';
-import net from 'node:net';
 import { stkBands, formatBands, bandEdge, damageAt } from './lethality.mjs';
+import { parseArgs, ensureServer, killServer, launchChromium, waitForReady, bootUrl } from './harness.mjs';
 
-const args = Object.fromEntries(
-  process.argv.slice(2).map((a) => {
-    const m = a.match(/^--([^=]+)(?:=(.*))?$/);
-    return m ? [m[1], m[2] ?? true] : [a, true];
-  })
-);
+const args = parseArgs();
 const PORT = Number(args.port ?? 5173);
 /** Where the map actually produces fights — `botfight.mjs`, pooled over 8 runs. */
 const RANGES = [9, 14, 20];
@@ -91,34 +84,17 @@ const HEADSHOT_CEIL = Number(args.headceil ?? 0.999);
  */
 const BURST_CEIL = Number(args.burstceil ?? 8);
 
-const portOpen = (port) =>
-  new Promise((res) => {
-    const s = net.connect({ port, host: '127.0.0.1' }, () => (s.destroy(), res(true)));
-    s.on('error', () => res(false));
-    s.setTimeout(400, () => (s.destroy(), res(false)));
-  });
+const vite = await ensureServer(PORT, { name: 'THREAT' });
 
-let vite = null;
-if (!(await portOpen(PORT))) {
-  vite = spawn('npx', ['vite', '--port', String(PORT)], {
-    stdio: 'ignore',
-    detached: true,
-    env: { ...process.env, OW_NO_HMR: '1' },
-  });
-  for (let i = 0; i < 80 && !(await portOpen(PORT)); i++) {
-    await new Promise((r) => setTimeout(r, 250));
-  }
-}
-
-const browser = await chromium.launch({
+const browser = await launchChromium({
   args: ['--use-gl=angle', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
 });
 const page = await browser.newPage({ viewport: { width: 640, height: 480 } });
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 
-await page.goto(`http://127.0.0.1:${PORT}/?prewarm=0`, { waitUntil: 'load' });
-await page.waitForFunction('window.__READY__ === true', null, { timeout: 120000 });
+await page.goto(bootUrl(PORT), { waitUntil: 'load' });
+await waitForReady(page, { name: 'THREAT' });
 
 const out = await page.evaluate(() => {
   const e = window.__ENGINE__;
@@ -219,13 +195,7 @@ const out = await page.evaluate(() => {
 });
 
 await browser.close();
-if (vite) {
-  try {
-    process.kill(-vite.pid);
-  } catch {
-    /* already gone */
-  }
-}
+killServer(vite);
 
 /* ------------------------------------------------------------------ report */
 
@@ -282,8 +252,6 @@ const erf = (x) => {
   const s = Math.sign(x);
   const a = Math.abs(x);
   const t = 1 / (1 + 0.3275911 * a);
-  const y = 1 - ((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t * t
-    * Math.exp(-a * a) - 0;
   // Written out rather than golfed, because a wrong erf here is a wrong hit rate
   // everywhere and both look plausible.
   const poly = ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t;

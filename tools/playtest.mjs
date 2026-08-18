@@ -9,48 +9,14 @@
  *   node tools/playtest.mjs
  *   node tools/playtest.mjs --port=5173
  */
-import { chromium } from 'playwright';
-import { spawn } from 'node:child_process';
-import net from 'node:net';
+import { parseArgs, ensureServer, killServer, launchChromium, waitForReady, bootUrl } from './harness.mjs';
 
-const args = Object.fromEntries(
-  process.argv.slice(2).map((a) => {
-    const m = a.match(/^--([^=]+)(?:=(.*))?$/);
-    return m ? [m[1], m[2] ?? true] : [a, true];
-  })
-);
+const args = parseArgs();
 const PORT = Number(args.port ?? 5173);
 
-const portOpen = (port) =>
-  new Promise((res) => {
-    const s = net.connect({ port, host: '127.0.0.1' }, () => (s.destroy(), res(true)));
-    s.on('error', () => res(false));
-    s.setTimeout(400, () => (s.destroy(), res(false)));
-  });
+const vite = await ensureServer(PORT, { name: 'PLAYTEST' });
 
-let vite = null;
-if (!(await portOpen(PORT))) {
-  // `OW_NO_HMR=1`: the server this harness owns must not hot-reload.
-  //
-  // `vite.config.js` has carried the guard and the explanation since the capture
-  // harness needed it — a file saved while a run is in flight reloads the page
-  // and playwright fails the in-flight `page.evaluate` with "Execution context
-  // was destroyed" — and `tools/capture.mjs` was the only tool that set it. Every
-  // tool here spawns the same server for the same reason, and in `npm test` the
-  // one that wins the race owns it for the whole chain, so the guard has to be on
-  // all of them or it is on none of the ones that matter. Cost when nothing is
-  // being edited: nothing.
-  vite = spawn('npx', ['vite', '--port', String(PORT)], {
-    stdio: 'ignore',
-    detached: true,
-    env: { ...process.env, OW_NO_HMR: '1' },
-  });
-  for (let i = 0; i < 80 && !(await portOpen(PORT)); i++) {
-    await new Promise((r) => setTimeout(r, 250));
-  }
-}
-
-const browser = await chromium.launch({
+const browser = await launchChromium({
   args: ['--use-gl=angle', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
 });
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
@@ -60,8 +26,8 @@ page.on('console', (m) => {
   if (m.type() === 'error') errors.push(m.text());
 });
 
-await page.goto(`http://127.0.0.1:${PORT}/?prewarm=0`, { waitUntil: 'load' });
-await page.waitForFunction('window.__READY__ === true', null, { timeout: 90000 });
+await page.goto(bootUrl(PORT), { waitUntil: 'load' });
+await waitForReady(page, { name: 'PLAYTEST' });
 
 // Rounds off. This harness measures MECHANICS — does W move you, does a round
 // land the frame the trigger breaks — and the round loop's opening warmup holds
@@ -83,18 +49,34 @@ const snap = () => page.evaluate(() => {
   };
 });
 
+// SIMULATED seconds, not wall ones. These holds used to be waitForTimeout(),
+// which asserts "0.7 s of wall time walks you 2 m" — true only where the sim
+// keeps up with the wall. On the CI runner SwiftShader renders a handful of
+// frames a second, the accumulator's MAX_SUBSTEPS cap slows simulated time to
+// a fraction of wall time, and 700 wall-ms walked 0.179 m of a 2 m assertion.
+// The key is still held for real; only the clock the hold is measured on is
+// the simulation's own.
+const simWait = async (s) => {
+  const t0 = await page.evaluate(() => window.__ENGINE__.ctx.time.elapsed);
+  await page.waitForFunction(
+    ([t0, s]) => window.__ENGINE__.ctx.time.elapsed >= t0 + s,
+    [t0, s],
+    { timeout: 120000 }
+  );
+};
+
 const before = await snap();
 await page.keyboard.down('KeyW');
-await page.waitForTimeout(700);
+await simWait(0.7);
 const walking = await snap();
 await page.keyboard.up('KeyW');
-await page.waitForTimeout(250);
+await simWait(0.25);
 
 await page.keyboard.down('ControlLeft');
-await page.waitForTimeout(450);
+await simWait(0.45);
 const crouched = await snap();
 await page.keyboard.up('ControlLeft');
-await page.waitForTimeout(450);
+await simWait(0.45);
 const stoodBack = await snap();
 
 const dist = Math.hypot(walking.pos[0] - before.pos[0], walking.pos[2] - before.pos[2]);
@@ -281,5 +263,5 @@ console.log(JSON.stringify({ ...move, ...result }, null, 2));
 console.log(fail.length === 0 ? '\nPLAYTEST OK' : `\nPLAYTEST FAILED (${fail.length}):\n  ${fail.join('\n  ')}`);
 
 await browser.close();
-if (vite) process.kill(-vite.pid);
+killServer(vite);
 process.exit(fail.length === 0 ? 0 : 1);

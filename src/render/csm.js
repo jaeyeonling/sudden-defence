@@ -29,6 +29,9 @@ const _origin = new THREE.Vector4();
 const _mat = new THREE.Matrix4();
 const _sphere = new THREE.Sphere();
 const _rel = new THREE.Vector3();
+// Vector4 component names, indexed per cascade. Module-level: update() runs
+// every frame and rule 6 says it allocates nothing.
+const COMP = ['x', 'y', 'z', 'w'];
 
 export class CascadedShadowMaps {
   constructor(renderer, opts) {
@@ -147,7 +150,7 @@ export class CascadedShadowMaps {
     const splitNear = this.uniforms.owCsmSplitNear.value;
     const texel = this.uniforms.owCsmTexel.value;
     const range = this.uniforms.owCsmRange.value;
-    const comp = ['x', 'y', 'z', 'w'];
+    const comp = COMP;
 
     for (let i = 0; i < N; i++) {
       const cn = s[i];

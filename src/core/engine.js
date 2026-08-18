@@ -83,8 +83,11 @@ export class Engine {
       tick: -1,
     };
 
+    // Exactly the 13 members ARCHITECTURE.md lists — no `engine` back-reference.
+    // Handing subsystems the whole engine would be a back door around rules 2
+    // and 3 (any gameplay file could reach `ctx.engine.registry` and name
+    // whatever it liked); nothing ever used it, so the surface stays closed.
     this.ctx = {
-      engine: this,
       scene: this.scene,
       camera: this.camera,
       viewScene: this.viewScene,
@@ -121,8 +124,11 @@ export class Engine {
       if (ms > 50) console.info(`[engine] ${sys.constructor.id} init ${ms.toFixed(0)}ms`);
     }
     this.input.attach();
-    addEventListener('resize', this._onResize);
-    this.resize();
+    // A headless host has no window to resize. See tools/headless.mjs.
+    if (typeof addEventListener === 'function') {
+      addEventListener('resize', this._onResize);
+      this.resize();
+    }
     return this;
   }
 
@@ -196,7 +202,8 @@ export class Engine {
 
   dispose() {
     this.stop();
-    removeEventListener('resize', this._onResize);
+    // Same headless guard as init(): no window means nothing was attached.
+    if (typeof removeEventListener === 'function') removeEventListener('resize', this._onResize);
     this.input.detach();
     for (const sys of [...this.registry.ordered].reverse()) sys.dispose?.();
     this.events.clear();

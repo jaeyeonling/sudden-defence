@@ -19,7 +19,7 @@ export function reflect(out, dx, dy, dz, nx, ny, nz) {
 export function basis(out, nx, ny, nz) {
   let ax = 0;
   let ay = 1;
-  let az = 0;
+  const az = 0;
   if (Math.abs(ny) > 0.9) {
     ax = 1;
     ay = 0;
@@ -58,11 +58,6 @@ export function cone(out, rng, ax, ay, az, spread, power = 1) {
   out.y = ay * cosT + B.ty * cp + B.by * sp;
   out.z = az * cosT + B.tz * cp + B.bz * sp;
   return out;
-}
-
-/** Uniform direction on the hemisphere around a unit axis. */
-export function hemi(out, rng, ax, ay, az) {
-  return cone(out, rng, ax, ay, az, Math.PI * 0.5, 1);
 }
 
 /**
@@ -105,9 +100,9 @@ export function towardHemi(out, ax, ay, az, bias = 0.08) {
 export function clampCone(out, ax, ay, az, cosMax) {
   const d = out.x * ax + out.y * ay + out.z * az;
   if (d >= cosMax) return out;
-  let tx = out.x - ax * d;
-  let ty = out.y - ay * d;
-  let tz = out.z - az * d;
+  const tx = out.x - ax * d;
+  const ty = out.y - ay * d;
+  const tz = out.z - az * d;
   const tl = Math.hypot(tx, ty, tz);
   if (tl < 1e-5) {
     out.x = ax;

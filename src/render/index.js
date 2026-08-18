@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-import { hdrTarget, blit } from './pass.js';
+import { hdrTarget, blit, disposeFullScreen } from './pass.js';
 import { CascadedShadowMaps } from './csm.js';
 import { MaterialPatcher } from './materialpatch.js';
 import { GBuffer } from './prepass.js';
@@ -22,6 +22,9 @@ const QUALITY_LEVEL = { low: 0, medium: 1, high: 2, ultra: 3 };
 /**
  * Registration range at or below which a punctual light counts as a room/street
  * PRACTICAL rather than as an effect flash. See `settings.practicalGain`.
+ *
+ * OVER THE 800-LINE LIMIT as a subsystem entry point: the line count is API
+ * area, not depth. See ARCHITECTURE.md, "File size".
  */
 const PRACTICAL_RANGE = 30;
 
@@ -927,7 +930,7 @@ export class RenderSystem {
   //  sizing
   // ==========================================================================
 
-  resize(w, h, ctx) {
+  resize(w, h, _ctx) {
     const pr = Math.min(globalThis.devicePixelRatio || 1, 1.5);
     this.renderer.setPixelRatio(pr);
     this.renderer.setSize(w, h, false);
@@ -1767,6 +1770,9 @@ export class RenderSystem {
     }
     this._debugPass?.dispose();
     this.patcher.dispose();
+    // The module-level fullscreen triangle in pass.js — its disposer existed
+    // and nothing called it, which is the worst state for a dispose to be in.
+    disposeFullScreen();
     this.renderer.dispose();
   }
 }

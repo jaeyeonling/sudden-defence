@@ -159,7 +159,17 @@ export class Health {
         headshot: this.lastPart === 'head',
         source: opts.source ?? null,
       });
-      // (one allocation on death is fine — it happens once)
+      // The shared death event, same shape as Agent's — ARCHITECTURE.md lists
+      // `player` as an emitter and fx/audio hang the mist and the bodyfall off
+      // it. physics' ragdoll listener early-returns on a skeleton-less actor,
+      // so a first-person host passes through it untouched.
+      this.ctx.events.emit('actor:death', {
+        actor: this,
+        point: this.ctx.camera.position,
+        impulse: null,
+        headshot: this.lastPart === 'head',
+      });
+      // (allocations on death are fine — it happens once)
     }
     this._emitState(true);
     return dealt;

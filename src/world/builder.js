@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Accum, trs } from './util.js';
+import { Accum, trs } from './util-accum.js';
 import { PALETTE } from './palette.js';
 
 /**

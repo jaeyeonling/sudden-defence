@@ -42,7 +42,7 @@ function caseProfile() {
 }
 
 export class ShellSystem {
-  constructor(fx, opts = {}) {
+  constructor(fx, _opts = {}) {
     this.fx = fx;
     const geo = new THREE.LatheGeometry(caseProfile(), 16);
     geo.translate(0, -0.0225, 0); // origin at the centre of mass
@@ -188,7 +188,7 @@ export class ShellSystem {
     fx.emitLit(s);
   }
 
-  update(dt, now) {
+  update(dt, _now) {
     const gravity = this.fx.gravity;
     let count = 0;
     for (let i = 0; i < this.slots.length; i++) {

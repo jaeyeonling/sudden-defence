@@ -64,6 +64,9 @@
  *
  * CONSTANTS
  *   phys.LAYER, phys.MASK, phys.SURFACE, phys.SURFACE_NAMES, phys.SURFACE_PROPS
+ *
+ * OVER THE 800-LINE LIMIT as a subsystem entry point: the line count is API
+ * area, not depth. See ARCHITECTURE.md, "File size".
  */
 
 import * as THREE from 'three';
@@ -71,7 +74,8 @@ import { UNITS } from '../core/config.js';
 import { StaticWorld } from './bvh.js';
 import { CharacterController } from './character.js';
 import { RigidBody, RigidBodyWorld } from './rigidbody.js';
-import { Ragdoll, humanoidSpec, specFromSkeleton } from './ragdoll.js';
+import { humanoidSpec, specFromSkeleton } from './ragdoll-spec.js';
+import { Ragdoll } from './ragdoll.js';
 import { Ballistics } from './penetration.js';
 import { PhysicsDebugView } from './debug.js';
 import {
@@ -241,6 +245,13 @@ export class PhysicsSystem {
         body: null,
         actor: null,
         part: null,
+        /**
+         * The damage filter vetoed this hit — i.e. shooter and target are on
+         * the same side. The round still landed and this payload still
+         * describes flesh; what it does NOT describe is a wound. `fx` reads it
+         * to spray cloth instead of blood. See `emitImpact`.
+         */
+        friendly: false,
       });
     }
     this._impactCursor = 0;
@@ -927,6 +938,24 @@ export class PhysicsSystem {
     p.body = hit?.body ?? null;
     p.actor = hit?.actor ?? null;
     p.part = hit?.part ?? null;
+
+    /**
+     * ASK THE DAMAGE FILTER BEFORE EMITTING, not after.
+     *
+     * This used to be evaluated below, inside the `damage:dealt` guard, which
+     * meant `bullet:impact` went out knowing only that it had hit `flesh`. A
+     * round into a team-mate therefore sprayed blood and then dropped the
+     * wound — the game's own rules table says friendly fire "still impacts,
+     * sprays and cracks; it does not wound", and blood is how a wound looks.
+     *
+     * The flag says WHY the wound was dropped, not merely that it was. A hit on
+     * a corpse is also wound-less (`hit.ragdoll` below) and should still spray:
+     * the note under this block is explicit that rounds into a body mark and
+     * shove the doll. Only a same-side hit is bloodless.
+     */
+    p.friendly = !!p.actor && !!this._damageFilter
+      && !this._damageFilter(this._bulletSource, p.actor);
+
     this.ctx.events.emit('bullet:impact', p);
 
     // A corpse is not a target.
@@ -947,8 +976,7 @@ export class PhysicsSystem {
     //
     // `bullet:impact` above is deliberately still emitted: rounds into a body
     // should still spray, mark and shove the doll. Only the wound is dropped.
-    if (p.actor && !exit && !hit?.ragdoll
-      && (!this._damageFilter || this._damageFilter(this._bulletSource, p.actor))) {
+    if (p.actor && !exit && !hit?.ragdoll && !p.friendly) {
       const d = this._damagePayload;
       d.target = p.actor;
       d.source = this._bulletSource;
@@ -1105,7 +1133,7 @@ export class PhysicsSystem {
   /* Frame                                                              */
   /* ================================================================== */
 
-  fixedUpdate(h, ctx) {
+  fixedUpdate(h, _ctx) {
     const t0 = performance.now();
 
     if (this._explicitStatics === 0) {

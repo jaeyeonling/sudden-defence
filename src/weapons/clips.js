@@ -314,5 +314,27 @@ export function buildClips(nodes, def) {
     events: [{ t: 0.995 * holT, name: 'end' }],
   });
 
-  return { reloadTac, reloadEmpty, inspect, draw, holster };
+  /* ------------------------------------------------------------------ throw */
+  // The grenade toss: the weapon dips out of the eyeline while the right hand
+  // lobs, then comes back up. Quick — the grenade is already in the air when
+  // this plays, so the gesture only has to say "that came from me". Before this
+  // clip existed the throw played `inspect`, and lobbing a frag read as three
+  // seconds of admiring the rifle.
+  const thrT = def.throwTime ?? 0.55;
+  const throwClip = new Clip('throw', thrT, {
+    weapon: [
+      { t: 0, p: v3(0, 0, 0), r: v3(0, 0, 0) },
+      { t: 0.22 * thrT, p: v3(-0.055, -0.16, 0.06), r: v3(-0.5, 0.35, -0.55), ease: 'out' },
+      { t: 0.5 * thrT, p: v3(-0.045, -0.14, 0.05), r: v3(-0.42, 0.3, -0.5) },
+      { t: 1, p: v3(0, 0, 0), r: v3(0, 0, 0), ease: 'out' },
+    ],
+    lhand: [
+      { t: 0, p: hgP, finger: wrapFinger, back: wrapBack, pose: 'wrap' },
+      { t: 1, p: hgP, finger: wrapFinger, back: wrapBack, pose: 'wrap' },
+    ],
+    parts: [{ t: 0, mag: 0, magVisible: 1 }],
+    events: [{ t: 0.995 * thrT, name: 'end' }],
+  });
+
+  return { reloadTac, reloadEmpty, inspect, draw, holster, throw: throwClip };
 }

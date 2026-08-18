@@ -383,16 +383,9 @@
  *                           [--isolate=<event>]  cut one channel, same snapshot
  *                           [--induce=drawnhead|frameevents]  put a defect back
  */
-import { chromium } from 'playwright';
-import { spawn } from 'node:child_process';
-import net from 'node:net';
+import { parseArgs, ensureServer, killServer, launchChromium } from './harness.mjs';
 
-const args = Object.fromEntries(
-  process.argv.slice(2).map((a) => {
-    const m = a.match(/^--([^=]+)(?:=(.*))?$/);
-    return m ? [m[1], m[2] ?? true] : [a, true];
-  })
-);
+const args = parseArgs();
 const PORT = Number(args.port ?? 5173);
 /**
  * Frame rates to compose at while the tick rate stays 120 Hz.
@@ -446,26 +439,9 @@ const MOVED_MIN = 0.5;
  */
 const LERP_MIN = 1e-3;
 
-const portOpen = (port) =>
-  new Promise((res) => {
-    const s = net.connect({ port, host: '127.0.0.1' }, () => (s.destroy(), res(true)));
-    s.on('error', () => res(false));
-    s.setTimeout(400, () => (s.destroy(), res(false)));
-  });
+const vite = await ensureServer(PORT, { name: 'PERCEIVE' });
 
-let vite = null;
-if (!(await portOpen(PORT))) {
-  vite = spawn('npx', ['vite', '--port', String(PORT)], {
-    stdio: 'ignore',
-    detached: true,
-    env: { ...process.env, OW_NO_HMR: '1' },
-  });
-  for (let i = 0; i < 80 && !(await portOpen(PORT)); i++) {
-    await new Promise((r) => setTimeout(r, 250));
-  }
-}
-
-const browser = await chromium.launch({
+const browser = await launchChromium({
   args: ['--use-gl=angle', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
 });
 const page = await browser.newPage({ viewport: { width: 640, height: 480 } });
@@ -486,6 +462,14 @@ page.on('pageerror', (e) => errors.push(e.message));
 // `--seed=N` picks a different world on purpose; the `scenario:` line reports
 // which one was actually reached.
 await page.goto(
+  // NOT bootUrl(): perceive's SUSPECT is the interpolated draw pose (see the
+  // header), and `?render=0` boots a world with no drawn pose to contaminate
+  // anything — the gate would be measuring a stack its defect cannot live in.
+  // Running it renderer-less also surfaced something real on its way out: with
+  // render/sky gone the init-time rng fork order shifts, a round transition
+  // lands inside the measurement window, and 30 fps diverges — independent
+  // confirmation that the round clock on frame dt is the M8 coupling
+  // ARCHITECTURE.md names. Full boot, deliberately.
   `http://127.0.0.1:${PORT}/?prewarm=0&lockstep=1&seed=${SEED}`,
   { waitUntil: 'load' }
 );
@@ -614,7 +598,10 @@ const out = await page.evaluate(
     const CLOCK0 = 8_000_000; // arbitrary, constant, far from any real `now`
     let clock = CLOCK0;
     e._last = clock;
-    e._accum = 0;
+    e._accum = 0; // NOT the half-tick cushion replay/crossengine use: this driver runs
+    // at several frame RATES and compares them, and a preloaded accumulator shifts
+    // tick boundaries differently per rate. The constant CLOCK0 above already makes
+    // this driver deterministic — same start, same roundings, every run.
 
     /** One `step` per call is one tick, which is what makes a tick addressable. */
     const tick1 = () => {
@@ -731,7 +718,6 @@ const out = await page.evaluate(
 
     const player = ctx.get('player');
     const ai = ctx.peek('ai');
-    const BTN = e.commands.BTN ?? { fire: 1 };
 
     /**
      * What a bot knows, as comparable numbers.
@@ -1062,7 +1048,7 @@ const out = await page.evaluate(
 );
 
 await browser.close();
-if (vite && !args.keep) try { process.kill(-vite.pid); } catch { /* already gone */ }
+if (!args.keep) killServer(vite);
 
 /* ====================================================================== */
 /*  Report                                                                */

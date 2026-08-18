@@ -33,17 +33,10 @@
  *
  *   node tools/ballistics.mjs
  */
-import { chromium } from 'playwright';
-import { spawn } from 'node:child_process';
-import net from 'node:net';
 import { stkBands, formatBands, bandEdge } from './lethality.mjs';
+import { parseArgs, ensureServer, killServer, launchChromium, waitForReady, bootUrl } from './harness.mjs';
 
-const args = Object.fromEntries(
-  process.argv.slice(2).map((a) => {
-    const m = a.match(/^--([^=]+)(?:=(.*))?$/);
-    return m ? [m[1], m[2] ?? true] : [a, true];
-  })
-);
+const args = parseArgs();
 const PORT = Number(args.port ?? 5173);
 const RANGES = [5, 15, 25, 35];
 /** Where the cone is measured. Median engagement distance on this map. */
@@ -83,44 +76,17 @@ const RPM_TOL = 0.05;
  */
 const MEDIAN_ENGAGEMENT = Number(args.median ?? 14.4);
 
-const portOpen = (port) =>
-  new Promise((res) => {
-    const s = net.connect({ port, host: '127.0.0.1' }, () => (s.destroy(), res(true)));
-    s.on('error', () => res(false));
-    s.setTimeout(400, () => (s.destroy(), res(false)));
-  });
+const vite = await ensureServer(PORT, { name: 'BALLISTICS' });
 
-let vite = null;
-if (!(await portOpen(PORT))) {
-  // `OW_NO_HMR=1`: the server this harness owns must not hot-reload.
-  //
-  // `vite.config.js` has carried the guard and the explanation since the capture
-  // harness needed it — a file saved while a run is in flight reloads the page
-  // and playwright fails the in-flight `page.evaluate` with "Execution context
-  // was destroyed" — and `tools/capture.mjs` was the only tool that set it. Every
-  // tool here spawns the same server for the same reason, and in `npm test` the
-  // one that wins the race owns it for the whole chain, so the guard has to be on
-  // all of them or it is on none of the ones that matter. Cost when nothing is
-  // being edited: nothing.
-  vite = spawn('npx', ['vite', '--port', String(PORT)], {
-    stdio: 'ignore',
-    detached: true,
-    env: { ...process.env, OW_NO_HMR: '1' },
-  });
-  for (let i = 0; i < 80 && !(await portOpen(PORT)); i++) {
-    await new Promise((r) => setTimeout(r, 250));
-  }
-}
-
-const browser = await chromium.launch({
+const browser = await launchChromium({
   args: ['--use-gl=angle', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
 });
 const page = await browser.newPage({ viewport: { width: 640, height: 480 } });
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 
-await page.goto(`http://127.0.0.1:${PORT}/?prewarm=0`, { waitUntil: 'load' });
-await page.waitForFunction('window.__READY__ === true', null, { timeout: 120000 });
+await page.goto(bootUrl(PORT), { waitUntil: 'load' });
+await waitForReady(page, { name: 'BALLISTICS' });
 
 const out = await page.evaluate(
   async ({ RANGES, MEASURE_AT, TTK_FPS, TTK_HOLD_S }) => {
@@ -128,7 +94,6 @@ const out = await page.evaluate(
     const match = e.ctx.get('match');
     const weapons = e.ctx.get('weapons');
     const player = e.ctx.get('player');
-    const ph = e.ctx.get('physics');
 
     match.stopMatch();
     player.setControlEnabled(false);
@@ -502,7 +467,7 @@ const out = await page.evaluate(
 if (out?.fatal) {
   console.log(`\nBALLISTICS FAILED — harness precondition: ${out.fatal}`);
   await browser.close();
-  if (vite) process.kill(-vite.pid);
+  killServer(vite);
   process.exit(1);
 }
 
@@ -586,11 +551,26 @@ for (const [id, w] of Object.entries(R)) {
     );
   }
 
-  // 4. Roles. Not a hard fail: this is the thing M7 is for.
+  // 4. Roles. PROMOTED TO A HARD FAIL, now that M7 is closed.
+  //
+  // It was a warning because "this is the thing M7 is for" — the milestone that
+  // was going to give the weapons distinct ranges was still open, so a red here
+  // would have been reporting unfinished work rather than a regression. M7 is
+  // done (`ARCHITECTURE.md`, weapons: done), which retires that reason.
+  //
+  // What it now guards is not a balance opinion but a mechanism. This file's own
+  // header records that damage falloff shipped INERT: `maxRange` at 420/240/180
+  // m meant a 35 m shot had travelled 8-19% of it, every weapon did full damage
+  // everywhere, and the SMG was simply a worse rifle. Identical shots-to-kill at
+  // 5 m and 35 m is the fingerprint of exactly that, and it is invisible in play
+  // until somebody wonders why nobody picks the MPX-9.
   const close = w.lethality['5m'];
   const far = w.lethality['35m'];
   if (close.torso === far.torso && id !== 'rifle') {
-    warn.push(`${id}: ${close.torso} shots to kill at BOTH 5 m and 35 m — no range identity`);
+    fail.push(
+      `${id}: ${close.torso} shots to kill at BOTH 5 m and 35 m — no range identity. ` +
+      `Falloff is inert for this weapon; check falloffRange and dropoff`
+    );
   }
 
   // 4b. THE SPRAY IS THE SHAPE IT SAYS IT IS.
@@ -607,7 +587,11 @@ for (const [id, w] of Object.entries(R)) {
   //     the half that makes it mean something.
   const sig = w.signature;
   if (!sig) {
-    warn.push(`${id}: no recoil signature declared — its shape is unchecked`);
+    // Also promoted. A missing signature does not mean the spray is wrong — it
+    // means nothing below this line runs for that weapon, so every shape check
+    // silently passes. A gate that goes quiet when its input disappears is the
+    // failure mode this whole file was written after.
+    fail.push(`${id}: no recoil signature declared — every shape check below is skipped`);
   } else {
     const band = (label, v, [lo, hi]) => {
       if (v < lo || v > hi) {
@@ -654,6 +638,14 @@ for (const [id, w] of Object.entries(R)) {
   //    so the fastest kill in the game was unavailable in most of the fights it
   //    was tuned for — a close-range specialist on paper and a trap pick in
   //    play. A grid of four ranges cannot see this; the solved edge can.
+  //
+  // STAYS A WARNING, unlike checks 4 and 4b above, and the difference is worth
+  // naming: those two fail when a MECHANISM is broken, this one fires when a
+  // BALANCE choice looks questionable. `MEDIAN_ENGAGEMENT` is a pooled estimate
+  // whose own per-run inputs ranged 7.3 to 20.0 m, and the MPX-9 clears it today
+  // by 1.4 m. A hard fail on that margin would go red on a map tweak, for a
+  // reason that is a conversation rather than a defect — and a gate that opens
+  // conversations by blocking the build is a gate people route around.
   if (id !== 'pistol' && Number.isFinite(w.fourRoundTo) && w.fourRoundTo < MEDIAN_ENGAGEMENT) {
     warn.push(
       `${id}: four-round band closes at ${w.fourRoundTo.toFixed(1)} m, inside the ` +
@@ -664,16 +656,26 @@ for (const [id, w] of Object.entries(R)) {
 
 // 5. Two weapons that kill in the same number of shots at the same range with
 //    the same fire rate are the same weapon.
+//
+// Every pair, not the first two. It read `ttk5[0]` against `ttk5[1]` and never
+// looked at `ttk5[2]`, so with three weapons it examined one of the three pairs
+// — and the pair it skipped was whichever two happened to be listed last. A
+// check that inspects a third of what it claims to is worse than none, because
+// its silence is read as all three agreeing.
 const ttk5 = Object.entries(R).map(([id, w]) => [id, w.lethality['5m'].ttkMs]);
-if (ttk5[0][1] === ttk5[1][1]) {
-  warn.push(`${ttk5[0][0]} and ${ttk5[1][0]} have identical close TTK (${ttk5[0][1]} ms)`);
+for (let i = 0; i < ttk5.length; i++) {
+  for (let j = i + 1; j < ttk5.length; j++) {
+    if (ttk5[i][1] === ttk5[j][1]) {
+      warn.push(`${ttk5[i][0]} and ${ttk5[j][0]} have identical close TTK (${ttk5[i][1]} ms)`);
+    }
+  }
 }
 
 if (errors.length) fail.push(`page errors: ${errors.slice(0, 2).join(' | ')}`);
 
 console.log(JSON.stringify(out, null, 2));
 console.log('\n─── summary ' + '─'.repeat(58));
-for (const [id, w] of Object.entries(R)) {
+for (const [, w] of Object.entries(R)) {
   const l = w.lethality;
   console.log(
     `${w.label.padEnd(7)} ${String(w.measuredRpm).padStart(4)} rpm measured (print ${w.rpm}) · ` +
@@ -703,5 +705,5 @@ console.log(
 );
 
 await browser.close();
-if (vite) process.kill(-vite.pid);
+killServer(vite);
 process.exit(fail.length === 0 ? 0 : 1);

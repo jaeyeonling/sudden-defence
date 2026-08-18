@@ -1,29 +1,10 @@
-import { Assembly, box, blob, dome, extrude, roundRect, latheZ, rodZ, mergeAll } from '../geometry.js';
-import {
-  addBarrel,
-  addGasBlock,
-  addMuzzleDevice,
-  addHandguard,
-  addUpperReceiver,
-  addLowerReceiver,
-  addBoltCarrier,
-  addRail,
-  addPistolGrip,
-  addCarbineStock,
-  addFrontSight,
-  addRearSight,
-  addRollmark,
-  addQdSocket,
-  addSlingLoop,
-  addPin,
-  addScrew,
-  buildMagazine,
-  buildOptic,
-  chargingHandlePart,
-  selectorPart,
-  triggerPart,
-  cartridge,
-} from '../parts.js';
+import { Assembly, blob, extrude, latheZ } from '../geometry.js';
+import { addBarrel, addGasBlock, addHandguard, addMuzzleDevice } from '../parts-barrel.js';
+import { addCarbineStock, addPistolGrip } from '../parts-furniture.js';
+import { buildMagazine } from '../parts-magazine.js';
+import { addFrontSight, addRearSight, buildOptic } from '../parts-optics.js';
+import { addBoltCarrier, addLowerReceiver, addRollmark, addUpperReceiver, chargingHandlePart, selectorPart, triggerPart } from '../parts-receiver.js';
+import { addPin, addQdSocket, addRail, addSlingLoop, cartridge } from '../parts.js';
 
 /**
  * The assault rifle — an AR-15/M4 pattern carbine with a free-float handguard,
@@ -68,7 +49,7 @@ export function buildRifle() {
     railTop,
   });
 
-  const lower = addLowerReceiver(body, 'alu', 'steel', {
+  addLowerReceiver(body, 'alu', 'steel', {
     bore,
     zRear: zUpperRear + 0.004,
     zFront: -0.088,
@@ -131,7 +112,7 @@ export function buildRifle() {
   });
 
   // ---- barrel, gas system, muzzle -----------------------------------------
-  const barrel = addBarrel(body, 'steel', 'cavity', {
+  addBarrel(body, 'steel', 'cavity', {
     y: bore,
     zBreech,
     zMuzzle: zBarrelEnd,

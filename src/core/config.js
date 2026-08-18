@@ -9,6 +9,14 @@ export const FIXED_DT = 1 / PHYSICS_HZ;
 /** Never simulate more than this many physics steps in one frame (spiral-of-death guard). */
 export const MAX_SUBSTEPS = 8;
 
+/**
+ * Mouse sensitivity at multiplier 1.0, in radians per pointer count.
+ * `config.sensitivity` is always BASE_SENSITIVITY x the user's multiplier;
+ * divide by this to recover the multiplier (the menu slider and the gamepad
+ * stick rate both want the unitless form, not rad/count).
+ */
+export const BASE_SENSITIVITY = 0.0022;
+
 /** Real-world units are metres, seconds, kilograms. */
 export const UNITS = {
   gravity: -9.81 * 2.1, // Games use exaggerated gravity; CoD-like feel.
@@ -179,7 +187,7 @@ export const DEFAULTS = {
   quality: 'high',
   fov: 80, // horizontal-ish vertical FOV, CoD default feel
   adsFovScale: 0.72,
-  sensitivity: 0.0022,
+  sensitivity: BASE_SENSITIVITY,
   adsSensScale: 0.65,
   invertY: false,
   exposure: 1.0,

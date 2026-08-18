@@ -35,16 +35,9 @@
  *
  *   node tools/vault.mjs [--port=5173] [--dump]
  */
-import { chromium } from 'playwright';
-import { spawn } from 'node:child_process';
-import net from 'node:net';
+import { parseArgs, ensureServer, killServer, launchChromium, waitForReady, bootUrl } from './harness.mjs';
 
-const args = Object.fromEntries(
-  process.argv.slice(2).map((a) => {
-    const [k, v] = a.replace(/^--/, '').split('=');
-    return [k, v ?? true];
-  })
-);
+const args = parseArgs();
 const KNOWN = new Set(['port', 'dump']);
 for (const k of Object.keys(args)) {
   if (!KNOWN.has(k)) {
@@ -54,35 +47,17 @@ for (const k of Object.keys(args)) {
 }
 const PORT = Number(args.port ?? 5173);
 
-const portOpen = (p) => new Promise((res) => {
-  const s = net.connect({ port: p, host: '127.0.0.1' }, () => (s.destroy(), res(true)));
-  s.on('error', () => res(false));
-  s.setTimeout(400, () => (s.destroy(), res(false)));
-});
+const vite = await ensureServer(PORT, { name: 'VAULT' });
+const stopVite = () => killServer(vite);
 
-let vite = null;
-if (!(await portOpen(PORT))) {
-  vite = spawn('npx', ['vite', '--port', String(PORT)], {
-    stdio: 'ignore', detached: true, env: { ...process.env, OW_NO_HMR: '1' },
-  });
-  for (let i = 0; i < 80 && !(await portOpen(PORT)); i++) {
-    await new Promise((r) => setTimeout(r, 250));
-  }
-  if (!(await portOpen(PORT))) {
-    console.error('VAULT FAIL — vite did not come up');
-    process.exit(1);
-  }
-}
-const stopVite = () => { if (vite) { try { process.kill(-vite.pid); } catch { /* gone */ } } };
-
-const browser = await chromium.launch({
+const browser = await launchChromium({
   args: ['--use-gl=angle', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
 });
 const page = await browser.newPage({ viewport: { width: 640, height: 480 } });
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
-await page.goto(`http://127.0.0.1:${PORT}/?prewarm=0`, { waitUntil: 'load' });
-await page.waitForFunction('window.__READY__ === true', null, { timeout: 120000 });
+await page.goto(bootUrl(PORT), { waitUntil: 'load' });
+await waitForReady(page, { name: 'VAULT' });
 
 const out = await page.evaluate(() => {
   const e = window.__ENGINE__;

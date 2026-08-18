@@ -36,13 +36,19 @@
  *   player:footstep
  * EVENTS emitted: weapon:fire (enemy muzzle), weapon:shell, bullet:tracer,
  *   damage:dealt (enemy hitting the player), actor:death
+ *
+ * OVER THE 800-LINE LIMIT as a subsystem entry point: the line count is API
+ * area, not depth. See ARCHITECTURE.md, "File size".
  */
 
 import * as THREE from 'three';
 import { SoldierMaterials } from './textures.js';
-import { buildSoldier, resolveMaterials, MATERIAL_SLOTS, VARIANTS } from './soldier.js';
+import { buildSoldier } from './soldier.js';
+import { resolveMaterials, MATERIAL_SLOTS } from './soldier-slots.js';
+import { VARIANTS } from './soldier-palette.js';
 import { RIG } from './rig.js';
-import { NavGrid, CoverMap } from './nav.js';
+import { CoverMap } from './nav-cover.js';
+import { NavGrid } from './nav.js';
 import { Agent, STATE, aiYaw } from './agent.js';
 import { Squad } from './squad.js';
 import { GroundShadows } from './grounding.js';
@@ -81,7 +87,7 @@ export class AiSystem {
     'inspect', 'debugLog', 'forcePopulate', 'stats', '_navPending', 'pathsPerFrame',
     '_grenadeGeo', '_grenadeMat', '_warmGrenade', '_prewarmed', '_off', '_phys', '_sky',
     '_v', '_v2', '_v3', '_probe', '_tracerFrom', '_tracerTo',
-    '_fireEvent', '_shellEvent', '_tracerEvent',
+    '_fireEvent', '_shellEvent', '_tracerEvent', '_explosionEvent',
     '_frustum', '_mvp', '_sphere', '_sweep', '_sun', '_lodStats',
   ];
 
@@ -240,6 +246,9 @@ export class AiSystem {
     };
     this._shellEvent = { position: new THREE.Vector3(), velocity: new THREE.Vector3() };
     this._tracerEvent = { from: this._tracerFrom, to: this._tracerTo, speed: 800 };
+    // Detonations fire a handful of times a match, but the rule is the rule:
+    // preallocated like every other event payload in this file.
+    this._explosionEvent = { position: new THREE.Vector3(), radius: 6.5, damage: 120, source: null };
     this._grenades = [];
     this._grenadeGeo = null;
     this._grenadeMat = null;
@@ -703,7 +712,9 @@ export class AiSystem {
   }
 
   get phys() {
-    return this._phys ?? (this._phys = this.ctx.peek('physics'));
+    // `get`, not `peek`: physics is a declared dep, so a missing one is a boot
+    // bug that should fail loudly, not degrade into bots with no raycasts.
+    return this._phys ?? (this._phys = this.ctx.get('physics'));
   }
 
   /* ================================================================== */
@@ -712,7 +723,7 @@ export class AiSystem {
 
   _buildNav() {
     const phys = this.phys;
-    const world = this.ctx.peek('world');
+    const world = this.ctx.get('world');
     if (!phys) return;
     if (phys.staticWorld.dirty) phys.rebuildStatic();
     if (phys.triangleCount <= 0) return; // level not registered yet — retry next frame
@@ -759,7 +770,11 @@ export class AiSystem {
     if (!phys) return 0;
     const h = phys.raycast(x, fromY, z, 0, -1, 0, 80, phys.MASK.WORLD);
     if (h.hit) return h.point.y;
-    return this.ctx.peek('world')?.groundHeight?.(x, z) ?? 0;
+    // No second probe: `world` never had a groundHeight — the old fallback
+    // optional-chained a method that does not exist and always produced 0.
+    // A ray from y=40 only misses outside the playable volume, where 0 is as
+    // honest a floor as any.
+    return 0;
   }
 
   /**
@@ -787,6 +802,11 @@ export class AiSystem {
    * Build one bot and enlist it. `opts.team` decides which side it fights for
    * and which camo it wears; both come from the same `match` table, so a bot
    * cannot end up dressed as one team and scored as the other.
+   *
+   * `yaw` is in the AI convention (0 faces +Z) — every other gameplay-facing
+   * yaw in the codebase is the WORLD one, and they differ by exactly PI.
+   * Handing this a `world.spawnPoints[].yaw` unconverted spawns the bot facing
+   * its own back wall; wrap it in `aiYaw()` first, the way populate() does.
    */
   spawn(variantName, position, yaw = 0, opts = {}) {
     const a = new Agent(this, { variant: variantName, position, yaw, ...opts });
@@ -817,7 +837,7 @@ export class AiSystem {
    * not bots, which is the number a scoreboard has to agree with.
    */
   populate(opts = {}) {
-    const world = this.ctx.peek('world');
+    const world = this.ctx.get('world');
     if (!world || !this.grid) return 0;
 
     const perTeam = opts.perTeam ?? 4;
@@ -864,7 +884,7 @@ export class AiSystem {
    * tile. Snapped to the nav grid, because a spawn the pathfinder does not
    * believe in is a bot that never takes a step.
    */
-  _scatter(anchor, seed) {
+  _scatter(anchor, _seed) {
     const ang = this.rng.range(0, Math.PI * 2);
     const rad = this.rng.range(0.6, 2.4);
     const p = new THREE.Vector3(
@@ -1098,21 +1118,40 @@ export class AiSystem {
     agent.animator.fire(0.35);
   }
 
+  /**
+   * Throw one from an arbitrary origin along an arbitrary velocity.
+   *
+   * The pool, the rigid body, the fuse and the explosion all live here because
+   * bots got grenades first — not because throwing is an AI concern. `weapons`
+   * calls this for the player rather than growing a second pool that would
+   * fuse, explode and rewind on its own terms.
+   *
+   * `thrower` is whatever the explosion should be attributed to; it is handed
+   * straight back out on the event and never posed or animated here, which is
+   * what lets a player pass themselves in without being an Agent.
+   */
+  spawnGrenade(from, velocity, fuse = 2.35, thrower = null) {
+    if (!this.phys) return false;
+    this._spawnGrenade(from, velocity, fuse, thrower);
+    return true;
+  }
+
   _updateGrenades(dt) {
     for (let i = this._grenades.length - 1; i >= 0; i--) {
       const g = this._grenades[i];
       g.fuse -= dt;
       if (g.fuse > 0) continue;
       const p = g.body?.position ?? g.mesh.position;
-      this.ctx.events.emit('explosion', {
-        position: new THREE.Vector3(p.x, p.y, p.z),
-        radius: 6.5,
-        damage: 120,
-        source: g.agent,
-      });
+      const e = this._explosionEvent;
+      e.position.set(p.x, p.y, p.z);
+      e.source = g.agent;
+      this.ctx.events.emit('explosion', e);
       this.phys?.removeRigidBody(g.body);
       this.root.remove(g.mesh);
-      this._grenades.splice(i, 1);
+      // Swap-pop: fuses are independent so order carries nothing, and splice
+      // allocates the removed-elements array.
+      this._grenades[i] = this._grenades[this._grenades.length - 1];
+      this._grenades.pop();
     }
   }
 

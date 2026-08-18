@@ -27,6 +27,9 @@
  * damage:taken, actor:death, player:land, player:footstep, player:state,
  * explosion. If `ai` emits the optional `ai:bark {kind, position, voice}` it is
  * picked up as well.
+ *
+ * OVER THE 800-LINE LIMIT as a subsystem entry point: the line count is API
+ * area, not depth. See ARCHITECTURE.md, "File size".
  */
 
 import { NoiseBank, SPEED_OF_SOUND, clamp, gain as mkGain } from './dsp.js';
@@ -34,9 +37,9 @@ import { Mixer } from './mixer.js';
 import { SpatialField } from './spatial.js';
 import { Ambience, ambientOneShot, ONE_SHOTS } from './ambience.js';
 import { WEAPON_PROFILES, resolveProfile, weaponShot, bulletWhizz, dryFire } from './weapons.js';
+import { footstep, surfaceImpact } from './foley-impacts.js';
 import {
-  surfaceImpact, footstep, shellCasing, reloadPhase, explosion, bodyFall, uiSound,
-  heartbeat, cloth,
+  shellCasing, reloadPhase, explosion, bodyFall, uiSound, heartbeat, cloth,
 } from './foley.js';
 import { bark as voxBark, barkFor } from './vox.js';
 import { classifySpace } from './ir.js';
@@ -189,11 +192,14 @@ export class AudioSystem {
   }
 
   _teardown() {
+    // One guard per disposal, the way spatial.js detach() does it: a single
+    // try means the first throw silently skips everything after it, and the
+    // AudioContext at the end is the one leak that actually costs something.
+    try { this.ambience?.dispose(); } catch { /* nothing useful to do */ }
+    try { this.field?.dispose(); } catch { /* nothing useful to do */ }
+    try { this.mixer?.dispose(); } catch { /* nothing useful to do */ }
+    try { this.bank?.dispose(); } catch { /* nothing useful to do */ }
     try {
-      this.ambience?.dispose();
-      this.field?.dispose();
-      this.mixer?.dispose();
-      this.bank?.dispose();
       if (this.actx && this.actx.state !== 'closed') this.actx.close();
     } catch { /* nothing useful to do */ }
     this.ambience = this.field = this.mixer = this.bank = null;
@@ -473,11 +479,6 @@ export class AudioSystem {
     return this._playDry(k, o, BUS_FOR[k] ?? 'ui', k === 'heartbeat' ? 0.1 : 0);
   }
 
-  /** Adapter the `ui` subsystem probes for: playUi(id, gain). */
-  playUi(id, gain = 1) {
-    return this.ui(id, gain);
-  }
-
   /** Adapter the `fx` subsystem probes for: playShell(position, gain). */
   playShell(position, gain = 1) {
     if (!isVec(position)) return false;
@@ -535,6 +536,14 @@ export class AudioSystem {
     on('damage:dealt', (p) => this._onDamageDealt(p));
     on('damage:taken', (p) => this._onDamageTaken(p));
     on('actor:death', (p) => this._onDeath(p));
+    // Kill confirm rides `combatant:death`, NOT `damage:dealt.killed`: that
+    // flag is back-filled by the TARGET's own listener, and audio subscribes
+    // before `ai` does — so at this handler's dispatch the field is still the
+    // hardcoded `false` physics emitted. `match` is the one thing that knows
+    // both ends of a kill, which is also why the killfeed hangs off it.
+    on('combatant:death', (p) => {
+      if (this.running && this._isPlayer(p?.source)) this.ui('kill', 1);
+    });
     // Optional: emitted by `ai` if it wants scripted chatter.
     on('ai:bark', (p) => this.bark(p?.kind ?? 'spot', p?.position, { voice: p?.voice ?? 0 }));
   }
@@ -703,7 +712,7 @@ export class AudioSystem {
   _onDamageDealt(p) {
     if (!this.running || !p) return;
     const t = p.target;
-    const targetIsPlayer = t === 'player' || t?.isPlayer === true;
+    const targetIsPlayer = this._isPlayer(t);
 
     // Two different sounds live in this one event and they answer two different
     // questions, which is why they are gated separately.
@@ -713,16 +722,18 @@ export class AudioSystem {
     // "the thing that got hit isn't me, therefore I hit it" — which is a correct
     // test in a game with one shooter and wrong in one with fifteen bots. Every
     // round a bot landed on another bot across the map ticked in the player's
-    // ear. `ui/index.js:192` was fixed for the same reason and this half was
-    // left behind; the old TODO here was waiting for `damage:dealt` to carry
-    // `source`, which physics has done since M3 (`physics/index.js:794`).
+    // ear. `ui`'s damage:dealt handler was fixed for the same reason and this
+    // half was left behind; the old TODO here was waiting for `damage:dealt`
+    // to carry `source`, which physics has done since M3.
     //
     // The hurt bark is diegetic: it is the victim's voice at the victim's
     // position, and it belongs in the world whoever pulled the trigger. So it
     // stays on the target test, and bot-on-bot fights keep making noise.
     if (this._isPlayer(p.source)) {
+      // No `p.killed` check here — see the `combatant:death` subscription in
+      // _wireEvents(): at this point in the dispatch order the flag is always
+      // the emitter's hardcoded `false`, so a branch on it never fired.
       this.ui(p.headshot ? 'headshot' : 'hitmarker', 1);
-      if (p.killed) this.ui('kill', 1);
     }
     if (!targetIsPlayer && !p.killed && p.point && t && this.rng.float() < 0.3) {
       this.bark('hurt', p.point, { level: 0.85 });
@@ -734,7 +745,8 @@ export class AudioSystem {
    *
    * `audio` has no gameplay dependency and this is not the place to introduce
    * one: the flag rides on the combatant that physics already handed us
-   * (`player/index.js:107`), so the question is answerable from the event alone.
+   * (`player` sets `isPlayer` when it registers), so the question is
+   * answerable from the event alone.
    * The string form is the pre-Combatant spelling, still emitted by
    * `physics/selftest.js`.
    */

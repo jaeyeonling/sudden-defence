@@ -32,10 +32,17 @@ import { V, cone } from './util.js';
  * one buffer sub-upload of whatever was spawned this frame. Budgets come from
  * `config.q.particleBudget` / `decalBudget` and are hard caps: every layer is a
  * ring, and a ring never allocates.
+ *
+ * OVER THE 800-LINE LIMIT as a subsystem entry point: the line count is API
+ * area, not depth. See ARCHITECTURE.md, "File size".
  */
 export class FxSystem {
   static id = 'fx';
-  static deps = ['render', 'materials'];
+  static deps = ['materials'];
+  // Every use of `this.render` below is already null-guarded (it has always
+  // been a peek); demoting the dep lets a renderer-less boot keep fx, which
+  // `tools/debris.mjs` reads.
+  static optionalDeps = ['render'];
 
   async init(ctx) {
     this.ctx = ctx;
@@ -502,7 +509,43 @@ export class FxSystem {
     if (!e.normal) return;
     let energy = clamp(0.7 + (e.damage ?? 25) / 55, 0.7, 1.7);
     if (e.exit === true) energy *= 0.75;
-    spawnImpact(this, e.point, e.normal, e.incident ?? this._defaultIncident(e), e.surface, energy);
+    /**
+     * A round into a team-mate hits cloth, not meat.
+     *
+     * `physics` reports the surface it actually struck — `flesh` — and flags
+     * that the damage filter vetoed the wound (`e.friendly`). The game has no
+     * friendly fire, so blood there is a lie about what happened; the rules
+     * table asks for the round to still impact and spray, which `fabric` does.
+     * The payload is left truthful for `audio` and `ai`, which want to know a
+     * body was hit.
+     */
+    const surface = e.friendly && e.surface === 'flesh' ? 'fabric' : e.surface;
+    /**
+     * No world decal for a round that hit somebody.
+     *
+     * A decal is written into a world-space atlas and lives 80 to 120 seconds.
+     * That is correct for concrete, which will still be there; it is wrong for
+     * anything that can walk away, because what stays behind is a bullet hole
+     * hanging in mid-air at chest height.
+     *
+     * `flesh` never wrote one — but the friendly substitution above routes a
+     * team-mate hit to `fabric`, and `fabric` stamps a 0.09-0.15 m tear that
+     * lasts 80 seconds. Four rounds into a team-mate left four holes floating
+     * where they had been standing, which is exactly what it looked like.
+     *
+     * Gated on `e.actor` rather than on the substitution, so the rule is the
+     * general one: the decal belongs to the surface, and an actor is not a
+     * surface.
+     *
+     * Passed as an argument rather than set on `_suppressDecals`, which was the
+     * first attempt and was wrong: `flesh` calls `bloodSpatterBehind`, which
+     * raycasts PAST the target and decals whatever wall it finds. That decal is
+     * on a real surface and has to survive. The flag has to reach the one call
+     * that marks the actor's own position, not the whole recipe.
+     */
+    spawnImpact(
+      this, e.point, e.normal, e.incident ?? this._defaultIncident(e), surface, energy, !!e.actor
+    );
     this.stats.spawned++;
   }
 
@@ -1192,7 +1235,7 @@ export class FxSystem {
     this.spawnShell(this._tmpA, this._tmpB);
   }
 
-  _stageTracer(target) {
+  _stageTracer(_target) {
     const cam = this.ctx.camera;
     this._tmpA.set(0.18, -0.12, -0.7).applyMatrix4(cam.matrixWorld);
     // Fire past the staged surface: a tracer that only travels three metres is
@@ -1412,26 +1455,6 @@ export class FxSystem {
     this._decalAtlas.orm.dispose();
     disposeQuadSource();
   }
-}
-
-/** Peak candela per weapon class, used when the caller only gives us a name. */
-const MUZZLE_LIGHT = {
-  rifle: 90,
-  carbine: 78,
-  smg: 60,
-  pistol: 44,
-  shotgun: 150,
-  sniper: 130,
-  lmg: 105,
-  suppressed: 16,
-};
-
-function weaponKey(weapon) {
-  if (!weapon) return 'rifle';
-  const key = typeof weapon === 'string' ? weapon : weapon.class ?? weapon.kind ?? weapon.name ?? '';
-  const k = String(key).toLowerCase();
-  for (const name in MUZZLE_LIGHT) if (k.includes(name)) return name;
-  return 'rifle';
 }
 
 const _axisX = new THREE.Vector3(1, 0, 0);

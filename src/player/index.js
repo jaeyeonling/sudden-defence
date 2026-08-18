@@ -69,6 +69,12 @@
  *   player:health     { health, fraction, low, critical, dead }
  *   player:jump       { position }
  *   player:death      { position, part, headshot, source }
+ *   player:respawn    { position } — the round-scoped reset. `weapons` refills
+ *                     on it, because the rules table says respawn clears ammo
+ *                     and ammo does not live here.
+ *
+ * OVER THE 800-LINE LIMIT as a subsystem entry point: the line count is API
+ * area, not depth. See ARCHITECTURE.md, "File size".
  */
 
 import * as THREE from 'three';
@@ -76,8 +82,9 @@ import { Movement } from './movement.js';
 import { CameraRig } from './camera.js';
 import { Health } from './health.js';
 import { Spectator } from './spectate.js';
-import { STANCE, CAMERA, HEALTH, FOOTSTEP, JUMP_SPEED } from './tuning.js';
+import { STANCE, CAMERA, HEALTH, FOOTSTEP, JUMP_APEX, JUMP_SPEED } from './tuning.js';
 import { clamp, clamp01, DEG } from './springs.js';
+import { BASE_SENSITIVITY } from '../core/config.js';
 import { dpow } from '../core/dmath.js';
 
 /**
@@ -101,7 +108,10 @@ function groundFeetY(physics, position) {
 
 export class PlayerSystem {
   static id = 'player';
-  static deps = ['physics', 'world', 'render', 'match'];
+  static deps = ['physics', 'world', 'match'];
+  // Ordering only — nothing in here touches the render system, and a server
+  // simulating this player has no renderer to offer (M8, `?render=0`).
+  static optionalDeps = ['render'];
 
   /**
    * Snapshot classification (netcode step 5). Every own field appears in
@@ -124,7 +134,8 @@ export class PlayerSystem {
   static excludedState = [
     'isPlayer', 'combatant', 'ctx', 'physics', 'match', 'spectator',
     '_lookFrame', '_prev', '_offEvents', '_tmp',
-    '_statePayload', '_landPayload', '_stepPayload', '_jumpPayload', '_hudState',
+    '_statePayload', '_landPayload', '_stepPayload', '_jumpPayload', '_respawnPayload',
+    '_hudState',
   ];
 
   captureState(out = {}) {
@@ -171,6 +182,7 @@ export class PlayerSystem {
       left: false, speed: 0, stance: 'stand',
     };
     this._jumpPayload = { position: new THREE.Vector3() };
+    this._respawnPayload = { position: new THREE.Vector3() };
     // Preallocated HUD snapshot polled by `ui` (see getHudState).
     this._hudState = {
       health: HEALTH.max, maxHealth: HEALTH.max, dead: false,
@@ -239,12 +251,12 @@ export class PlayerSystem {
     console.info(
       `[player] spawn ${spawn.feet.x.toFixed(1)}, ${spawn.feet.y.toFixed(2)}, ` +
       `${spawn.feet.z.toFixed(1)} · walk ${STANCE.stand.speed} crouch ` +
-      `${STANCE.crouch.speed} m/s · jump ${JUMP_SPEED.toFixed(2)} m/s (apex 0.60 m)`
+      `${STANCE.crouch.speed} m/s · jump ${JUMP_SPEED.toFixed(2)} m/s (apex ${JUMP_APEX.toFixed(2)} m)`
     );
   }
 
   _resolveSpawn() {
-    const world = this.ctx.peek('world');
+    const world = this.ctx.get('world');
     const out = { feet: new THREE.Vector3(0, 0.2, 0), yaw: 0, team: null };
     const sp = world?.spawn?.(0);
     if (sp?.position) {
@@ -281,7 +293,13 @@ export class PlayerSystem {
     // One sensitivity, always. With no ADS there is no second zoom level to
     // scale against, and a sensitivity that changes underfoot is the fastest
     // way to break aim muscle memory.
-    const sens = cfg.sensitivity ?? 1;
+    //
+    // The stick wants the user's unitless MULTIPLIER, not rad/count: dividing
+    // by BASE_SENSITIVITY recovers it. The old `cfg.sensitivity ?? 1` read the
+    // raw 0.0022 as the multiplier — full deflection turned 0.007 rad/s — and
+    // its fallback (1) was ~450x the configured value, so a harness with a bare
+    // config got an unusable look speed instead of a visible failure.
+    const sens = (cfg.sensitivity ?? BASE_SENSITIVITY) / BASE_SENSITIVITY;
 
     // NOT scaled by `sens` again. `input.look` is ALREADY in radians — `Input`
     // multiplies the raw pointer delta by `config.sensitivity` in its own
@@ -672,11 +690,15 @@ export class PlayerSystem {
     return this.rig.bobPhase;
   }
 
-  addRecoil(pitch, yaw, roll, punch) {
-    this.rig.addRecoil(pitch, yaw, roll, punch);
+  addRecoil(pitch, yaw, roll, punch, held = false) {
+    this.rig.addRecoil(pitch, yaw, roll, punch, held);
   }
   addKick(pitch, yaw, roll) {
     this.rig.addKick(pitch, yaw, roll);
+  }
+  /** Empty the recoil springs, leaving stance and aim alone. See CameraRig. */
+  resetRecoil() {
+    this.rig.resetRecoil();
   }
   addTrauma(a) {
     this.rig.addTrauma(a);
@@ -741,7 +763,7 @@ export class PlayerSystem {
    * @param {number|{position: THREE.Vector3, yaw: number}} [where]
    */
   respawn(where = 0) {
-    const world = this.ctx.peek('world');
+    const world = this.ctx.get('world');
     const sp = typeof where === 'object' && where?.position
       ? where
       : world?.spawn?.(where | 0);
@@ -754,6 +776,20 @@ export class PlayerSystem {
     this.movement.teleport(sp.position.x, feetY, sp.position.z);
     this.rig.reset(STANCE.stand.eye);
     this.rig.stepAim(0, this.movement);
+    /**
+     * Announce it, because the rules table says respawn clears more than this
+     * file owns.
+     *
+     * "Health, ammo, perception and cover claims are round-scoped and cleared
+     * by respawn()" — and ammo lives in `weapons`, which this subsystem does
+     * not know about and should not. It reaches `player`, not the other way
+     * round; an event is how the direction stays that way.
+     *
+     * Emitted last, so a listener reading `player.position` gets the seat this
+     * fighter is actually standing on rather than the one they died at.
+     */
+    this._respawnPayload.position.copy(this.movement.position);
+    this.ctx.events.emit('player:respawn', this._respawnPayload);
   }
 
   /** Named states for dev overlays and future shots. */

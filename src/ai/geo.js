@@ -499,7 +499,6 @@ export class CharacterBuilder {
   }
 
   build() {
-    const rig = this.rig;
     const matNames = [];
     for (const p of this.parts) if (!matNames.includes(p.material)) matNames.push(p.material);
     // sort parts by material so each group is contiguous
@@ -602,13 +601,11 @@ export class CharacterBuilder {
     const wBuf = new Float64Array(cands.length);
     for (let i = 0; i < n; i++) {
       const x = pos[(vo + i) * 3], y = pos[(vo + i) * 3 + 1], z = pos[(vo + i) * 3 + 2];
-      let sum = 0;
       for (let c = 0; c < cands.length; c++) {
         const d = rig.distanceToBone(cands[c], x, y, z);
         let w = 1 / (d ** power + 1e-6);
         if (bias) w *= bias[c] ?? 1;
         wBuf[c] = w;
-        sum += w;
       }
       // keep the four strongest
       let i0 = -1, i1 = -1, i2 = -1, i3 = -1;

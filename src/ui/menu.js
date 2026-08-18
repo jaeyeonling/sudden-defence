@@ -1,3 +1,4 @@
+import { BASE_SENSITIVITY } from '../core/config.js';
 import { el, setText, setStyle, clamp, damp, ease } from './util.js';
 
 const PRESETS = ['low', 'medium', 'high', 'ultra'];
@@ -39,7 +40,7 @@ export class PauseMenu {
 
     // ---- sensitivity -----------------------------------------------------
     this.sens = this._slider('Mouse Sensitivity', 0.2, 3.0, 0.01, (v) => {
-      this.ctx.config.sensitivity = 0.0022 * v;
+      this.ctx.config.sensitivity = BASE_SENSITIVITY * v;
       this.ctx.events.emit('ui:sensitivity', { value: this.ctx.config.sensitivity, multiplier: v });
       return v.toFixed(2);
     });
@@ -147,7 +148,7 @@ export class PauseMenu {
     for (let i = 0; i < this.qBtns.length; i++)
       this.qBtns[i].classList.toggle('on', PRESETS[i] === cfg.quality);
     for (const [b, v] of this.invBtns) b.classList.toggle('on', !!cfg.invertY === v);
-    this.sens?.set((cfg.sensitivity ?? 0.0022) / 0.0022);
+    this.sens?.set((cfg.sensitivity ?? BASE_SENSITIVITY) / BASE_SENSITIVITY);
     this.fov?.set(cfg.fov ?? 80);
   }
 

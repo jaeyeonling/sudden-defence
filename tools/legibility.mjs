@@ -95,19 +95,12 @@
  *   node tools/legibility.mjs --d=12,18,24,30
  *   node tools/legibility.mjs --out=shots/legibility
  */
-import { chromium } from 'playwright';
-import { spawn } from 'node:child_process';
-import net from 'node:net';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { PNG } from 'pngjs';
+import { parseArgs, ensureServer, killServer, launchChromium, waitForReady } from './harness.mjs';
 
-const args = Object.fromEntries(
-  process.argv.slice(2).map((a) => {
-    const m = a.match(/^--([^=]+)(?:=(.*))?$/);
-    return m ? [m[1], m[2] ?? true] : [a, true];
-  })
-);
+const args = parseArgs();
 const PORT = Number(args.port ?? 5173);
 const OUT = String(args.out ?? 'shots/legibility');
 // Point blank, engagement, and two genuinely long looks. The flash cutoff is
@@ -147,36 +140,9 @@ if (unknown.length) {
 
 mkdirSync(OUT, { recursive: true });
 
-const portOpen = (port) =>
-  new Promise((res) => {
-    const s = net.connect({ port, host: '127.0.0.1' }, () => (s.destroy(), res(true)));
-    s.on('error', () => res(false));
-    s.setTimeout(400, () => (s.destroy(), res(false)));
-  });
+const vite = await ensureServer(PORT, { name: 'LEGIBILITY' });
 
-let vite = null;
-if (!(await portOpen(PORT))) {
-  // `OW_NO_HMR=1`: the server this harness owns must not hot-reload.
-  //
-  // `vite.config.js` has carried the guard and the explanation since the capture
-  // harness needed it — a file saved while a run is in flight reloads the page
-  // and playwright fails the in-flight `page.evaluate` with "Execution context
-  // was destroyed" — and `tools/capture.mjs` was the only tool that set it. Every
-  // tool here spawns the same server for the same reason, and in `npm test` the
-  // one that wins the race owns it for the whole chain, so the guard has to be on
-  // all of them or it is on none of the ones that matter. Cost when nothing is
-  // being edited: nothing.
-  vite = spawn('npx', ['vite', '--port', String(PORT)], {
-    stdio: 'ignore',
-    detached: true,
-    env: { ...process.env, OW_NO_HMR: '1' },
-  });
-  for (let i = 0; i < 80 && !(await portOpen(PORT)); i++) {
-    await new Promise((r) => setTimeout(r, 250));
-  }
-}
-
-const browser = await chromium.launch({
+const browser = await launchChromium({
   args: ['--use-gl=angle', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
 });
 const page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
@@ -193,7 +159,7 @@ await page.addInitScript((v) => { window.__NO_FLASH_LIGHT__ = v; }, !!args.nofla
 // same effect directly — its hazard-bar contrast read 0.04 on one run and 0.22
 // on the next, from nothing but the seed.
 await page.goto(`http://127.0.0.1:${PORT}/?capture=1`, { waitUntil: 'load' });
-await page.waitForFunction('window.__READY__ === true', null, { timeout: 120000 });
+await waitForReady(page, { name: 'LEGIBILITY' });
 
 // The A/B hook has to be installed after boot, because `fx` does not exist
 // before it. Same switch observe.mjs uses, so the two tools disagree only about
@@ -783,5 +749,5 @@ if (measured.length !== rows.length) {
 }
 
 await browser.close();
-if (vite) { try { process.kill(-vite.pid); } catch { /* already gone */ } }
+killServer(vite);
 process.exit(code);

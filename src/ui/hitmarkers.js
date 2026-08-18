@@ -7,7 +7,6 @@ const D = Math.SQRT1_2;
 /** kind -> { colour, weight, scale, life, ring } */
 const KINDS = {
   hit: { c: '#f6fafc', w: 1.8, s: 1.0, life: 0.26, ring: 0, spin: 0 },
-  armour: { c: '#8fdcff', w: 2.0, s: 1.03, life: 0.28, ring: 0.5, spin: 0 },
   head: { c: '#ffc247', w: 2.2, s: 1.08, life: 0.32, ring: 0.3, spin: 0 },
   kill: { c: '#ff4433', w: 2.7, s: 1.18, life: 0.42, ring: 1, spin: 9 },
 };
@@ -67,7 +66,7 @@ export class Hitmarkers {
     );
   }
 
-  /** @param {'hit'|'armour'|'head'|'kill'} kind */
+  /** @param {'hit'|'head'|'kill'} kind */
   spawn(kind = 'hit') {
     const k = KINDS[kind] ?? KINDS.hit;
     const it = this.pool.acquire();

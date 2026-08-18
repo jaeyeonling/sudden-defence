@@ -138,6 +138,39 @@ export const CAMERA = {
     damping: 0.5,
     residualTau: 0.28,
     residualShare: 0.34,
+    /**
+     * The held part of the kick — see `RecoilAxis`. This is the pull-down.
+     *
+     * `share` 0.62 of a pattern that sums to 15.4 degrees puts a full M4A1
+     * magazine around 9.5 degrees of accumulated climb, plus the transient on
+     * top. Not the full 15.4: the pattern is the FORCE, and a shooter braced
+     * against it does not eat all of it.
+     *
+     * `delay` 0.11 s is the number that makes this a trigger mechanic rather
+     * than a slow spring. It has to sit above the fastest cyclic interval in
+     * the game — the MPX-9's 900 rpm is 0.067 s — so that a held trigger never
+     * gives anything back, and low enough that releasing reads as immediate.
+     *
+     * `tau` 0.22 s to recover. 0.33 was tried first and measured a 1.5 s tail
+     * on a single tap — most of it invisible, but a tap is the pistol's whole
+     * interaction and it should not still be settling a second and a half
+     * later. 0.22 brings that to 1.1 s without touching a spray, because a
+     * spray never reaches this branch at all.
+     *
+     * Measured with `tools/kick.mjs`, view climb in degrees:
+     *
+     *              one shot   ten rounds   full magazine
+     *   M4A1         0.68        3.82          9.61
+     *   MPX-9        0.29        1.82
+     *   P-19         0.92        4.15
+     *
+     * Before this channel existed the M4A1 read 0.74 / 1.18 / 1.18 — ten rounds
+     * and thirty rounds were the same number, which is what "no pattern" looks
+     * like when you finally measure it.
+     */
+    climbShare: 0.62,
+    climbTau: 0.22,
+    climbDelay: 0.11,
     /** Positional punch (camera pushed back along view) uses a stiffer spring. */
     punchFreq: 12,
     punchDamping: 0.62,

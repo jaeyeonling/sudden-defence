@@ -1,8 +1,8 @@
-# SUDDEN CLAUDE — engine contract
+# SUDDEN DEFENCE — engine contract
 
 **Read this before writing code. It is the only coordination mechanism.**
 
-A browser FPS: round-based team elimination against bots. WebGL2 + Three.js r180,
+A browser FPS: round-based team elimination against bots. WebGL2 + Three.js r185,
 no external art assets — every texture, mesh, animation and sound is generated
 procedurally at load time. No netcode; both teams are filled locally.
 
@@ -42,6 +42,70 @@ of this codebase will be impossible.
    targets get freed in `dispose()`.
 10. `npm run build` must pass and `node tools/capture.mjs --shot=boot` must
     produce a frame after your change. If you break the boot, nobody else can work.
+
+## File size
+
+**800 lines is the working limit, and eleven files are over it on purpose.**
+
+Twenty-six were over when this was written down. Fifteen came apart cleanly,
+because the number was reporting a real problem: several unrelated concerns
+sharing a file. `weapons/parts.js` was 2,073 lines of barrel, receiver,
+furniture, magazine and optics; `world/props.js` was forty prop builders and a
+registry. Those are now six files each, and every consumer's import list says
+which part of the subsystem it actually depends on.
+
+The other eleven are over the limit because ONE CLASS FILLS THE FILE:
+
+| file | lines | the class | |
+|---|---|---|---|
+| `ai/agent.js` | 2371 | `Agent` | 97% |
+| `render/index.js` | 1779 | `RenderSystem` | 93% |
+| `fx/index.js` | 1461 | `FxSystem` | 97% |
+| `weapons/index.js` | 1391 | `WeaponSystem` | 94% |
+| `ai/index.js` | 1388 | `AiSystem` | 95% |
+| `physics/index.js` | 1310 | `PhysicsSystem` | 83% |
+| `physics/bvh.js` | 938 | `StaticWorld` | 83% |
+| `audio/index.js` | 915 | `AudioSystem` | 92% |
+| `weapons/viewmodel.js` | 900 | `Viewmodel` | 88% |
+| `sky/index.js` | 882 | `SkySystem` | 84% |
+| `player/index.js` | 850 | `PlayerSystem` | 87% |
+
+Regenerate the whole table with `node tools/layering.mjs --sizes` — all four
+columns, including the class span, which the table used to maintain by hand.
+That column drifted twice (once in each direction) before the tool printed it;
+a hand-maintained column drifts in whichever direction the last editor
+expected.
+
+There is no file split that helps here: in every row the class alone is at or
+near the limit (`Viewmodel` is 796 of `weapons/viewmodel.js`'s 900 lines), so
+deleting everything around it would still leave a file this table has to
+explain.
+
+Two shapes, and they want different things:
+
+- **Subsystem entry points.** Line count is API AREA, not depth.
+  `physics/index.js` exposes about thirty methods — `raycast`, `sphereCast`,
+  `capsuleCast`, `createCharacter`, `fireBullet`, `explode` — most of them five
+  to twenty lines delegating to `bvh.js`, `character.js`, `rigidbody.js`,
+  `ragdoll.js`. Splitting the facade breaks the single surface `ctx.get(id)`
+  reaches, which is rule 2's whole point.
+- **State machines.** `Agent` shares one blackboard across every concern:
+  `lastKnownAge` is read by eleven methods, `suppression` by ten. Lifting
+  `_think`/`_combat`/`_move` into another file makes them functions that take
+  the agent back as an argument — a syntax move, not a split — and rule 6 pins
+  the scratch vectors to the instance anyway. `static snapshotState` also
+  nails the object down as one netcode unit.
+
+**What is allowed, and what is required.** Data and constants outside a class
+may be lifted when it aids findability — `ai/agent-tuning.js` holds the ranges,
+aim drop, hitbox capsules and muzzle offset, which are the only lines in that
+file anyone edits to change how the AI feels. Do not lift methods to make the
+number smaller. A file over 800 lines must be one of the two shapes above, and
+its header must say which — the marker is the literal string
+`OVER THE 800-LINE LIMIT`, and `tools/layering.mjs` fails the run if a file
+crosses the limit without one. The check reads the raw file rather than the
+stripped one, deliberately: the limit is about the file a person has to open,
+and letting a 2,000-line file pass by being mostly prose would invert it.
 
 ## Subsystem interface
 
@@ -100,10 +164,66 @@ Why it is not just a latch:
   pitch)` from its own `fixedUpdate`, because `core` may not name `player`
   (rule 3). Patches are refused once the tick is closed, so history is honest.
 
-Still on the render frame, deliberately: **firing**. `weapons` is welded to the
-viewmodel and the muzzle FX, and moving it is its own change — it would add
-`fire`/`reload` to `BTN` and read them from `current`. The format has room; the
-bits are not there yet because the work is not done.
+**Firing is on the tick too**, since `b7b42e2`. `BTN` carries `fire` and
+`reload` (`core/command.js`), `weapons.fixedUpdate` runs the trigger off
+`commands.current`, and the viewmodel and muzzle FX still ride the frame behind
+it — which is the split that made the move possible. What forced it was a
+measurement rather than tidiness: spread decay was integrated per frame, so how
+fast a cone recovered depended on the monitor. `tools/firerate.mjs` gates the
+result at five frame rates.
+
+## Netcode readiness (M8)
+
+The target is a server-authoritative FPS with client prediction, and the
+codebase is built to the line just before a socket exists. Everything below is
+gated, not promised:
+
+| claim | gate |
+|---|---|
+| the same sim agrees across V8 / SpiderMonkey / JSC | `crossengine` |
+| the sim runs with no renderer (a Node server can host it) | `headless` |
+| two independently booted sims stay hash-identical for 1,200 ticks | `netsim` |
+| a fresh process adopting a serialized snapshot tracks the source bit for bit | `netsim` (handoff) |
+| a command survives the wire with every bit intact | `cmdstream` (wire) |
+
+`src/core/wire.js` is the wire format: `stringifyState`/`parseState` carry the
+snapshot (JSON plus the three numbers JSON destroys — its first run caught
+`lastKnownAge: Infinity` arriving as `null` and turning into "spotted an enemy
+16 ms ago" on the far side), and `encodeCommand`/`decodeCommand` carry one
+command in 46 bytes, floats kept Float64 because a predicting client
+re-simulates the exact ticks the server will and quantised inputs would spend
+the whole `dmath.js` determinism budget at the first byte.
+
+**The round clock and the death reap still run on the FRAME** (`match.update`
+/ `match.lateUpdate`), and that is the named next blocker, not an oversight:
+moving both to `match.fixedUpdate` was attempted and REVERTED, because it
+turned `perceive` red at 30 fps only — agents respawning at a different tick
+than the 120 fps control, with 60/100/144 fps all matching it exactly. The
+migration is correct in principle (a client re-simulating ticks at a different
+frame cadence must land on the same scores), so the failure means a rate
+coupling hides between tick-exact round transitions and something still
+frame-driven, and 30 fps — four ticks a frame — is where it surfaces. Find
+that coupling before the server owns the round; `perceive`'s per-field diff
+names agent#visible/awareness/x as the first casualties and is the instrument
+to hunt with. Until then every harness drives one frame per tick, which is why
+the current placement holds. Independent confirmation arrived from the other
+direction: booting perceive `?render=0` shifts the init-time rng fork order,
+which lands a round transition inside its measurement window — and 30 fps
+diverges again, this time with the round clock's frame-dt quantisation as the
+only suspect standing. Two experiments, opposite regimes, one coupling.
+
+The engine's backlog shed (`MAX_SUBSTEPS`, then `_accum = 0`) stays as it is,
+deliberately: under server authority a client that sheds falls behind and is
+CORRECTED by the next snapshot — the server, driven tick-by-tick, never sheds.
+Only a lockstep design (where every peer must simulate every tick) would need
+that policy changed, and this is not one.
+
+What a real server still needs, in order: the round-on-tick migration above, a
+transport (WebRTC or WebTransport), `player`/`weapons` bootable without
+`render` so the server can simulate its clients (they currently declare it as
+a dep), and a third kind of host — a remote player wearing the bot rig. The
+seams they plug into (`commands.override`, the wire, the handoff) are the
+parts this section certifies.
 
 ## Ownership map
 
@@ -119,7 +239,7 @@ bits are not there yet because the work is not done.
 | `match` | `src/match/` | teams, combatant registry, round FSM, scoring, spawn assignment | done (M3 registry, M5 rounds) |
 | `player` | `src/player/` | movement state machine, camera feel, health | done (M1); hitboxes now belong to `match` |
 | `ai` | `src/ai/` | bot characters, navigation, perception, combat behaviour | done (M4) |
-| `weapons` | `src/weapons/` | weapon meshes, viewmodel rig, recoil, spread, hitscan ballistics | M1 |
+| `weapons` | `src/weapons/` | weapon meshes, viewmodel rig, recoil, spread, hitscan ballistics | done (M7) |
 | `ui` | `src/ui/` | HUD, crosshair, hitmarkers, match bar, scoreboard, spectate | done (M6) |
 
 Shared, owned by the lead (do not edit): `src/core/`, `src/main.js`,
@@ -318,7 +438,7 @@ alone gives grey glyphs on white sky.
 ### Hitmarkers gate on `source`, not on `target`
 
 Upstream asked "is the target NOT the player", which is correct in a game with
-one shooter and wrong in one with sixteen: every round a bot lands on another
+one shooter and wrong in one with a roster of them: every round a bot lands on another
 bot would draw the player a hitmarker for a fight across the map. Same for the
 killfeed, which is now built from one event (`combatant:death`, emitted by the
 only thing that knows both ends of a kill) rather than from two de-duplicated
@@ -359,22 +479,28 @@ Proven by `npm run test:hud`.
 
 Emit and listen via `ctx.events`. Payloads are plain objects.
 
-**The names below are load-bearing.** `fx` subscribes to 8 of them and `audio` to
-12. The EventBus does not warn on an unknown type (`registry.js`), so renaming one
-does not throw — it silently kills every effect and sound hanging off it.
+**The names below are load-bearing** — `fx` and `audio` hang a dozen effects and
+sounds each off them. The EventBus does not warn on an unknown type
+(`registry.js`), so renaming one does not throw — it silently kills every effect
+and sound hanging off it. Payloads here are the fields a consumer may rely on;
+emitters may carry more.
 
 | event | payload | emitted by |
 |---|---|---|
 | `weapon:fire` | `{ weapon, origin, dir, seed }` | weapons |
 | `weapon:reload` | `{ weapon, phase: 'start'\|'magout'\|'magin'\|'end' }` | weapons |
 | `weapon:shell` | `{ position, velocity, weapon }` | weapons |
-| `bullet:impact` | `{ point, normal, surface, energy }` | physics |
+| `bullet:impact` | `{ point, normal, surface, damage, exit, actor, part, friendly }` | physics |
 | `bullet:tracer` | `{ from, to, speed }` | weapons |
 | `damage:dealt` | `{ target, source, amount, part, headshot, team, point, killed }` | physics |
-| `damage:taken` | `{ amount, health, direction }` | player |
-| `combatant:death` | `{ combatant, source, headshot }` | match |
-| `actor:death` | `{ actor, position, impulse }` | ai / player |
-| `player:land` / `player:footstep` | `{ position, surface, energy }` | player |
+| `damage:taken` | `{ amount, health, direction, critical, from }` | player |
+| `combatant:spawn` | `{ combatant }` | match |
+| `combatant:death` | `{ combatant, source, part, headshot }` | match |
+| `actor:death` | `{ actor, point, impulse, headshot }` | ai / player |
+| `player:land` | `{ position, surface, velocity }` | player |
+| `player:footstep` | `{ position, surface, running, left, speed, stance }` — `fx` draws nothing unless `running` | player |
+| `player:jump` / `player:respawn` | `{ position }` — respawn is what refills every magazine (`weapons`) | player |
+| `player:state` | `{ state, stance, grounded, airborne, speed, health, healthFraction }`, on discrete change only | player |
 | `round:phase` | `{ phase, round, remaining, scores }` | match |
 | `round:start` | `{ round, scores }` | match |
 | `round:end` | `{ round, winner, reason: 'elimination'\|'time'\|'draw', scores }` | match |
@@ -385,6 +511,12 @@ does not throw — it silently kills every effect and sound hanging off it.
 other, "the target is not me" is no longer the same question as "I landed this
 shot" — anything that reacts to a hit (hitmarkers, killfeed, hit sounds) must gate
 on `source`.
+
+`damage:dealt.killed` is emitted as `false` and **back-filled by the target's own
+listener** (`ai` patches it once `applyDamage` lands), so it is only truthful for
+subscribers registered *after* the gameplay layer. Anything wired earlier —
+engine-layer audio, for instance — must take its kill signal from
+`combatant:death` instead, which `match` emits knowing both ends.
 
 ## Shared surface types
 

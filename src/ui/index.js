@@ -46,12 +46,12 @@
  * WHAT THIS SUBSYSTEM READS (all optional, all duck-typed)
  * ---------------------------------------------------------------------------
  *   weapons.getHudState() -> { name, mode, ammo, reserve, magSize, reloading,
- *                              reloadProgress, spread }
+ *                              reloadProgress, spread, grenades }
  *   player.getHudState()  -> { health, maxHealth, move, crouch, airborne,
  *                              position, dead }
  *   player.spectateTarget -> Combatant | null
  *   match                 -> phase, scores, round, combatants, TEAMS
- *   audio.playUi(id, gain)
+ *   audio.ui(id, gain, opts?)
  *
  * `match` is a hard dependency, not a peek. Everything at the top of the screen
  * comes from it, and a HUD that silently renders 0-0 forever because a `peek`
@@ -87,7 +87,10 @@ const RESULT = {
 
 export class UiSystem {
   static id = 'ui';
-  static deps = ['render', 'match'];
+  static deps = ['match'];
+  // Ordering only — the HUD is DOM and reads no render state; a renderer-less
+  // boot (`?render=0`) still wants the HUD so `tools/hud.mjs` can gate it.
+  static optionalDeps = ['render'];
 
   async init(ctx) {
     this.ctx = ctx;
@@ -116,7 +119,8 @@ export class UiSystem {
     this.prompt = new Prompt(this.chromeLayer);
     this.banner = new Banner(this.chromeLayer);
     /**
-     * The freeze countdown: one big number, dead centre, last three seconds.
+     * The freeze countdown: one big number, dead centre, counting the whole
+     * freeze out — the length is read off `match.round.tempo.freeze` per frame.
      *
      * On the CENTRE layer rather than with the banner, because it has to sit
      * where the crosshair is — a player waiting for a round to start is looking
@@ -139,6 +143,7 @@ export class UiSystem {
       ammo: 30,
       reserve: 210,
       magSize: 30,
+      grenades: 0,
       reloading: false,
       reloadProgress: 0,
       weaponName: 'M4A1',
@@ -154,7 +159,11 @@ export class UiSystem {
       timeLeft: 0,
       phase: 'idle',
       round: 0,
-      roundsToWin: 5,
+      // Both filled from `match.round.tempo` every frame — TEMPO lives in ONE
+      // place (round.js) and the HUD may not grow its own copy of any of it.
+      // Zero until the first fill: no pips, no countdown, nothing to unlearn.
+      roundsToWin: 0,
+      countdownFrom: 0,
       roundResult: '',
       time: 0,
     };
@@ -274,7 +283,7 @@ export class UiSystem {
      * Three cues, in rising order of how much they interrupt:
      *
      *   banner     every transition gets a title, so the change is named
-     *   countdown  the last 3 s of freeze get a big centred number and a tick
+     *   countdown  the freeze gets a big centred number and a tick
      *              that climbs — the boundary is visible BEFORE it arrives,
      *              which is what makes it possible to be ready for it
      *   bell       live gets its own sound and a crosshair kick, so the moment
@@ -376,7 +385,7 @@ export class UiSystem {
 
   /** Fire-and-forget audio; the audio subsystem may not exist yet. */
   /**
-   * The last three seconds of freeze, counted out loud and in the middle of the
+   * The freeze, counted out loud and in the middle of the
    * screen.
    *
    * This is the part that actually answers "the boundaries are hard to feel".
@@ -392,7 +401,7 @@ export class UiSystem {
   _updateCountdown(s) {
     const arm = s.phase === 'freeze' || s.phase === 'warmup';
     const left = s.timeLeft ?? 0;
-    if (!arm || left > 3.001 || left <= 0) {
+    if (!arm || left > s.countdownFrom + 0.001 || left <= 0) {
       // Hidden unconditionally, NOT guarded on `_countdownAt`.
       //
       // Two places were using that field for two different things: this one as
@@ -411,22 +420,29 @@ export class UiSystem {
     setText(this.countdown, String(n));
     // `step` rises 0,1,2 as the count falls 3,2,1, so the pitch climbs into the
     // bell rather than sitting flat under it.
-    this.sfx('round_tick', 0.55 + (3 - n) * 0.12, { step: 3 - n });
+    // The pitch climbs as the number falls, so the last tick sits under the
+    // bell rather than beside it. Steps are counted from the top of the count,
+    // not from a literal, or lengthening the countdown flattens it.
+    const step = s.countdownFrom - n;
+    this.sfx('round_tick', 0.55 + step * 0.12, { step });
   }
 
   sfx(id, gain = 1, opts = null) {
     const a = this.ctx.peek('audio');
-    if (!a) return;
+    if (typeof a?.ui !== 'function') return;
     try {
-      // `opts` is optional and only the newest adapter takes it, so it is passed
-      // through the richest path available and dropped by the others rather than
-      // making a caller check which audio system it got.
-      if (typeof a.ui === 'function' && opts) a.ui(id, gain, opts);
-      else if (typeof a.playUi === 'function') a.playUi(id, gain);
-      else if (typeof a.play === 'function') a.play(id, { gain });
-      else if (typeof a.sfx === 'function') a.sfx(id, gain);
-    } catch {
-      /* audio is optional feedback — never let it break the HUD */
+      // One method, one call site: the old four-way duck-type probed adapter
+      // shapes with exactly one implementation in the repo, three of which
+      // were unreachable — and `a.ui` was only tried when `opts` was present,
+      // so the normal path went through a shim that dropped the opts.
+      a.ui(id, gain, opts);
+    } catch (e) {
+      // Audio is optional feedback and must never break the HUD — but a
+      // permanently broken path should not be invisible either.
+      if (!this._sfxWarned) {
+        this._sfxWarned = true;
+        console.warn('[ui] audio feedback failing; further errors muted', e);
+      }
     }
   }
 
@@ -549,6 +565,7 @@ export class UiSystem {
       if (ws.ammo !== undefined) s.ammo = ws.ammo;
       if (ws.reserve !== undefined) s.reserve = ws.reserve;
       if (ws.magSize !== undefined) s.magSize = ws.magSize;
+      if (ws.grenades !== undefined) s.grenades = ws.grenades;
       if (ws.reloading !== undefined) s.reloading = !!ws.reloading;
       if (ws.reloadProgress !== undefined) s.reloadProgress = ws.reloadProgress;
       if (ws.spread !== undefined) s.baseSpread = 4 + ws.spread * 40;
@@ -575,6 +592,11 @@ export class UiSystem {
     s.round = m.round.round;
     s.timeLeft = m.round.remaining;
     s.roundsToWin = m.round.tempo.roundsToWin;
+    // The countdown covers the WHOLE freeze — 5, 4, 3, 2, 1 — not its last
+    // three seconds (which read as the number arriving late). Reading the
+    // length off the tempo keeps that true if freeze ever changes: a countdown
+    // that starts at the top of the phase stays a countdown and never a clock.
+    s.countdownFrom = m.round.tempo.freeze;
 
     // ---- movement-derived reticle bloom, when nothing else supplies it ----
     const pos = this._playerPos();

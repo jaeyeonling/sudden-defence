@@ -1,0 +1,193 @@
+# The 30 gates, split by what each one actually depends on.
+#
+# The split is not by speed. It is by whether a gate's verdict is a property of
+# the CODE or a property of the MACHINE, because those two need different
+# runners and mixing them produces a suite that is red for reasons nobody can
+# act on — which is how a gate stops being read.
+#
+#   logic    21 gates that read engine state and never look at a pixel — and,
+#            since ?render=0, never compile a shader either: they boot the whole
+#            game minus the two systems that make pixels, which turned an
+#            80-minute SwiftShader job into ~6 minutes at the same spec. Cheap,
+#            parallel, always available: the one that should block a PR fastest.
+#
+#   render    the four that sample the framebuffer (legibility x2, markings,
+#            friendfoe), the three that compare pixels or engine bits
+#            byte-for-byte (pixelgate, crossengine, determinism), and perceive —
+#            which reads state, not pixels, but exists to test the seam between
+#            the DRAWN pose and the simulated one, so a renderer must be present
+#            to contaminate it (measured: it alone was 75 of the logic job's 81
+#            minutes on a GPU-less runner). Their
+#            thresholds were derived on ANGLE-over-Metal and pixelgate's hashes
+#            are literally hashes of that renderer's output. On a shared runner
+#            they would measure the runner. Self-hosted macOS.
+#
+#   perf      converge (hard-fails under 90 fps) and profile (frame time, stall
+#            ceiling). profile's own header records this gate "spent a day
+#            catching a security agent rather than a regression — p50 57 fps and
+#            p50 13 fps within an hour" on the SAME build. A gate that reads
+#            machine load cannot run beside other jobs, so it runs on demand
+#            on an idle reference machine, never on a shared runner.
+#
+# The gate lists live in package.json (`test:logic`, `test:render`, `test:perf`,
+# whose union is `npm test`) and not in this file. Two copies of that list would
+# drift, and the copy in CI is the one nobody runs locally. The COUNTS above are
+# a different matter — they are prose, they went stale the moment a gate was
+# added, and `node tools/layering.mjs --sizes` is not going to catch them. Read
+# them as a rough shape and `package.json` as the truth.
+
+name: gates
+
+# The gates only read the tree; nothing here pushes, comments or releases.
+permissions:
+  contents: read
+
+# No schedule trigger: the nightly perf run assumed a self-hosted runner, and
+# there deliberately is none (see the render job's header). A cron whose every
+# job skips is noise; if a runner is ever registered, restore
+# `schedule: [{cron: '17 4 * * *'}]` — 04:17, not :00, because every scheduler
+# on the planet fires on the hour.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# The event name is part of the key so a dispatch and a push on the same ref
+# never cancel each other.
+concurrency:
+  group: gates-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  logic:
+    name: logic (21 gates)
+    runs-on: ubuntu-latest
+    # 90, measured, not guessed: the first page boot pays SwiftShader's shader
+    # compilation and vite's cold transform of the whole module graph (~16 min
+    # on this runner); the gates after it ride the warm caches at under a
+    # minute each, but the sim-driven ones (botfight, matchsim) run at the
+    # machine's own frame rate.
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: pw-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - run: npx playwright install --with-deps chromium
+
+      # One server for every gate. Each harness checks the port first and only
+      # spawns when nothing answers, so starting it here means none of them do —
+      # worth 2-5 s per gate, and it removes a spawn/kill race per browser-driving
+      # gate. --strictPort so a silent rebind cannot serve a different tree.
+      - name: Start vite
+        env:
+          OW_NO_HMR: '1'
+        run: |
+          # nohup, because this has to outlive the shell this step runs in.
+          # A bare `&` leaves it a child of that shell and it can take the
+          # SIGHUP when the step ends — which would look like every following
+          # gate spawning its own server, i.e. exactly the overhead this exists
+          # to remove, silently.
+          nohup node_modules/.bin/vite --port 5173 --strictPort > /tmp/vite.log 2>&1 &
+          for i in $(seq 1 80); do
+            curl -sf http://127.0.0.1:5173/ >/dev/null && exit 0
+            sleep 0.25
+          done
+          echo "vite did not come up:"; cat /tmp/vite.log; exit 1
+
+      # tee'd to a file and uploaded on failure, because the live log stream of
+      # a cancelled job truncates: the first hang here produced 44 minutes of
+      # apparent silence that the stream simply never delivered. The artifact is
+      # the untruncated record, vite's log and the machine state included.
+      - name: npm run test:logic
+        env:
+          OW_NO_HMR: '1'
+        run: |
+          free -m; nproc
+          set -o pipefail
+          npm run test:logic 2>&1 | tee /tmp/logic.log
+      - name: Machine state after failure
+        if: failure() || cancelled()
+        run: free -m; ps aux --sort=-rss | head -15; tail -50 /tmp/vite.log || true
+      - name: Upload logic log on failure
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logic-log
+          path: |
+            /tmp/logic.log
+            /tmp/vite.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+  render:
+    name: render + determinism
+    # DISPATCH-ONLY, because there is no self-hosted runner and that is a
+    # decision, not a gap: these gates are pinned to the reference machine BY
+    # DESIGN — pixelgate's hashes are literally hashes of the ANGLE-over-Metal
+    # renderer's output, and the legibility thresholds were derived on it. A
+    # hosted runner would measure the runner. Without a registered runner a
+    # pull_request-triggered job sits "pending" forever and blocks the PR view,
+    # so the tier runs where it always really ran: `npm run test:render` on the
+    # reference laptop before merge, or via workflow_dispatch if a runner is
+    # ever registered. The fork guard stays for that eventuality — this job
+    # must never run fork code on a non-disposable machine.
+    if: >-
+      github.event_name == 'workflow_dispatch'
+    # It must be macOS: baseline.mjs and profile.mjs launch chromium with
+    # --use-angle=metal, and pixelgate.json records `"angle": "metal"` so the
+    # gate SKIPS rather than lying if it ever runs somewhere else.
+    runs-on: [self-hosted, macOS]
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # crossengine drives all three, and it is the only gate that needs the
+      # other two.
+      - run: npx playwright install chromium firefox webkit
+      - name: npm run test:render
+        env:
+          OW_NO_HMR: '1'
+        run: npm run test:render
+      # legibility/markings/friendfoe write their evidence PNGs to shots/, and a
+      # red pixel gate on a runner nobody is sitting at leaves nothing to look
+      # at without this.
+      - name: Upload shots on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: render-shots
+          path: shots/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  perf:
+    name: perf (on demand)
+    # Dispatch-only, same reasoning as the render job: no registered runner,
+    # on purpose. Run `npm run test:perf` on the idle reference laptop instead.
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: [self-hosted, macOS]
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install chromium
+      - name: npm run test:perf
+        run: npm run test:perf

@@ -39,10 +39,8 @@
  * is inside — see world/index.js.
  */
 
-import * as THREE from 'three';
 import { Rng } from '../core/rng.js';
-import { chamferBox, wallPanel, newTrs } from './util.js';
-import { BOX, BOX_FINE, slab } from './kit.js';
+import { BOX, BOX_FINE } from './kit-base.js';
 import { dcos, dsin } from '../core/dmath.js';
 
 /** Interior extents. Walls sit outside these, so this is standable floor. */
@@ -52,8 +50,6 @@ export const HALL = { w: 48, d: 36, h: 6 };
 const WALL_T = 0.5;
 /** Centre hall footprint — the partition walls run down x = +-CENTRE.hw. */
 const CENTRE = { hw: 9.5, hd: 11 };
-
-const _m = new THREE.Matrix4();
 
 /**
  * Build the level into `A` (an Assembler). Returns the interior volumes for
@@ -110,7 +106,7 @@ function shell(A, rng, hw, hd) {
   // ---- roof, split either side of the skylight run ----
   // The skylight strip is 5 m wide down the centreline; the roof is two slabs
   // rather than one with a hole, because a merged slab with a hole would need a
-  // wallPanel and this reads identically for a third of the triangles.
+  // hole-cut extrusion and this reads identically for a third of the triangles.
   const SKY_HW = 2.5;
   const roofZ = HALL.d;
   const roofW = hw - SKY_HW;
@@ -171,7 +167,7 @@ function shell(A, rng, hw, hd) {
  *      perimeter is banded, so the three routes are legible from the floor
  *      rather than only from the walls.
  */
-function floorMarkings(A, hw, hd) {
+function floorMarkings(A, _hw, _hd) {
   const Y = 0.01;
   const T = 0.02;
 
@@ -216,7 +212,7 @@ function floorMarkings(A, hw, hd) {
 /* one half of the map, mirrored by `s`                                       */
 /* ========================================================================== */
 
-function half(A, rng, s, hw, hd) {
+function half(A, rng, s, _hw, _hd) {
   // ---- partition walls that carve out the centre hall ----
   //
   // A CONTINUOUS wall with two door openings, not a row of stubs. The first

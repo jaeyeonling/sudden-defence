@@ -301,16 +301,10 @@
  *                              [--seed=N]  which world every engine builds
  *                              [--rows=12] [--port=5173] [--ignore=a.b,c.d]
  */
+import { parseArgs, ensureServer, killServer, waitForReady } from './harness.mjs';
 import { chromium, firefox, webkit } from 'playwright';
-import { spawn } from 'node:child_process';
-import net from 'node:net';
 
-const args = Object.fromEntries(
-  process.argv.slice(2).map((a) => {
-    const m = a.match(/^--([^=]+)(?:=(.*))?$/);
-    return m ? [m[1], m[2] ?? true] : [a, true];
-  })
-);
+const args = parseArgs();
 const PORT = Number(args.port ?? 5173);
 const TICKS = Number(args.ticks ?? 240);
 const ROWS = Number(args.rows ?? 12);
@@ -333,24 +327,7 @@ if (ENGINES.length < 2) {
   process.exit(1);
 }
 
-const portOpen = (port) =>
-  new Promise((res) => {
-    const s = net.connect({ port, host: '127.0.0.1' }, () => (s.destroy(), res(true)));
-    s.on('error', () => res(false));
-    s.setTimeout(400, () => (s.destroy(), res(false)));
-  });
-
-let vite = null;
-if (!(await portOpen(PORT))) {
-  vite = spawn('npx', ['vite', '--port', String(PORT)], {
-    stdio: 'ignore',
-    detached: true,
-    env: { ...process.env, OW_NO_HMR: '1' },
-  });
-  for (let i = 0; i < 80 && !(await portOpen(PORT)); i++) {
-    await new Promise((r) => setTimeout(r, 250));
-  }
-}
+const vite = await ensureServer(PORT, { name: 'CROSSENGINE' });
 
 /**
  * Runs inside the page.
@@ -436,7 +413,13 @@ const PROBE = async ({ TICKS, INJECT, NOFIRE, RDWATCH }) => {
   e.stop();
   let clock = performance.now();
   e._last = clock;
-  e._accum = 0;
+  e._accum = 0.5 / 120; // half a tick of cushion, ON PURPOSE: the driver advances a
+  // float clock by H = 1000/120 per step, and at performance.now() magnitudes the
+  // rounded delta can land an epsilon BELOW FIXED_DT — a step that runs zero ticks,
+  // a 59-of-60 drive, and a gate that fails on some start timestamps and not others.
+  // Starting the accumulator mid-band keeps every boundary half a tick away; the
+  // cushion never compounds (deltas average H exactly) and _accum is not sim state —
+  // it only seeds alpha, which nothing these gates compare reads.
   const H = 1000 / 120;
   const tick1 = () => { clock += H; e.step(clock); };
 
@@ -488,7 +471,13 @@ const PROBE = async ({ TICKS, INJECT, NOFIRE, RDWATCH }) => {
   ctx.peek('physics')?.bodies?.clear?.();
   clock = CLOCK0;
   e._last = clock;
-  e._accum = 0;
+  e._accum = 0.5 / 120; // half a tick of cushion, ON PURPOSE: the driver advances a
+  // float clock by H = 1000/120 per step, and at performance.now() magnitudes the
+  // rounded delta can land an epsilon BELOW FIXED_DT — a step that runs zero ticks,
+  // a 59-of-60 drive, and a gate that fails on some start timestamps and not others.
+  // Starting the accumulator mid-band keeps every boundary half a tick away; the
+  // cushion never compounds (deltas average H exactly) and _accum is not sim state —
+  // it only seeds alpha, which nothing these gates compare reads.
 
   if (INJECT) {
     for (const id of SIM_IDS) ctx.peek(id).restoreState(INJECT[id]);
@@ -880,7 +869,7 @@ for (const label of PLAN) {
       `http://127.0.0.1:${PORT}/?prewarm=0&lockstep=1&seed=${SEED}`,
       { waitUntil: 'load' }
     );
-    await page.waitForFunction('window.__READY__ === true', null, { timeout: 180000 });
+    await waitForReady(page, { name: 'CROSSENGINE' });
     out = await page.evaluate(PROBE, { TICKS, INJECT: inject, NOFIRE: !!args.nofire, RDWATCH: !!args.rdwatch });
     if (!out?.fatal && out?.snapshot) inject = out.snapshot;
   } catch (err) {
@@ -890,7 +879,7 @@ for (const label of PLAN) {
   results.push({ name: label, engine: name, out, errors });
 }
 
-if (vite && !args.keep) try { process.kill(-vite.pid); } catch { /* already gone */ }
+if (!args.keep) killServer(vite);
 
 /* ====================================================================== */
 /*  Report                                                                */
@@ -1131,8 +1120,30 @@ if (controlNoise) {
     : 'Engines disagree. Lockstep/rollback across heterogeneous clients is NOT available;\n  a server-authoritative model that replicates STATE is the remaining option.'}`);
 }
 
-// Deliberately exit 0 either way. This is a design measurement, not a defect
-// gate: a red would mean "pick the other architecture", and wiring that into
-// `npm test` would make every future run fail for a fact nobody intends to
-// change. See the header.
-console.log(`\nCROSSENGINE ${verdict} (reported, not gated)`);
+/**
+ * Exit 0 by default; `--gate` turns the verdict into a pass/fail.
+ *
+ * This file used to exit 0 unconditionally, and the reason was right at the
+ * time: the engines DIVERGED. A red would have meant "pick the other
+ * architecture", and a permanent red for a fact nobody intends to change is a
+ * gate everybody learns to skip.
+ *
+ * THAT PREMISE INVERTED, and the header records how. Five generations of
+ * substitution — `hypot` respelt as sqrt-of-squares, fdlibm `atan2`, then
+ * `dsin`/`dcos`/`dexp`/`dlog`/`dpow`/`dtan`, then `dquatFromEuler` over the six
+ * three.js internals that run trig, then the root yaw — bought bit-identity
+ * across V8, SpiderMonkey and JavaScriptCore. IDENTICAL is the state the code
+ * is in now, and it was expensive. The way to lose it is one `Math.sin`
+ * reintroduced on a simulation path, which no other gate in the suite can see:
+ * `determinism` compares a build to itself on one engine, so it stays green
+ * through a change that makes two engines disagree.
+ *
+ * So under `--gate` anything but IDENTICAL is a regression, INCONCLUSIVE
+ * included — a control that is not clean means the number measured noise plus
+ * signal and separated neither, which is not evidence that the engines agree.
+ *
+ * The default stays reported-not-gated so that exploratory runs, new-engine
+ * spikes and `--ticks` sweeps still answer the design question without failing.
+ */
+console.log(`\nCROSSENGINE ${verdict}${args.gate ? '' : ' (reported, not gated)'}`);
+if (args.gate && verdict !== 'IDENTICAL') process.exit(1);

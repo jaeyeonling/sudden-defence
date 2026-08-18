@@ -20,12 +20,10 @@
 import * as THREE from 'three';
 import { hypot3 } from '../core/dmath.js';
 
-const H = 1.8; // reference height the proportions are authored at (8 heads)
 
 /* Arm/leg segment lengths for the reference height. */
 const UPPER_ARM = 0.29;
 const FOREARM = 0.255;
-const HAND = 0.095;
 
 /**
  * Two-bone solve used at author time to place the elbow from the shoulder,

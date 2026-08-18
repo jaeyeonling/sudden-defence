@@ -72,6 +72,22 @@ export class Input {
   }
 
   attach() {
+    /**
+     * NO DEVICE, NO LISTENERS — and that is a valid state, not a broken one.
+     *
+     * A headless host has no keyboard to sample. It does not need one either:
+     * `core/command.js` carries `override`, "the seam a server plugs into", and
+     * a command that arrives on the wire never passes through here. Throwing on
+     * a missing `addEventListener` would make the input device the one thing
+     * standing between the simulation and a server, which is backwards — it is
+     * the piece a server has least use for.
+     *
+     * See `tools/headless.mjs`.
+     */
+    if (typeof addEventListener !== 'function') {
+      this.headless = true;
+      return;
+    }
     addEventListener('keydown', this._bound.keydown);
     addEventListener('keyup', this._bound.keyup);
     addEventListener('mousedown', this._bound.mousedown);
@@ -84,6 +100,7 @@ export class Input {
   }
 
   detach() {
+    if (this.headless) return;
     removeEventListener('keydown', this._bound.keydown);
     removeEventListener('keyup', this._bound.keyup);
     removeEventListener('mousedown', this._bound.mousedown);

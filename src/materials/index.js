@@ -30,7 +30,14 @@ import { bakeMasks, setMask } from './masks.js';
  */
 export class MaterialSystem {
   static id = 'materials';
-  static deps = ['render'];
+  /**
+   * OPTIONAL, not required. The renderer is reached with `peek` and its absence
+   * is handled — `_tryBuild` defers the bake and retries on every
+   * `getTextureSet`. Declaring it required meant a headless boot died in the
+   * topo-sort on a subsystem this one is built to live without.
+   */
+  static deps = [];
+  static optionalDeps = ['render'];
 
   constructor(opts = {}) {
     /** Allows a standalone harness to drive the system without the engine. */
@@ -211,8 +218,11 @@ export class MaterialSystem {
       // The height in albedo.a is only meaningful with the extension; keep the
       // stock alpha path off unless the surface is actually alpha-masked.
       if (!(p.alphaMask || threeProps.transparent)) mat.transparent = false;
-    } else if (!this._warned) {
+    } else if (!this._warnedTextureless) {
+      // Own latch — `_warned` belongs to the deferred-bake warning in
+      // _tryBuild(), and sharing it made this branch unreachable.
       console.warn(`[materials] "${key}" built without textures (no renderer)`);
+      this._warnedTextureless = true;
     }
 
     if (p.vertexMasks) mat.vertexColors = true;
@@ -220,7 +230,10 @@ export class MaterialSystem {
 
     if (set) extendMaterial(mat, p, this._shared);
 
-    this._materials.set(matKey, mat);
+    // A textureless material must not enter the cache: caching it under the
+    // normal key would pin the flat-white fallback for the whole session even
+    // after a renderer arrives. Uncached, the next get() re-bakes.
+    if (set) this._materials.set(matKey, mat);
     return mat;
   }
 

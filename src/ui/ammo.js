@@ -1,4 +1,4 @@
-import { el, svg, setText, setStyle, setClass, clamp01, damp, ease } from './util.js';
+import { el, svg, setText, setStyle, setClass, clamp01, ease } from './util.js';
 
 const MAX_PIPS = 30;
 
@@ -27,19 +27,10 @@ function fragIcon(parent) {
   return s;
 }
 
-function flashIcon(parent) {
-  const s = svg('svg', { viewBox: '0 0 16 20', fill: 'rgba(255,255,255,.92)' }, parent);
-  svg('path', { d: 'M6.2 0h3.6v2.4H6.2z' }, s);
-  svg('path', { d: 'M4.2 3.1h7.6c.5 0 .9.4.9.9v13.4c0 1.4-1.1 2.6-2.6 2.6H5.9c-1.4 0-2.6-1.2-2.6-2.6V4c0-.5.4-.9.9-.9z' }, s);
-  svg('rect', { x: 4.6, y: 6.2, width: 6.8, height: 1.2, fill: 'rgba(0,0,0,.45)' }, s);
-  svg('rect', { x: 4.6, y: 9.1, width: 6.8, height: 1.2, fill: 'rgba(0,0,0,.45)' }, s);
-  return s;
-}
-
 /**
  * Ammo / weapon readout, bottom right.
  *
- *              ▲ 2   ✦ 1     equipment — its OWN row
+ *              ▲ 2           equipment — its OWN row
  *   [AUTO]        M4A1
  *              28 / 210
  *   ▮▮▮▮▮▮▮▮▮▮▯▯▯▯▯▯▯        magazine state, one pip per round
@@ -60,10 +51,12 @@ export class AmmoPanel {
     this.equip = el('div', 'ow-equip', this.root);
     this.slotL = el('div', 'ow-slot', this.equip);
     fragIcon(this.slotL);
-    this.slotLn = el('span', null, this.slotL, '2');
-    this.slotT = el('div', 'ow-slot', this.equip);
-    flashIcon(this.slotT);
-    this.slotTn = el('span', null, this.slotT, '1');
+    // One slot, because there is one throwable. The panel used to draw a second
+    // one — a flashbang, count 1, wired to nothing — next to a frag count that
+    // was the literal string '2' whether you had thrown both or not. A HUD that
+    // reports a number the simulation does not hold is worse than no HUD: it is
+    // the readout you check when you are deciding whether to push.
+    this.slotLn = el('span', null, this.slotL, '0');
 
     const head = el('div', 'ow-ammo-head', this.root);
     this.mode = el('div', 'ow-ammo-mode', head, 'AUTO');
@@ -84,6 +77,7 @@ export class AmmoPanel {
     this.reloadBar = bar;
 
     this.punch = 0;
+    this._lastNades = -1;
     this._lastAmmo = -1;
     this._lastPips = -1;
     this._lastCount = -1;
@@ -95,7 +89,7 @@ export class AmmoPanel {
 
   /**
    * @param {object} s { name, mode, ammo, reserve, magSize, reloading,
-   *                     reloadProgress, lethal, lethalCount, tacticalCount }
+   *                     reloadProgress, grenades }
    */
   update(dt, s) {
     const ammo = Math.max(0, s.ammo | 0);
@@ -168,12 +162,20 @@ export class AmmoPanel {
     if (reloading) setStyle(this.reloadFill, 'transform', `scaleX(${reloadP.toFixed(3)})`);
 
     // --- equipment --------------------------------------------------------
-    const lc = s.lethalCount ?? 0;
-    const tc = s.tacticalCount ?? 0;
-    setText(this.slotLn, lc);
-    setText(this.slotTn, tc);
-    setClass(this.slotL, 'empty', lc <= 0);
-    setClass(this.slotT, 'empty', tc <= 0);
+    //
+    // Reads `grenades`, which `weapons` owns. It used to read `lethalCount` and
+    // `tacticalCount`, which nothing anywhere ever wrote — so the count the
+    // player saw was the constructor's placeholder overwritten by 0, for two
+    // pieces of equipment that could not be thrown.
+    //
+    // Dimmed rather than hidden at zero: the slot disappearing would move every
+    // row above it, and the panel's one layout promise is that nothing shifts.
+    const nades = Math.max(0, s.grenades | 0);
+    if (this._lastNades !== nades) {
+      this._lastNades = nades;
+      setText(this.slotLn, nades);
+      setClass(this.slotL, 'empty', nades === 0);
+    }
   }
 
   /**

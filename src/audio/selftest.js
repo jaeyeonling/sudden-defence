@@ -23,9 +23,9 @@ import { Rng } from '../core/rng.js';
 import { NoiseBank } from './dsp.js';
 import { Mixer } from './mixer.js';
 import { WEAPON_PROFILES, weaponShot, bulletWhizz, dryFire } from './weapons.js';
+import { footstep, surfaceImpact } from './foley-impacts.js';
 import {
-  surfaceImpact, footstep, shellCasing, reloadPhase, explosion, bodyFall, uiSound,
-  heartbeat, cloth,
+  shellCasing, reloadPhase, explosion, bodyFall, uiSound, heartbeat, cloth,
 } from './foley.js';
 import { bark, BARKS } from './vox.js';
 import { ambientOneShot, ONE_SHOTS } from './ambience.js';

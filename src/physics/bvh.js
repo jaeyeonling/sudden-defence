@@ -18,6 +18,9 @@
  *   nodeMeta   Int32Array,   2 per node — [leftFirst, count]
  *                            count > 0 : leaf, triIndex[leftFirst .. +count)
  *                            count = 0 : interior, children at leftFirst, +1
+ *
+ * OVER THE 800-LINE LIMIT as a single-class file: one state machine sharing one
+ * blackboard. See ARCHITECTURE.md, "File size".
  */
 
 import * as THREE from 'three';
@@ -838,7 +841,7 @@ function surfaceArea(minx, miny, minz, maxx, maxy, maxz) {
  * Handles indexed and non-indexed geometry, multi-material groups (each group
  * can carry its own surface, inferred from the material name), and instancing.
  */
-export function bakeMesh(mesh, surfaceOverride, opts = {}) {
+export function bakeMesh(mesh, surfaceOverride, _opts = {}) {
   const geo = mesh.geometry;
   if (!geo || !geo.attributes || !geo.attributes.position) return null;
   const posAttr = geo.attributes.position;

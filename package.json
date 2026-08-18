@@ -1,5 +1,5 @@
 {
-  "name": "sudden-claude",
+  "name": "sudden-defence",
   "version": "0.1.0",
   "description": "Round-based team elimination FPS in the browser. Procedural everything, no art assets, no netcode.",
   "type": "module",
@@ -10,9 +10,15 @@
     "build": "vite build",
     "preview": "vite preview --port 4173",
     "shot": "node tools/capture.mjs",
-    "test": "node tools/cmdstream.mjs && node tools/replay.mjs && node tools/reach.mjs && node tools/navsanity.mjs && node tools/symmetry.mjs && node tools/converge.mjs && node tools/playtest.mjs && node tools/hitbox.mjs && node tools/vault.mjs && node tools/botfight.mjs && node tools/matchsim.mjs && node tools/hud.mjs && node tools/phasecue.mjs && node tools/ballistics.mjs && node tools/threat.mjs && node tools/firerate.mjs && node tools/aim.mjs && npm run test:legibility && npm run test:legibility:clutter && npm run test:markings && npm run test:friendfoe && npm run test:profile && npm run test:determinism",
+    "test": "npm run test:logic && npm run test:render && npm run test:perf",
+    "lint": "eslint .",
+    "test:logic": "npm run lint && npm run test:layering && npm run test:headless && npm run test:netsim && npm run test:cmdstream && npm run test:replay && npm run test:reach && npm run test:navsanity && npm run test:symmetry && npm run test:playtest && npm run test:hitbox && npm run test:vault && npm run test:botfight && npm run test:matchsim && npm run test:hud && npm run test:roundreset && npm run test:debris && npm run test:phasecue && npm run test:ballistics && npm run test:threat && npm run test:firerate && npm run test:aim",
+    "test:render": "npm run test:perceive && npm run test:legibility && npm run test:legibility:clutter && npm run test:markings && npm run test:friendfoe && npm run test:pixelgate && npm run test:crossengine && npm run test:determinism",
+    "test:perf": "node tools/converge.mjs && npm run test:profile",
     "test:aim": "node tools/aim.mjs",
     "test:phasecue": "node tools/phasecue.mjs",
+    "test:roundreset": "node tools/roundreset.mjs",
+    "test:debris": "node tools/debris.mjs",
     "test:threat": "node tools/threat.mjs",
     "test:navsanity": "node tools/navsanity.mjs",
     "test:cmdstream": "node tools/cmdstream.mjs",
@@ -33,15 +39,31 @@
     "test:legibility:clutter": "node tools/legibility.mjs --against=clutter --d=12,18,24 --out=shots/legibility-clutter",
     "test:markings": "node tools/markings.mjs",
     "test:friendfoe": "node tools/friendfoe.mjs",
+    "test:layering": "node tools/layering.mjs",
+    "test:crossengine": "for s in 0x5eed1234 1 424242 1519997492; do node tools/crossengine.mjs --gate --engines=chromium,firefox,webkit --ticks=3600 --seed=$s || exit 1; done",
+    "test:pixelgate": "node tools/pixelgate.mjs",
+    "test:pixelgate:accept": "node tools/pixelgate.mjs --accept",
     "test:profile": "npm run build && node tools/profile.mjs --gate",
-    "test:determinism": "npm run build && node tools/determinism.mjs"
+    "test:determinism": "npm run build && node tools/determinism.mjs",
+    "tool:abperf": "node tools/abperf.mjs",
+    "tool:baseline": "node tools/baseline.mjs",
+    "tool:contract": "node tools/contract.mjs",
+    "tool:cropcmp": "node tools/cropcmp.mjs",
+    "tool:imagediff": "node tools/imagediff.mjs",
+    "tool:kick": "node tools/kick.mjs",
+    "tool:observe": "node tools/observe.mjs",
+    "tool:sight": "node tools/sight.mjs",
+    "tool:zoom": "node tools/zoom.mjs",
+    "test:headless": "node tools/headless.mjs",
+    "test:netsim": "node tools/netsim.mjs"
   },
   "dependencies": {
-    "three": "^0.180.0"
+    "three": "^0.185.1"
   },
   "devDependencies": {
-    "playwright": "^1.61.1",
+    "eslint": "^10.8.1",
+    "playwright": "^1.62.1",
     "pngjs": "^7.0.0",
-    "vite": "^7.3.6"
+    "vite": "^8.2.1"
   }
 }

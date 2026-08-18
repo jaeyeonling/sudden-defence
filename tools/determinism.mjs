@@ -37,11 +37,9 @@
  */
 import { spawn } from 'node:child_process';
 import { rmSync, existsSync, readdirSync } from 'node:fs';
+import { parseArgs } from './harness.mjs';
 
-const args = Object.fromEntries(process.argv.slice(2).map((a) => {
-  const m = a.match(/^--([^=]+)(?:=(.*))?$/);
-  return m ? [m[1], m[2] ?? true] : [a, true];
-}));
+const args = parseArgs();
 const PORT = String(args.port ?? 8080);
 const A = 'shots/determinism-a';
 const B = 'shots/determinism-b';

@@ -86,16 +86,9 @@
  *                         [--maxdepth=12] [--nodump]
  *                         [--drop=sys.field] [--tamper] [--keep]
  */
-import { chromium } from 'playwright';
-import net from 'node:net';
-import { spawn } from 'node:child_process';
+import { parseArgs, ensureServer, killServer, launchChromium, waitForReady, bootUrl } from './harness.mjs';
 
-const args = Object.fromEntries(
-  process.argv.slice(2).map((a) => {
-    const m = a.match(/^--([^=]+)(?:=(.*))?$/);
-    return m ? [m[1], m[2] ?? true] : [a, true];
-  })
-);
+const args = parseArgs();
 const PORT = Number(args.port ?? 5173);
 /** Tick to snapshot at. Far enough in that the world is not in its boot pose. */
 const K = Number(args.k ?? 60);
@@ -117,34 +110,17 @@ if (SPAN >= 128) {
   process.exit(1);
 }
 
-const portOpen = (port) =>
-  new Promise((res) => {
-    const s = net.connect({ port, host: '127.0.0.1' }, () => (s.destroy(), res(true)));
-    s.on('error', () => res(false));
-    s.setTimeout(400, () => (s.destroy(), res(false)));
-  });
+const vite = await ensureServer(PORT, { name: 'REPLAY' });
 
-let vite = null;
-if (!(await portOpen(PORT))) {
-  vite = spawn('npx', ['vite', '--port', String(PORT)], {
-    stdio: 'ignore',
-    detached: true,
-    env: { ...process.env, OW_NO_HMR: '1' },
-  });
-  for (let i = 0; i < 80 && !(await portOpen(PORT)); i++) {
-    await new Promise((r) => setTimeout(r, 250));
-  }
-}
-
-const browser = await chromium.launch({
+const browser = await launchChromium({
   args: ['--use-gl=angle', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
 });
 const page = await browser.newPage({ viewport: { width: 640, height: 480 } });
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 
-await page.goto(`http://127.0.0.1:${PORT}/?prewarm=0`, { waitUntil: 'load' });
-await page.waitForFunction('window.__READY__ === true', null, { timeout: 120000 });
+await page.goto(bootUrl(PORT), { waitUntil: 'load' });
+await waitForReady(page, { name: 'REPLAY' });
 
 const out = await page.evaluate(
   async ({ K, SPAN, MAXDEPTH, NODUMP, DROP, TAMPER, ROWS, NOLOD, TRACE }) => {
@@ -473,7 +449,13 @@ const out = await page.evaluate(
     e.stop();
     let clock = performance.now();
     e._last = clock;
-    e._accum = 0;
+    e._accum = 0.5 / 120; // half a tick of cushion, ON PURPOSE: the driver advances a
+    // float clock by H = 1000/120 per step, and at performance.now() magnitudes the
+    // rounded delta can land an epsilon BELOW FIXED_DT — a step that runs zero ticks,
+    // a 59-of-60 drive, and a gate that fails on some start timestamps and not others.
+    // Starting the accumulator mid-band keeps every boundary half a tick away; the
+    // cushion never compounds (deltas average H exactly) and _accum is not sim state —
+    // it only seeds alpha, which nothing these gates compare reads.
     const tick = (n = 1) => {
       for (let i = 0; i < n; i++) {
         clock += H;
@@ -762,7 +744,6 @@ const out = await page.evaluate(
       const drawsA = readCounts();
       const expected = dumpAll();
       const nTick = ctx.time.tick;
-      const N_ = nTick;
 
       // Two separate questions, and conflating them cost a diagnosis.
       //
@@ -892,7 +873,7 @@ const out = await page.evaluate(
 );
 
 await browser.close();
-if (vite && !args.keep) try { process.kill(-vite.pid); } catch { /* already gone */ }
+if (!args.keep) killServer(vite);
 
 /* ====================================================================== */
 /*  Report                                                                */

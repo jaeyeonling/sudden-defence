@@ -20,8 +20,6 @@ import { STANCE, MOVE, GRAVITY, JUMP_SPEED, FOOTSTEP } from './tuning.js';
 import { clamp, clamp01 } from './springs.js';
 import { dcos, dsin, hypot2, hypot3 } from '../core/dmath.js';
 
-export const STATES = ['stand', 'crouch', 'jump', 'fall'];
-
 export class Movement {
   /**
    * Snapshot classification (netcode step 5).
@@ -240,8 +238,8 @@ export class Movement {
     this._right.set(cy, 0, -sy);
 
     // ---- wish direction, with directional speed weighting ---------------
-    let mx = cmd.moveX;
-    let my = cmd.moveY;
+    const mx = cmd.moveX;
+    const my = cmd.moveY;
     const rawInput = hypot2(mx, my);
     const sx = mx * MOVE.strafeScale;
     const sz = my >= 0 ? my : my * MOVE.backScale;
@@ -260,7 +258,6 @@ export class Movement {
       wish.set(0, 0, 0);
       wishLen = 0;
     }
-    const forwardIntent = rawInput > 1e-4 ? my / rawInput : 0;
 
     // ---- discrete decisions, in priority order --------------------------
     this._updateStance(cmd);
@@ -341,7 +338,7 @@ export class Movement {
   /* jump                                                                 */
   /* ==================================================================== */
 
-  _updateJump(cmd) {
+  _updateJump(_cmd) {
     if (this._jumpBuffer <= 0) return false;
     if (this._jumpCooldown > 0) return false;
     const c = this.character;
@@ -451,7 +448,7 @@ export class Movement {
   /* post-move                                                            */
   /* ==================================================================== */
 
-  _postMove(h, travelled) {
+  _postMove(_h, _travelled) {
     const c = this.character;
     const v = this.velocity;
     this.speed = hypot3(v.x, v.y, v.z);

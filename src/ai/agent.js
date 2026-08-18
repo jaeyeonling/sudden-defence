@@ -18,6 +18,9 @@
  * are pushed into `physics` every frame, so a headshot is a headshot because of
  * where the round landed, not because of a random roll. Death hands the live
  * skeleton to the ragdoll solver with the bullet's impulse.
+ *
+ * OVER THE 800-LINE LIMIT as a single-class file: one state machine sharing one
+ * blackboard. See ARCHITECTURE.md, "File size".
  */
 
 import * as THREE from 'three';
@@ -62,159 +65,8 @@ export { STATE };
  */
 export const aiYaw = (worldYaw) => worldYaw + Math.PI;
 
-/**
- * Line-of-sight rays a bot may spend per tick looking for enemies.
- *
- * Two, not "all of them". The cheap range+cone filter usually leaves one or two
- * candidates anyway; the budget only bites in the pathological case of a whole
- * enemy team standing in one doorway, and there the cost of being a tick late
- * to the second man is far lower than the cost of sixteen bots each traversing
- * the BVH eight times every tick.
- */
-const LOS_PER_TICK = 2;
+import { AIM_DROP, ENGAGE_CLOSE, ENGAGE_FAR, HITBOXES, LOS_PER_TICK, MUZZLE } from './agent-tuning.js';
 
-/**
- * The engagement envelope, in metres — how far from its target a bot wants to
- * fight from.
- *
- * These are the numbers that decide whether the AI plays the map or stands in
- * its own spawn, and the inherited values (7 to 30 m) did the latter. They were
- * tuned for a 120 m outdoor street where 30 m is mid-range; this depot is 36 m
- * deep, so "take cover 30 m from the enemy" resolves to "do not leave home".
- *
- * Measured, before the change: both teams held at an average of 31 m and traded
- * at a 0.032 rad cone — a ~1 m spread circle against a 0.35 m torso, roughly a
- * 3 % hit chance per round. Whichever side happened to edge forward won every
- * run 4-0, not because it was better but because it was the only one shooting
- * at anything it could hit.
- *
- * CLOSE is a little over the width of the centre hall's mouth and FAR is half
- * the map's long axis, so the band lands on the contested middle. Bots now have
- * to come out of their spawn court to satisfy it, which is the whole point of
- * building the map around one.
- */
-const ENGAGE_CLOSE = 4;
-const ENGAGE_FAR = 18;
-
-/**
- * ═══════════════════════════════════════════════════════════════════════════
- * How far BELOW the head a bot aims, in metres. This one number is the bot
- * difficulty model, and it is a taste decision — change it here, nowhere else.
- *
- *  -0.05  the old value: the head plus five centimetres, biased toward the TOP
- *         edge of a 0.115 m head capsule. Every clean hit is lethal.
- *   0.28  neck and upper chest (shipped). A headshot is possible but is
- *         produced by wobble, by the target moving and by burst climb rather
- *         than by intent.
- *   0.38  mid chest. Measured at 0 headshots in 29 hits — too far. A headshot
- *         should be rare, not unreachable.
- *   0.60  belly. Noticeably softer; bots need most of a burst.
- *
- * `lastKnown` holds the target's HEAD (perception stores `seen.head`, and
- * `Combatant.head` is documented as the point bots shoot at), so this is a drop
- * from the head, not a rise from the feet. The comment here used to claim it
- * aimed at the chest while the code read `t.y + 0.05`.
- *
- * WHY IT MOVED, and how much of that is solid. Against a stationary player at
- * the shipped tempo, with the old aim point: 237 rounds fired, 100 landed, and
- * 84 of those 100 hit the HEAD. A head hit is 132 damage against 100 health
- * (`tools/hitbox.mjs` asserts it), so five rounds in six that connected were an
- * instant kill — a coin flip on who saw whom first rather than a difficulty
- * setting. Player movement does not soften that: it lowers the hit rate, not
- * the share of hits that land on the head, because the aim POINT is unmoved.
- *
- * At 0.28 the same measurement gives 1-3 % of damage on the head, and of actual
- * killing blows 10 of 50 were headshots — one death in five, the rest to
- * sustained torso fire.
- *
- * WHAT IS NOT SOLID, stated because the numbers above invite more precision
- * than they carry: the rig used for them is unstable. Whether the bots find a
- * stationary player at all varies enormously between runs — 63 rounds fired in
- * one, 630 in the next, and two runs produced no engagement whatsoever. Counts
- * of `damage:dealt` also over-report, because a penetrating round raises it more
- * than once (749 "hits" from 342 shots in one run), which is why the killing-blow
- * figure above is quoted from `combatant:death` instead. The 84 % -> 1-3 % shift
- * is an order-of-magnitude result and survives all of that. The choice between
- * 0.28 and 0.38 does not, and was made on feel.
- *
- * The rest of the difficulty model is elsewhere and was left alone: reaction
- * time and the perception cone in `_sense`, the burst pattern and cooldowns
- * below, and the wobble term applied right after this.
- * ═══════════════════════════════════════════════════════════════════════════
- */
-const AIM_DROP = 0.28;
-
-
-const HITBOXES = [
-  ['head', 'Head', 'HeadTop', 0.098, 4.0],
-  ['torso', 'Spine1', 'Neck', 0.185, 1.0],
-  ['torso', 'Hips', 'Spine1', 0.175, 0.9],
-  ['arm', 'UpperArmR', 'HandR', 0.072, 0.65],
-  ['arm', 'UpperArmL', 'HandL', 0.072, 0.65],
-  ['leg', 'UpLegR', 'FootR', 0.105, 0.7],
-  ['leg', 'UpLegL', 'FootL', 0.105, 0.7],
-];
-
-/**
- * Ragdoll bone spec, in the order the solver wants it.
- *   [ headBone, tailBone, radius, massFraction, parentIndex, cone°, twist°, map ]
- * `map` false marks a stub whose only job is to weld a limb chain to the torso:
- * the solver shares a particle between two bones only when their endpoints are
- * coincident, so the shoulder and hip need a bone that starts exactly on the
- * spine joint. Deriving our own spec (instead of letting physics infer one from
- * all 25 bones) also gets the capsule radii right, which is the difference
- * between a body and a pancake.
- */
-const DOLL = [
-  ['Hips', 'Spine', 0.135, 0.14, -1, 0, 0, true],
-  ['Spine', 'Spine1', 0.125, 0.10, 0, 22, 16, true],
-  ['Spine1', 'Spine2', 0.135, 0.14, 1, 18, 12, true],
-  ['Spine2', 'Neck', 0.130, 0.10, 2, 16, 10, true],
-  ['Neck', 'Head', 0.052, 0.03, 3, 30, 25, true],
-  ['Head', 'HeadTop', 0.098, 0.07, 4, 42, 30, true],
-  // stubs get a free cone: their direction is lateral while the parent points
-  // up the spine, so any limit here is violated in the bind pose and the solver
-  // would inject energy trying to fix it
-  ['Spine2', 'UpperArmR', 0.055, 0.02, 3, 179, 179, false],
-  ['UpperArmR', 'ForearmR', 0.058, 0.027, 6, 100, 60, true],
-  ['ForearmR', 'HandR', 0.048, 0.018, 7, 80, 45, true],
-  ['HandR', 'FingersR', 0.038, 0.006, 8, 55, 40, true],
-  ['Spine2', 'UpperArmL', 0.055, 0.02, 3, 179, 179, false],
-  ['UpperArmL', 'ForearmL', 0.058, 0.027, 10, 100, 60, true],
-  ['ForearmL', 'HandL', 0.048, 0.018, 11, 80, 45, true],
-  ['HandL', 'FingersL', 0.038, 0.006, 12, 55, 40, true],
-  ['Hips', 'UpLegR', 0.065, 0.02, 0, 179, 179, false],
-  ['UpLegR', 'LegR', 0.088, 0.10, 14, 95, 35, true],
-  ['LegR', 'FootR', 0.068, 0.045, 15, 70, 20, true],
-  ['FootR', 'ToeR', 0.050, 0.012, 16, 40, 20, true],
-  ['Hips', 'UpLegL', 0.065, 0.02, 0, 179, 179, false],
-  ['UpLegL', 'LegL', 0.088, 0.10, 18, 95, 35, true],
-  ['LegL', 'FootL', 0.068, 0.045, 19, 70, 20, true],
-  ['FootL', 'ToeL', 0.050, 0.012, 20, 40, 20, true],
-];
-
-const DEG = Math.PI / 180;
-
-/**
- * Where a bot's round leaves it, in the agent's own yaw frame, metres.
- *
- * MEASURED, and measured twice — the first pass rotated into the wrong frame and
- * reported the muzzle wandering half a metre, which was an artefact of the
- * rotation and not anything the animator does. Fitting both candidate frames in
- * one run and taking the tighter (residual p50 0.335 m against 0.502 m) gives
- * `dx = right*cos + forward*sin`, `dz = -right*sin + forward*cos`, and in that
- * frame the weapon is very nearly a fixed mount:
- *
- *   right    p10 -0.1254  p50 -0.0867  p90 -0.0155   (spread 0.11 m)
- *   forward  p10  0.6164  p50  0.6321  p90  0.6475   (spread 0.03 m)
- *   up       crouch  p10 0.9790  p50 0.9965  p90 1.0196   (10.3% of samples)
- *            stand   p10 0.9887  p50 1.1655  p90 1.2330
- *
- * n = 5862-6300 over 900 live ticks. Medians, not means: the distributions are
- * skewed and a mean chases the tails. `crouch` is simulation state, so splitting
- * the one axis that actually moves costs nothing.
- */
-const MUZZLE = { right: -0.0867, forward: 0.6321, upStand: 1.1655, upCrouch: 0.9965 };
 
 let _nextId = 1;
 
@@ -279,6 +131,8 @@ export class Agent {
     // presentation. `lodIrrelevant` stays: it only gates shadows now.
     'bones', 'skeleton', 'mesh', 'group', 'skinnedMesh',
     'lodIrrelevant',
+    // diagnostic latch for ai/index.js debugLog; reset() clears it per death
+    '_loggedDoll',
     // tuning, constant for the life of the agent
     'mass', 'height', 'radius', 'maxHealth', 'eyeHeight', 'viewRange', 'viewCos',
     'weaponRange', 'fireRate', 'magSize', 'weaponDamage', 'patrolPoints',
@@ -684,7 +538,7 @@ export class Agent {
    *
    * Presentation lives in `present()`.
    */
-  simulate(dt, ctx) {
+  simulate(dt, _ctx) {
     if (!this.alive) return;
     this.stateTime += dt;
     this.suppression = Math.max(0, this.suppression - dt * 0.55);
@@ -974,7 +828,6 @@ export class Agent {
   }
 
   _think(dt) {
-    const sq = this.squad;
     switch (this.state) {
       case STATE.IDLE:
         this.desiredSpeed = 0;
@@ -2411,6 +2264,9 @@ export class Agent {
       this.ragdoll = null;
       this.__ragdoll = null;
     }
+    // Diagnostic latch (ai/index.js debugLog): without this a pooled agent
+    // logged its ragdoll once per MATCH instead of once per death.
+    this._loggedDoll = false;
     this.alive = true;
     this.health = this.maxHealth;
     this.animator.enabled = true;

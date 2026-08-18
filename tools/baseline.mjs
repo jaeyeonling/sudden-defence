@@ -17,15 +17,11 @@
  *
  *   node tools/baseline.mjs --out=shots/base --port=8080
  */
-import { chromium } from 'playwright';
-import { spawn } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import net from 'node:net';
+import { parseArgs, ensureServer, killServer, launchChromium, waitForReady } from './harness.mjs';
 
-const args = Object.fromEntries(process.argv.slice(2).map((a) => {
-  const m = a.match(/^--([^=]+)(?:=(.*))?$/); return m ? [m[1], m[2] ?? true] : [a, true];
-}));
+const args = parseArgs();
 
 const PORT = Number(args.port ?? 5173);
 const W = Number(args.w ?? 1920);
@@ -44,21 +40,12 @@ const ROOT = resolve(import.meta.dirname, '..');
 const Q = String(args.q ?? 'ultra');
 const EXTRA = `&q=${encodeURIComponent(Q)}${args.query ? `&${args.query}` : ''}`;
 
-const portOpen = (p) => new Promise((res) => {
-  const s = net.connect({ port: p, host: '127.0.0.1' }, () => (s.destroy(), res(true)));
-  s.on('error', () => res(false));
-  s.setTimeout(400, () => (s.destroy(), res(false)));
-});
+// This server feeds pixelgate and determinism — the two byte-identity gates —
+// so the harness's OW_NO_HMR guard is load-bearing here. 160 tries: the two
+// passes of a determinism run can race a cold vite on this machine.
+const server = await ensureServer(PORT, { root: ROOT, tries: 160, name: 'BASELINE' });
 
-let server = null;
-if (!(await portOpen(PORT))) {
-  server = spawn(resolve(ROOT, 'node_modules/.bin/vite'), ['--port', String(PORT), '--strictPort'], { cwd: ROOT, stdio: 'ignore' });
-  let up = false;
-  for (let i = 0; i < 160 && !up; i++) { await new Promise((r) => setTimeout(r, 250)); up = await portOpen(PORT); }
-  if (!up) { server.kill(); throw new Error('vite failed to start'); }
-}
-
-const browser = await chromium.launch({
+const browser = await launchChromium({
   headless: true,
   args: ['--use-angle=metal', '--ignore-gpu-blocklist', '--force-color-profile=srgb',
          '--force-device-scale-factor=1', '--hide-scrollbars', '--mute-audio', '--disable-frame-rate-limit'],
@@ -70,7 +57,7 @@ const report = { ok: true, outDir: OUTDIR, size: `${W}x${H}`, isolated: true, se
 // Discover the shot list from a throwaway page.
 const probe = await browser.newPage({ viewport: { width: W, height: H } });
 await probe.goto(`http://127.0.0.1:${PORT}/?capture=1&lockstep=1${EXTRA}`, { waitUntil: 'domcontentloaded', timeout: 90000 });
-await probe.waitForFunction('window.__READY__ === true', null, { timeout: 90000 });
+await waitForReady(probe, { name: 'BASELINE' });
 const all = await probe.evaluate('Object.keys(window.__SHOTS__ ?? {})');
 await probe.close();
 
@@ -84,7 +71,7 @@ for (const name of wanted) {
   try {
     await page.goto(`http://127.0.0.1:${PORT}/?capture=1&lockstep=1&shot=${encodeURIComponent(name)}${EXTRA}`,
       { waitUntil: 'domcontentloaded', timeout: 90000 });
-    await page.waitForFunction('window.__READY__ === true', null, { timeout: 90000 });
+    await waitForReady(page, { name: 'BASELINE' });
 
     const applied = await page.evaluate(
       ({ s, settle }) => window.__APPLY_SHOT__(s, { grabFrame: settle }), { s: name, settle: SETTLE });
@@ -109,6 +96,11 @@ for (const name of wanted) {
     if (!reset?.ok) {
       console.error(`BASELINE FAILED — render.resetTemporal() unavailable for shot "${name}";`
         + ' temporal accumulators would carry across the settle window.');
+      // Tear down before exiting: determinism.mjs runs this file twice on the
+      // same port, and an orphaned vite from pass A would be silently reused by
+      // pass B — the two passes would no longer be independent.
+      await browser.close();
+      killServer(server);
       process.exit(1);
     }
 
@@ -134,7 +126,7 @@ for (const name of wanted) {
 
 report.errors = report.shots.flatMap((s) => s.logs ?? []);
 await browser.close();
-if (server) server.kill();
+killServer(server);
 
 writeFileSync(`${OUTDIR}/report.json`, JSON.stringify(report, null, 2));
 console.log(JSON.stringify(report, null, 2));

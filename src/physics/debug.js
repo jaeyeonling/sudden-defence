@@ -171,11 +171,12 @@ export class PhysicsDebugView {
     let dx = bx - ax, dy = by - ay, dz = bz - az;
     const l = hypot3(dx, dy, dz) || 1;
     dx /= l; dy /= l; dz /= l;
-    // orthonormal basis
-    let ux = 0, uy = 0, uz = 1;
+    // orthonormal basis — `let`: the near-vertical branch reassigns.
+    let ux = 0, uz = 1;
+    const uy = 0;
     if (Math.abs(dz) > 0.9) { ux = 1; uz = 0; }
     let px = uy * dz - uz * dy, py = uz * dx - ux * dz, pz = ux * dy - uy * dx;
-    let pl = hypot3(px, py, pz) || 1;
+    const pl = hypot3(px, py, pz) || 1;
     px /= pl; py /= pl; pz /= pl;
     const qx = dy * pz - dz * py, qy = dz * px - dx * pz, qz = dx * py - dy * px;
 

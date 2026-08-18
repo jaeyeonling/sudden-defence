@@ -1,0 +1,25 @@
+{
+  "env": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "angle": "metal",
+    "capture": {
+      "q": "ultra",
+      "size": "1920x1080",
+      "settle": 90
+    }
+  },
+  "shots": {
+    "bay_alpha": "8bfe238a1e96bc0545f579a02933726b5ea5061621544cd14bc83a3727642755",
+    "bay_bravo": "e7283e420297cb7fd5c6a03223414b401c438f6eb9f48de958f7ee9452921f97",
+    "boot": "ea37b6f302d6b8c01b999eab2dc04ce68ded0031a5955f63d79b9241e4db7209",
+    "bots": "8bd3278074794024593270ece13827d83dd0ca0cb1e934bca9f7edae9e5e2cd9",
+    "corner": "3c991ff6880b45e946c29cf7cab1bd370e0dc8d3f82399963b211fbcbbdc8e11",
+    "detail": "44e76c40c4a61fe8b3ed32547a6fbfb790766e4bbc54a8bab09c52be1538bbce",
+    "hall": "68b26817bc47d69a2c1a21fa8f3be8779defc84f8b9d41ed0050d4fc1580fb9b",
+    "hud": "439f714a4474fc35dc3b1478d37f59b39f9727fa36e7b9a92e484787aec8202f",
+    "impacts": "1610f0bd13081d37936224d2a04599386504fe8d16017cb7362513b363a8a364",
+    "lane": "23cf8aac038519d9cb2ab3230aef3000c6b663b401d2f2aaa610733137fc5a9d",
+    "spawn": "d700d3465d5b90cf83f1ea1d348d8e6b595c66fea54efe030b4e31c09157198b"
+  }
+}

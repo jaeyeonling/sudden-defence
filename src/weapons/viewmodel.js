@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import { Arm, HAND_POSES } from './hands.js';
+import { Arm } from './hands.js';
 import { buildClips, makeSampleResult } from './clips.js';
-import { triCount, mergeAll } from './geometry.js';
+import { triCount } from './geometry.js';
 import {
   Spring,
   Spring3,
@@ -10,7 +10,6 @@ import {
   clamp01,
   lerp,
   damp,
-  smootherstep,
   wrapPi,
   TAU,
 } from './mathx.js';
@@ -43,6 +42,9 @@ import { dcos, dpow, dsin } from '../core/dmath.js';
  *         weapon      <- body meshes + moving-part groups
  *         armL/armR   <- two-bone IK, hands welded to the weapon's grips
 
+ *
+ * OVER THE 800-LINE LIMIT as a single-class file: one state machine sharing one
+ * blackboard. See ARCHITECTURE.md, "File size".
  */
 
 const _v = new THREE.Vector3();
@@ -52,9 +54,6 @@ const _q = new THREE.Quaternion();
 const _q2 = new THREE.Quaternion();
 const _e = new THREE.Euler(0, 0, 0, 'XYZ');
 const _m = new THREE.Matrix4();
-const _axisX = new THREE.Vector3(1, 0, 0);
-const _axisY = new THREE.Vector3(0, 1, 0);
-const _axisZ = new THREE.Vector3(0, 0, 1);
 
 /**
  * Re-shape the curvature vertex masks baked by `materials.bakeMasks`.
@@ -507,9 +506,9 @@ export class Viewmodel {
     const scale = first ? 1.18 : 1;
     const jitter = 0.86 + this.rng.float() * 0.3;
     this.recPos.f = r.freq;
-    this.recPos.z = r.damping;
+    this.recPos.damping = r.damping;
     this.recRot.f = r.freq * 0.92;
-    this.recRot.z = r.damping;
+    this.recRot.damping = r.damping;
     // A velocity impulse of v0 on a spring of angular frequency w peaks at
     // roughly v0/w, so the kick amplitudes below are in real metres/radians.
     const wp = TAU * this.recPos.f;

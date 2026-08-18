@@ -135,7 +135,7 @@ export class Squad {
   }
 
   /** Ask to lean out of cover. Only `peekTokens` members may at once. */
-  requestPeek(agent, dt) {
+  requestPeek(agent, _dt) {
     if (this.peekHolders.has(agent.id)) return true;
     if (this.peekHolders.size >= this.peekTokens) return false;
     this.peekHolders.add(agent.id);

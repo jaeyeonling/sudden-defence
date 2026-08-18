@@ -199,7 +199,7 @@ export function bakeMasks(geometry, opts = {}) {
 
     let w = convex * wear + up * up * upWear * wear;
     let g = concave * grime + down * downGrime * grime;
-    let o = concave * ao;
+    const o = concave * ao;
 
     if (rng) {
       const j = 0.85 + rng.float() * 0.3;

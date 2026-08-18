@@ -9,7 +9,7 @@
 
 import * as THREE from 'three';
 import {
-  emptyMesh, loft, tube, ribbon, revolve, boxRound, superEllipse, ellipseProfile,
+  emptyMesh, loft, tube, ribbon, boxRound, superEllipse, ellipseProfile,
   appendMesh, computeNormals, displace, transformMesh, warp,
 } from './geo.js';
 import { GRIP_R, BORE_DIR } from './rig.js';
@@ -124,7 +124,7 @@ export function buildWeapon(nz, style = 'carbine', rng) {
     }
     const mag = loft(rings, { capStart: true, capEnd: true });
     computeNormals(mag);
-    displace(mag, (x, y, z, nx, ny, nzz) => {
+    displace(mag, (x, y, z, nx, _ny, _nzz) => {
       // moulded ribs down the sides
       const rib = dsin((y - BORE_Y) * 210) * 0.5 + 0.5;
       return Math.abs(nx) > 0.6 ? rib * 0.0012 : nz.fbm3(x * 80, y * 80, z * 80, 2) * 0.0008;
@@ -162,7 +162,7 @@ export function buildWeapon(nz, style = 'carbine', rng) {
   {
     const mz = cyl(0.0145, 0.0135, barrelEnd - 0.045, barrelEnd, 0, BORE_Y, 14, true);
     // port slots
-    displace(mz, (x, y, z, nx, ny, nzz) => {
+    displace(mz, (x, y, z, _nx, _ny, _nzz) => {
       const a = datan2(x, y - BORE_Y);
       const slot = Math.abs(dsin(a * 3)) > 0.92 && z > barrelEnd - 0.035 ? -0.0035 : 0;
       return slot;
@@ -186,7 +186,7 @@ export function buildWeapon(nz, style = 'carbine', rng) {
     }
     const hg = loft(rings, { capStart: false, capEnd: true });
     computeNormals(hg);
-    displace(hg, (x, y, z, nx, ny, nzz) => {
+    displace(hg, (x, y, z, nx, ny, _nzz) => {
       if (long) {
         // ribbed polymer handguard
         const rib = dsin(z * 260) * 0.5 + 0.5;

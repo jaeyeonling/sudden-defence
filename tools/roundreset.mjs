@@ -32,7 +32,7 @@
  * throwing one reaches the world (a count that decrements and spawns nothing is
  * the failure that looks fine on the HUD), and that the reset reissues them.
  */
-import { parseArgs, ensureServer, killServer, launchChromium, waitForReady } from './harness.mjs';
+import { parseArgs, ensureServer, killServer, launchChromium, waitForReady, bootUrl } from './harness.mjs';
 
 const args = parseArgs();
 const PORT = Number(args.port ?? 5173);
@@ -45,7 +45,7 @@ const browser = await launchChromium({
 const page = await browser.newPage({ viewport: { width: 640, height: 480 } });
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
-await page.goto(`http://127.0.0.1:${PORT}/?prewarm=0`, { waitUntil: 'load' });
+await page.goto(bootUrl(PORT), { waitUntil: 'load' });
 await waitForReady(page, { name: 'ROUNDRESET' });
 
 const out = await page.evaluate(async () => {

@@ -86,7 +86,7 @@
  *                         [--maxdepth=12] [--nodump]
  *                         [--drop=sys.field] [--tamper] [--keep]
  */
-import { parseArgs, ensureServer, killServer, launchChromium, waitForReady } from './harness.mjs';
+import { parseArgs, ensureServer, killServer, launchChromium, waitForReady, bootUrl } from './harness.mjs';
 
 const args = parseArgs();
 const PORT = Number(args.port ?? 5173);
@@ -119,7 +119,7 @@ const page = await browser.newPage({ viewport: { width: 640, height: 480 } });
 const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 
-await page.goto(`http://127.0.0.1:${PORT}/?prewarm=0`, { waitUntil: 'load' });
+await page.goto(bootUrl(PORT), { waitUntil: 'load' });
 await waitForReady(page, { name: 'REPLAY' });
 
 const out = await page.evaluate(
@@ -449,7 +449,13 @@ const out = await page.evaluate(
     e.stop();
     let clock = performance.now();
     e._last = clock;
-    e._accum = 0;
+    e._accum = 0.5 / 120; // half a tick of cushion, ON PURPOSE: the driver advances a
+    // float clock by H = 1000/120 per step, and at performance.now() magnitudes the
+    // rounded delta can land an epsilon BELOW FIXED_DT — a step that runs zero ticks,
+    // a 59-of-60 drive, and a gate that fails on some start timestamps and not others.
+    // Starting the accumulator mid-band keeps every boundary half a tick away; the
+    // cushion never compounds (deltas average H exactly) and _accum is not sim state —
+    // it only seeds alpha, which nothing these gates compare reads.
     const tick = (n = 1) => {
       for (let i = 0; i < n; i++) {
         clock += H;

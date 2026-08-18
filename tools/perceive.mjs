@@ -383,7 +383,7 @@
  *                           [--isolate=<event>]  cut one channel, same snapshot
  *                           [--induce=drawnhead|frameevents]  put a defect back
  */
-import { parseArgs, ensureServer, killServer, launchChromium } from './harness.mjs';
+import { parseArgs, ensureServer, killServer, launchChromium, bootUrl } from './harness.mjs';
 
 const args = parseArgs();
 const PORT = Number(args.port ?? 5173);
@@ -462,7 +462,7 @@ page.on('pageerror', (e) => errors.push(e.message));
 // `--seed=N` picks a different world on purpose; the `scenario:` line reports
 // which one was actually reached.
 await page.goto(
-  `http://127.0.0.1:${PORT}/?prewarm=0&lockstep=1&seed=${SEED}`,
+  bootUrl(PORT, `lockstep=1&seed=${SEED}`),
   { waitUntil: 'load' }
 );
 await page.waitForFunction("window.__READY__ === true", null, { timeout: 120000 });
@@ -590,7 +590,10 @@ const out = await page.evaluate(
     const CLOCK0 = 8_000_000; // arbitrary, constant, far from any real `now`
     let clock = CLOCK0;
     e._last = clock;
-    e._accum = 0;
+    e._accum = 0; // NOT the half-tick cushion replay/crossengine use: this driver runs
+    // at several frame RATES and compares them, and a preloaded accumulator shifts
+    // tick boundaries differently per rate. The constant CLOCK0 above already makes
+    // this driver deterministic — same start, same roundings, every run.
 
     /** One `step` per call is one tick, which is what makes a tick addressable. */
     const tick1 = () => {

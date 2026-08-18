@@ -9,7 +9,7 @@
  *   node tools/playtest.mjs
  *   node tools/playtest.mjs --port=5173
  */
-import { parseArgs, ensureServer, killServer, launchChromium, waitForReady } from './harness.mjs';
+import { parseArgs, ensureServer, killServer, launchChromium, waitForReady, bootUrl } from './harness.mjs';
 
 const args = parseArgs();
 const PORT = Number(args.port ?? 5173);
@@ -26,7 +26,7 @@ page.on('console', (m) => {
   if (m.type() === 'error') errors.push(m.text());
 });
 
-await page.goto(`http://127.0.0.1:${PORT}/?prewarm=0`, { waitUntil: 'load' });
+await page.goto(bootUrl(PORT), { waitUntil: 'load' });
 await waitForReady(page, { name: 'PLAYTEST' });
 
 // Rounds off. This harness measures MECHANICS — does W move you, does a round

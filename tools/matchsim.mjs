@@ -40,7 +40,7 @@
  *   node tools/matchsim.mjs --perTeam=4 --live=60
  *   node tools/matchsim.mjs --noplayer      # balance only, not the reset path
  */
-import { parseArgs, ensureServer, killServer, launchChromium, waitForReady } from './harness.mjs';
+import { parseArgs, ensureServer, killServer, launchChromium, waitForReady, bootUrl } from './harness.mjs';
 
 const args = parseArgs();
 const PORT = Number(args.port ?? 5173);
@@ -89,7 +89,7 @@ const errors = [];
 // and is unactionable, which is exactly how this one went untriaged.
 page.on('pageerror', (e) => errors.push(`${e.message}\n${(e.stack ?? '').split('\n').slice(1, 5).join('\n')}`));
 
-await page.goto(`http://127.0.0.1:${PORT}/?prewarm=0`, { waitUntil: 'load' });
+await page.goto(bootUrl(PORT), { waitUntil: 'load' });
 await waitForReady(page, { name: 'MATCHSIM' });
 
 const NO_PLAYER = !!args.noplayer;

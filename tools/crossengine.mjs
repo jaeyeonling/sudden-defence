@@ -413,7 +413,13 @@ const PROBE = async ({ TICKS, INJECT, NOFIRE, RDWATCH }) => {
   e.stop();
   let clock = performance.now();
   e._last = clock;
-  e._accum = 0;
+  e._accum = 0.5 / 120; // half a tick of cushion, ON PURPOSE: the driver advances a
+  // float clock by H = 1000/120 per step, and at performance.now() magnitudes the
+  // rounded delta can land an epsilon BELOW FIXED_DT — a step that runs zero ticks,
+  // a 59-of-60 drive, and a gate that fails on some start timestamps and not others.
+  // Starting the accumulator mid-band keeps every boundary half a tick away; the
+  // cushion never compounds (deltas average H exactly) and _accum is not sim state —
+  // it only seeds alpha, which nothing these gates compare reads.
   const H = 1000 / 120;
   const tick1 = () => { clock += H; e.step(clock); };
 
@@ -465,7 +471,13 @@ const PROBE = async ({ TICKS, INJECT, NOFIRE, RDWATCH }) => {
   ctx.peek('physics')?.bodies?.clear?.();
   clock = CLOCK0;
   e._last = clock;
-  e._accum = 0;
+  e._accum = 0.5 / 120; // half a tick of cushion, ON PURPOSE: the driver advances a
+  // float clock by H = 1000/120 per step, and at performance.now() magnitudes the
+  // rounded delta can land an epsilon BELOW FIXED_DT — a step that runs zero ticks,
+  // a 59-of-60 drive, and a gate that fails on some start timestamps and not others.
+  // Starting the accumulator mid-band keeps every boundary half a tick away; the
+  // cushion never compounds (deltas average H exactly) and _accum is not sim state —
+  // it only seeds alpha, which nothing these gates compare reads.
 
   if (INJECT) {
     for (const id of SIM_IDS) ctx.peek(id).restoreState(INJECT[id]);

@@ -106,10 +106,10 @@ jobs:
           set -o pipefail
           npm run test:logic 2>&1 | tee /tmp/logic.log
       - name: Machine state after failure
-        if: failure()
+        if: failure() || cancelled()
         run: free -m; ps aux --sort=-rss | head -15; tail -50 /tmp/vite.log || true
       - name: Upload logic log on failure
-        if: failure()
+        if: failure() || cancelled()
         uses: actions/upload-artifact@v4
         with:
           name: logic-log

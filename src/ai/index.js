@@ -32,7 +32,7 @@
  * and an actor that provably cannot reach a pixel this frame (see
  * `_updateRelevance`) animates at a third rate and leaves the shadow cascades.
  *
- * EVENTS consumed: weapon:fire, bullet:impact, damage:dealt, explosion,
+ * EVENTS consumed: weapon:shot, bullet:impact, damage:dealt, explosion,
  *   player:footstep
  * EVENTS emitted: weapon:fire (enemy muzzle), weapon:shell, bullet:tracer,
  *   damage:dealt (enemy hitting the player), actor:death
@@ -555,14 +555,20 @@ export class AiSystem {
     this._off = [];
     const on = (t, fn) => this._off.push(ctx.events.on(t, fn));
 
-    on('weapon:fire', (e) => {
-      // `simOrigin`, not `origin`. The latter is the viewmodel muzzle, posed
-      // from the interpolated draw pose — reading it made WHERE A BOT REMEMBERS
-      // HEARING YOU a function of the frame rate, and in the replay gate it sat
-      // 110 ticks upstream of every diverging perception field. Same defect
-      // class as `6bf296f`, on the player's side of the gun. See the payload
-      // contract in `weapons/index.js`.
-      if (!e || !e.simOrigin || e.weapon === 'ai_rifle') return; // ignore our own
+    // `weapon:shot`, NOT `weapon:fire`. Both fixes in this handler's history
+    // are halves of one rule — a bot's hearing is simulation:
+    //   - `simOrigin`, not `origin` (WHERE): the viewmodel muzzle is posed from
+    //     the interpolated draw pose, so reading it made where a bot remembers
+    //     hearing you a function of the frame rate. Same defect class as
+    //     `6bf296f`, on the player's side of the gun.
+    //   - `weapon:shot`, not `weapon:fire` (WHEN): weapon:fire is flushed from
+    //     lateUpdate once the viewmodel pose is final — a FRAME hook — so shots
+    //     decided on ticks 1-4 of a 30 fps frame were announced together at
+    //     frame end. perceive convicted it: 23 rate-dependent perception fields
+    //     with the channel live, zero with it cut. weapon:shot leaves tryFire
+    //     on the tick that fired.
+    on('weapon:shot', (e) => {
+      if (!e || !e.simOrigin) return;
       // A gunshot is the loudest thing in the level: everybody hears it, and
       // anyone near the line of fire also feels suppressed by it.
       for (const a of this.agents) {

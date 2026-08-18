@@ -27,8 +27,18 @@ export class Health {
    * `hitFlash`, `indicators` and `effect` are the damage vignette and the
    * directional arrows — screen furniture that happens to be driven by damage.
    */
-  static snapshotState = ['value', 'dead', 'lastDamageTime', 'lastPart', '_emitTimer', '_lastEmitHealth'];
-  static excludedState = ['ctx', 'rig', 'max', 'hitFlash', 'indicators', 'effect', '_payload', '_statePayload'];
+  // `_emitTimer` and `_lastEmitHealth` are PRESENTATION, not simulation: they
+  // throttle the `player:health` HUD event and integrate FRAME dt (update, not
+  // fixedUpdate). They sat in snapshotState until `replay --chunk=4` — the
+  // same commands re-simulated under a 30 fps frame composition — flagged
+  // _emitTimer as the one "simulation" leaf in the whole dump that moved with
+  // the frame. It moved because it IS frame state; the classification was the
+  // defect, not the timer.
+  static snapshotState = ['value', 'dead', 'lastDamageTime', 'lastPart'];
+  static excludedState = [
+    'ctx', 'rig', 'max', 'hitFlash', 'indicators', 'effect', '_payload', '_statePayload',
+    '_emitTimer', '_lastEmitHealth',
+  ];
 
   captureState(out = {}) {
     for (const k of Health.snapshotState) out[k] = this[k];

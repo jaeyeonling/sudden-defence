@@ -123,7 +123,7 @@ await page.goto(bootUrl(PORT), { waitUntil: 'load' });
 await waitForReady(page, { name: 'REPLAY' });
 
 const out = await page.evaluate(
-  async ({ K, SPAN, MAXDEPTH, NODUMP, DROP, TAMPER, ROWS, NOLOD, TRACE }) => {
+  async ({ K, SPAN, MAXDEPTH, NODUMP, DROP, TAMPER, ROWS, NOLOD, TRACE, CHUNK }) => {
     const e = window.__ENGINE__;
     const ctx = e.ctx;
 
@@ -805,14 +805,23 @@ const out = await page.evaluate(
       zero();
       try {
         e.commands.beginReplay(nTick);
-        for (let i = 0; i < span; i++) {
-          clock += H;
+        // `--chunk=N` — replay N ticks per engine.step, i.e. re-simulate the
+        // SAME recorded commands under a different FRAME COMPOSITION (chunk=4
+        // is a 30 fps frame). The original pass traced per tick, so comparison
+        // happens at chunk boundaries, where the tick counts line up. A leaf
+        // that differs here names, exactly, a piece of simulation that reads
+        // the frame — the M8 invariant a predicting client depends on, asked
+        // as a question instead of assumed.
+        for (let i = 0; i < span; ) {
+          const n = Math.min(CHUNK, span - i);
+          clock += H * n;
           e.step(clock);
+          i += n;
           if (trace && !firstDiverge) {
-            const d = diff(trace[i], dumpAll().map, ROWS);
+            const d = diff(trace[i - 1], dumpAll().map, ROWS);
             if (d.count) {
               firstDiverge = {
-                i, tick: ctx.time.tick,
+                i: i - 1, tick: ctx.time.tick,
                 count: d.count, numeric: d.numeric, rows: d.rows,
               };
             }
@@ -869,6 +878,7 @@ const out = await page.evaluate(
     DROP: typeof args.drop === 'string' ? args.drop : null,
     TAMPER: !!args.tamper,
     TRACE: !!args.trace,
+    CHUNK: Math.max(1, Number(args.chunk ?? 1)),
   }
 );
 

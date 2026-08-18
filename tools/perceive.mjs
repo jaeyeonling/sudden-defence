@@ -367,6 +367,19 @@
  * `update()` and gets credited to it; this note exists because that mistake was
  * made here, and briefly written into this header as fact.
  *
+ * ISOLATION VERDICTS ARE CURRENTLY NOT TRUSTWORTHY — CONTROL BEFORE CONVICTING
+ *
+ * `--isolate=nope:never` — a channel NOTHING emits — also "fixed" a live
+ * 30 fps divergence: baseline 23 fields, isolated sweep zero, from the same
+ * snapshot. A cut that removes no events cannot carry a dependence, so the
+ * difference is the HARNESS: the isolated sweep runs after the baseline one,
+ * and some state the restore does not cover (the §1.4 declared-wrong hole —
+ * fxRng is one candidate) makes later sweeps a different scenario. Two false
+ * convictions were issued on this instrument in one session (weapon:fire,
+ * then weapon:shot) before the null-channel control exposed it. Until the
+ * leak is found, treat an isolation verdict as a lead, never a conviction —
+ * and run the nope:never control first.
+ *
  * WHY EVERY CONDITION RUNS INSIDE ONE INVOCATION
  *
  * Each run boots the page fresh and snapshots a different world, so comparing
@@ -762,9 +775,19 @@ const out = await page.evaluate(
 
     const perception = () => {
       const rows = [];
+      // Diagnostic riders, NOT scored (FIELDS decides the verdict): the round
+      // machine's own state per sampled tick. When rates diverge, the first
+      // question is whether the ROUND diverged first — a respawn cascade and a
+      // perception defect print identical agent fields, and hunting the M8
+      // round-on-tick coupling burned a session on exactly that ambiguity.
+      const m = ctx.peek('match');
+      const phase = { idle: 0, warmup: 1, freeze: 2, live: 3, roundEnd: 4, matchEnd: 5 }[m?.phase] ?? -1;
+      const rem = m?.round?.remaining ?? -1;
+      const rnd = m?.round?.round ?? -1;
       for (const a of [...(ai?.agents ?? [])].sort((x, y) => x.id - y.id)) {
         rows.push({
           id: a.id,
+          phase, rem, rnd,
           visible: a.targetVisible ? 1 : 0,
           // NOT scored — `FIELDS` decides the verdict and this is not in it.
           // Guard 3 needs it: `--induce=drawnhead` swaps `simHead` for the DRAWN
@@ -1176,9 +1199,18 @@ const score = (rs0) => {
       for (let i = 0; i < rows.length && !bad; i++) {
         for (const f of FIELDS) if (Math.abs(c[i][f] - rows[i][f]) > TOL) { bad = true; break; }
       }
-      if (bad) { firstTick = t; break; }
+      if (bad) {
+        firstTick = t;
+        // The diagnostic riders at the moment of divergence — did the ROUND
+        // part company before perception did?
+        firsts.push({
+          fps: r.fps, firstTick,
+          round: `phase ${c[0]?.phase}->${rows[0]?.phase} rem ${c[0]?.rem?.toFixed?.(3)}->${rows[0]?.rem?.toFixed?.(3)} rnd ${c[0]?.rnd}->${rows[0]?.rnd}`,
+        });
+        break;
+      }
     }
-    firsts.push({ fps: r.fps, firstTick });
+    if (firstTick === null) firsts.push({ fps: r.fps, firstTick });
   }
   return { diffs: ds, firsts, worst: ds.length ? Math.max(...ds.map((d) => d.d)) : 0 };
 };
@@ -1251,6 +1283,7 @@ for (const r of runs) {
   if (r === control) continue;
   let firstTick = null;
   let firstRows = null;
+  let firstRound = null;
   for (const [t, rows] of r.series) {
     const c = controlSeries.get(t);
     if (!c) continue; // not a tick the control observed — rates sample differently
@@ -1260,12 +1293,22 @@ for (const r of runs) {
         if (Math.abs(c[i][f] - rows[i][f]) > TOL) bad.push(`agent#${rows[i].id}.${f}`);
       }
     }
-    if (bad.length) { firstTick = t; firstRows = bad; break; }
+    if (bad.length) {
+      firstTick = t;
+      firstRows = bad;
+      // The round riders at the moment of divergence — the first question is
+      // always whether the ROUND parted company before perception did.
+      const cp = c[0] ?? {};
+      const rp = rows[0] ?? {};
+      firstRound = `round: phase ${cp.phase}->${rp.phase} · rnd ${cp.rnd}->${rp.rnd} · rem ${Number(cp.rem).toFixed(3)}->${Number(rp.rem).toFixed(3)}`;
+      break;
+    }
   }
   if (firstTick === null) {
     console.log(`    ${String(r.fps).padStart(3)}fps  matches the control on every common tick`);
   } else {
     console.log(`    ${String(r.fps).padStart(3)}fps  first differs at tick ${firstTick} (+${firstTick - out.kTick}) in ${firstRows.length}: ${firstRows.slice(0, 4).join(', ')}`);
+    console.log(`            ${firstRound}`);
   }
 }
 

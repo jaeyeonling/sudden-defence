@@ -121,7 +121,7 @@ export class WeaponSystem {
     '_shellQueue', '_droppedMags', '_magPools', '_disc', '_hudState',
     '_muzzle', '_eye', '_dir', '_tracerTo', '_right', '_up', '_tmp',
     '_aimDir', '_aimQuat', '_aimEuler',
-    '_tracerPayload', '_firePayload', '_reloadPayload', '_shellPayload',
+    '_tracerPayload', '_firePayload', '_shotPayload', '_reloadPayload', '_shellPayload',
   ];
 
   captureState(out = {}) {
@@ -199,6 +199,22 @@ export class WeaponSystem {
       weapon: null,
       origin: new THREE.Vector3(),
       dir: new THREE.Vector3(),
+      simOrigin: new THREE.Vector3(),
+      simDir: new THREE.Vector3(),
+      seed: 0,
+    };
+    // `weapon:shot` — the SIMULATION's announcement of a trigger break, emitted
+    // on the tick that fired. `weapon:fire` still exists and still leaves from
+    // lateUpdate with the final viewmodel muzzle, because the flash and tracer
+    // must ride the gun you can see — but `ai` turns a gunshot into
+    // `agent.hear()`, and perceive convicted the frame-side flush of that:
+    // shots decided on ticks 1-4 of a 30 fps frame were all announced at frame
+    // end, so WHEN a bot heard you was a function of the display rate
+    // (--isolate=weapon:fire: 23 diverging fields with it, zero without).
+    // Same split firing itself already made: the tick owns the fact, the frame
+    // owns the picture of it.
+    this._shotPayload = {
+      weapon: null,
       simOrigin: new THREE.Vector3(),
       simDir: new THREE.Vector3(),
       seed: 0,
@@ -692,6 +708,15 @@ export class WeaponSystem {
     // the round now agree by construction.
     this._firePayload.simOrigin.copy(this._eye);
     this._firePayload.simDir.copy(this._dir);
+
+    // The tick-side announcement — see `_shotPayload`'s note. Emitted HERE, on
+    // the tick that fired, so a bot's hearing is a function of the tick.
+    const sp = this._shotPayload;
+    sp.weapon = this.current;
+    sp.simOrigin.copy(this._eye);
+    sp.simDir.copy(this._dir);
+    sp.seed = seed >>> 0;
+    this.ctx.events.emit('weapon:shot', sp);
 
     // Shell leaves the port shortly after the shot, once the bolt is back.
     this._queueShell(Math.min(0.05, this._fireTimer * 0.45));

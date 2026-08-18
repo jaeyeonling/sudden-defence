@@ -147,8 +147,21 @@ export const MASK = {
     LAYER.RAGDOLL | LAYER.GLASS | LAYER.SHOOT_ONLY | LAYER.FOLIAGE,
   /** Static-only: camera collision, cover queries, decal projection. */
   WORLD: LAYER.STATIC | LAYER.PROP,
-  /** Line of sight — glass and foliage do not block vision. */
-  SIGHT: LAYER.STATIC | LAYER.PROP | LAYER.DEBRIS,
+  /**
+   * Line of sight — glass and foliage do not block vision, and neither does
+   * DEBRIS, which used to be here and was the M8 30 fps coupling in the flesh:
+   * `_raycastBodies` walks the rigid-body list whenever the DEBRIS bit is in
+   * the mask (the old physics comment claiming "a rigid body appears in
+   * neither" query set was wrong about exactly this), so a 9 mm casing in
+   * flight could occlude a bot's vision — and brass trajectories draw their
+   * tumble from `fxRng`, a presentation stream no snapshot restores, so WHAT a
+   * bot could see depended on the frame rate and on how many sweeps a harness
+   * had run. perceive caught it as agent#visible flipping at 30 fps only, and
+   * three of its false leads (weapon:fire, weapon:shot, a channel that never
+   * fires at all) "fixed" it by perturbing fxRng's state. Vision is simulation;
+   * brass is presentation; a mask bit is where they were fused.
+   */
+  SIGHT: LAYER.STATIC | LAYER.PROP,
   /** What rigid debris bounces off. */
   DEBRIS: LAYER.STATIC | LAYER.PROP | LAYER.CLIP,
   /** Explosion occlusion. */

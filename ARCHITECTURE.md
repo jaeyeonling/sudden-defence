@@ -195,22 +195,29 @@ re-simulates the exact ticks the server will and quantised inputs would spend
 the whole `dmath.js` determinism budget at the first byte.
 
 **The round clock and the death reap still run on the FRAME** (`match.update`
-/ `match.lateUpdate`), and that is the named next blocker, not an oversight:
-moving both to `match.fixedUpdate` was attempted and REVERTED, because it
-turned `perceive` red at 30 fps only — agents respawning at a different tick
-than the 120 fps control, with 60/100/144 fps all matching it exactly. The
-migration is correct in principle (a client re-simulating ticks at a different
-frame cadence must land on the same scores), so the failure means a rate
-coupling hides between tick-exact round transitions and something still
-frame-driven, and 30 fps — four ticks a frame — is where it surfaces. Find
-that coupling before the server owns the round; `perceive`'s per-field diff
-names agent#visible/awareness/x as the first casualties and is the instrument
-to hunt with. Until then every harness drives one frame per tick, which is why
-the current placement holds. Independent confirmation arrived from the other
-direction: booting perceive `?render=0` shifts the init-time rng fork order,
-which lands a round transition inside its measurement window — and 30 fps
-diverges again, this time with the round clock's frame-dt quantisation as the
-only suspect standing. Two experiments, opposite regimes, one coupling.
+/ `match.lateUpdate`), and the migration now has an ACCEPTANCE GATE instead of
+a hunch: `node tools/replay.mjs --trace --chunk=4` re-simulates the same
+recorded commands under a 30 fps frame composition and diffs every leaf — and
+today it names exactly one, `match.round.remaining`, because a clock
+integrated from frame dt cannot survive a different frame division. When the
+migration lands, that run must come back BIT-IDENTICAL.
+
+The migration was attempted twice and reverted twice, and the second hunt is
+worth its ledger. `perceive` goes red at 30 fps only, with agent#4's
+position/yaw/aimTarget parting FOUR TICKS into the drive (`--deep`) — before
+any perception field moves — while the round riders (phase/round/remaining)
+stay identical at the divergence. The aim wobble was acquitted (`time.sim` is
+a tick-derived getter, `engine.js:69`, shipped in `2869d64`); brass occluding
+sight was convicted of a DIFFERENT crime (see MASK.SIGHT) without clearing
+this one; and three isolation "convictions" (weapon:fire, weapon:shot, then a
+channel that never fires at all) collapsed together when `--isolate=nope:never`
+also cleared the divergence — perceive's isolation harness itself leaks
+undeclared state between sweeps and cannot convict anything until that is
+found (its header now says so). What remains true: something an agent's
+steering reads inside four ticks is a function of the frame composition, in
+some fight configurations, and it is not the round clock, the wobble clock,
+the shot announcement or the brass. The hunt resumes with `--deep` at the
+divergence window and the null-channel control run FIRST.
 
 The engine's backlog shed (`MAX_SUBSTEPS`, then `_accum = 0`) stays as it is,
 deliberately: under server authority a client that sheds falls behind and is

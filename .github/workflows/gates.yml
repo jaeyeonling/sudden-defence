@@ -94,10 +94,30 @@ jobs:
           done
           echo "vite did not come up:"; cat /tmp/vite.log; exit 1
 
+      # tee'd to a file and uploaded on failure, because the live log stream of
+      # a cancelled job truncates: the first hang here produced 44 minutes of
+      # apparent silence that the stream simply never delivered. The artifact is
+      # the untruncated record, vite's log and the machine state included.
       - name: npm run test:logic
         env:
           OW_NO_HMR: '1'
-        run: npm run test:logic
+        run: |
+          free -m; nproc
+          set -o pipefail
+          npm run test:logic 2>&1 | tee /tmp/logic.log
+      - name: Machine state after failure
+        if: failure()
+        run: free -m; ps aux --sort=-rss | head -15; tail -50 /tmp/vite.log || true
+      - name: Upload logic log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logic-log
+          path: |
+            /tmp/logic.log
+            /tmp/vite.log
+          if-no-files-found: ignore
+          retention-days: 7
 
   render:
     name: render + determinism

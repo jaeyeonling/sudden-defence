@@ -125,21 +125,51 @@ export function launchChromium(opts = {}) {
  * Attach it right after newPage() so the listeners see the whole boot.
  */
 export async function waitForReady(page, opts = {}) {
-  const { name = 'HARNESS', timeout = 300000 } = opts;
-  const seen = [];
+  const { name = 'HARNESS', timeout = 600000 } = opts;
+  const bad = [];
+  let last = '(no console output yet)';
   const onConsole = (m) => {
-    if (m.type() === 'error' || m.type() === 'warning') seen.push(`[${m.type()}] ${m.text()}`);
+    last = `[${m.type()}] ${m.text()}`;
+    if (m.type() === 'error' || m.type() === 'warning') bad.push(last);
   };
-  const onError = (e) => seen.push(`[pageerror] ${e.message}`);
+  const onError = (e) => { last = `[pageerror] ${e.message}`; bad.push(last); };
   page.on('console', onConsole);
   page.on('pageerror', onError);
+
+  // Heartbeat: on a shared runner the boot can be minutes of SwiftShader
+  // shader compilation with nothing on stdout, which is indistinguishable
+  // from a hang until it isn't. The last console line names the subsystem
+  // the boot is currently inside.
+  const t0 = Date.now();
+  const beat = setInterval(() => {
+    console.log(`${name} — still booting after ${Math.round((Date.now() - t0) / 1000)}s · last: ${last}`);
+  }, 30000);
+
+  // The deadline is raced NODE-SIDE, deliberately. A page whose main thread
+  // is wedged (a pathological shader compile, an infinite loop in init) can
+  // starve the in-page half of waitForFunction, and CI's first hang produced
+  // 44 minutes of silence followed by the job's own timeout — the exact
+  // failure mode this helper exists to name.
+  let deadlineTimer;
+  const deadline = new Promise((res) => { deadlineTimer = setTimeout(() => res('deadline'), timeout); });
   try {
-    await page.waitForFunction('window.__READY__ === true', null, { timeout });
-  } catch {
-    console.error(`${name} FAILED — page never reached __READY__ within ${timeout / 1000}s.`);
-    console.error(seen.length ? `Boot diagnostics:\n  ${seen.join('\n  ')}` : 'No console errors or pageerrors were emitted — the boot is running, just slow, or hung silently.');
-    process.exit(1);
+    const won = await Promise.race([
+      page.waitForFunction('window.__READY__ === true', null, { timeout: 0 }).then(() => 'ready').catch(() => 'deadline'),
+      deadline,
+    ]);
+    if (won !== 'ready') {
+      console.error(`${name} FAILED — page never reached __READY__ within ${timeout / 1000}s.`);
+      console.error(`Last console line: ${last}`);
+      console.error(bad.length ? `Errors/warnings seen:\n  ${bad.join('\n  ')}` : 'No console errors or pageerrors were emitted.');
+      // Flush before exiting: stderr to a pipe is async, and process.exit()
+      // truncates pending writes — a diagnostic that dies unread is no
+      // diagnostic at all.
+      await new Promise((r) => process.stderr.write('', r));
+      process.exit(1);
+    }
   } finally {
+    clearInterval(beat);
+    clearTimeout(deadlineTimer);
     page.off('console', onConsole);
     page.off('pageerror', onError);
   }

@@ -172,6 +172,55 @@ measurement rather than tidiness: spread decay was integrated per frame, so how
 fast a cone recovered depended on the monitor. `tools/firerate.mjs` gates the
 result at five frame rates.
 
+## Netcode readiness (M8)
+
+The target is a server-authoritative FPS with client prediction, and the
+codebase is built to the line just before a socket exists. Everything below is
+gated, not promised:
+
+| claim | gate |
+|---|---|
+| the same sim agrees across V8 / SpiderMonkey / JSC | `crossengine` |
+| the sim runs with no renderer (a Node server can host it) | `headless` |
+| two independently booted sims stay hash-identical for 1,200 ticks | `netsim` |
+| a fresh process adopting a serialized snapshot tracks the source bit for bit | `netsim` (handoff) |
+| a command survives the wire with every bit intact | `cmdstream` (wire) |
+
+`src/core/wire.js` is the wire format: `stringifyState`/`parseState` carry the
+snapshot (JSON plus the three numbers JSON destroys — its first run caught
+`lastKnownAge: Infinity` arriving as `null` and turning into "spotted an enemy
+16 ms ago" on the far side), and `encodeCommand`/`decodeCommand` carry one
+command in 46 bytes, floats kept Float64 because a predicting client
+re-simulates the exact ticks the server will and quantised inputs would spend
+the whole `dmath.js` determinism budget at the first byte.
+
+**The round clock and the death reap still run on the FRAME** (`match.update`
+/ `match.lateUpdate`), and that is the named next blocker, not an oversight:
+moving both to `match.fixedUpdate` was attempted and REVERTED, because it
+turned `perceive` red at 30 fps only — agents respawning at a different tick
+than the 120 fps control, with 60/100/144 fps all matching it exactly. The
+migration is correct in principle (a client re-simulating ticks at a different
+frame cadence must land on the same scores), so the failure means a rate
+coupling hides between tick-exact round transitions and something still
+frame-driven, and 30 fps — four ticks a frame — is where it surfaces. Find
+that coupling before the server owns the round; `perceive`'s per-field diff
+names agent#visible/awareness/x as the first casualties and is the instrument
+to hunt with. Until then every harness drives one frame per tick, which is why
+the current placement holds.
+
+The engine's backlog shed (`MAX_SUBSTEPS`, then `_accum = 0`) stays as it is,
+deliberately: under server authority a client that sheds falls behind and is
+CORRECTED by the next snapshot — the server, driven tick-by-tick, never sheds.
+Only a lockstep design (where every peer must simulate every tick) would need
+that policy changed, and this is not one.
+
+What a real server still needs, in order: the round-on-tick migration above, a
+transport (WebRTC or WebTransport), `player`/`weapons` bootable without
+`render` so the server can simulate its clients (they currently declare it as
+a dep), and a third kind of host — a remote player wearing the bot rig. The
+seams they plug into (`commands.override`, the wire, the handoff) are the
+parts this section certifies.
+
 ## Ownership map
 
 | id | directory | owns | status |

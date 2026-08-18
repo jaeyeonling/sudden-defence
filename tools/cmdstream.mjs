@@ -20,6 +20,7 @@
  */
 
 import { CommandStream, BTN, CMD_HISTORY } from '../src/core/command.js';
+import { COMMAND_WIRE_BYTES, encodeCommand, decodeCommand } from '../src/core/wire.js';
 
 let failures = 0;
 const check = (name, ok, detail = '') => {
@@ -216,6 +217,46 @@ const tick = (s, seq, yaw = 0, pitch = 0) => {
     seen.add(tick(s, n));
   }
   check(`the ring reuses its ${CMD_HISTORY} objects`, seen.size === CMD_HISTORY, `got ${seen.size}`);
+}
+
+/* ---------------------------------------------------------- the wire (M8) */
+{
+  // A command must survive encode -> decode with every bit intact, because a
+  // predicting client re-simulates the exact ticks the server will and the
+  // determinism budget assumes the inputs are identical doubles. The yaw here
+  // is chosen to be unrepresentable in f32, so a codec that quietly quantises
+  // fails by name instead of passing on a round number.
+  const s = new CommandStream();
+  const i = new FakeInput();
+  i.tap('jump');
+  i.fire = true;
+  i.move.x = 0.6;
+  i.move.y = -0.8;
+  s.sample(i);
+  s.build(7, 1 / 120);
+  s.setView(0.1 + 0.2, -1.234567890123456789);
+  const src = s.current;
+
+  const view = new DataView(new ArrayBuffer(COMMAND_WIRE_BYTES));
+  const wrote = encodeCommand(src, view);
+  const rt = decodeCommand(view, {});
+
+  check('the wire is exactly COMMAND_WIRE_BYTES', wrote === COMMAND_WIRE_BYTES, `${wrote}`);
+  check('seq survives the wire', rt.seq === src.seq);
+  check('dt survives the wire, bit for bit', Object.is(rt.dt, src.dt));
+  check('axes survive the wire, bit for bit', Object.is(rt.moveX, src.moveX) && Object.is(rt.moveY, src.moveY));
+  check('view angles survive the wire, bit for bit — no f32 quantisation',
+    Object.is(rt.yaw, src.yaw) && Object.is(rt.pitch, src.pitch), `${rt.yaw} vs ${src.yaw}`);
+  check('button bits survive the wire', rt.held === src.held && rt.edge === src.edge);
+
+  // The decoded object is exactly the shape commands.override consumes, which
+  // is the seam a server plugs into — so the wire's output must be usable as
+  // an override verbatim.
+  const s2 = new CommandStream();
+  s2.override = { moveX: rt.moveX, moveY: rt.moveY, held: rt.held, edge: rt.edge };
+  s2.sample(i);
+  s2.build(0, 1 / 120);
+  check('a decoded command drives override', s2.current.held === src.held && s2.current.edge === src.edge);
 }
 
 console.log(failures === 0 ? '\nCMDSTREAM PASS' : `\nCMDSTREAM FAIL (${failures})`);

@@ -1,5 +1,5 @@
 {
-  "name": "sudden-claude",
+  "name": "sudden-defence",
   "version": "0.1.0",
   "description": "Round-based team elimination FPS in the browser. Procedural everything, no art assets, no netcode.",
   "type": "module",

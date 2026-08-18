@@ -1,4 +1,4 @@
-# SUDDEN CLAUDE
+# SUDDEN DEFENCE
 
 A round-based team elimination FPS that runs in a browser tab. WebGL2 and
 Three.js r185, eight fighters by default, no netcode — and **not one art asset**. Every

@@ -1,4 +1,4 @@
-# sudden-claude
+# sudden-defence
 
 @ARCHITECTURE.md is the contract — read it before writing code. This file exists
 so it is in context before the first edit; it adds nothing the contract doesn't

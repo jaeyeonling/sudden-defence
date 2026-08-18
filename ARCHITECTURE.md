@@ -1,4 +1,4 @@
-# SUDDEN CLAUDE — engine contract
+# SUDDEN DEFENCE — engine contract
 
 **Read this before writing code. It is the only coordination mechanism.**
 

@@ -1,4 +1,4 @@
-import { parseArgs, ensureServer, killServer, launchChromium } from './harness.mjs';
+import { parseArgs, ensureServer, killServer, launchChromium, waitForReady } from './harness.mjs';
 /**
  * Does the rate of fire depend on the frame rate?
  *
@@ -62,7 +62,7 @@ const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 
 await page.goto(`http://127.0.0.1:${PORT}/?prewarm=0`, { waitUntil: 'load' });
-await page.waitForFunction('window.__READY__ === true', null, { timeout: 120000 });
+await waitForReady(page, { name: 'FIRERATE' });
 
 const out = await page.evaluate(
   async ({ RATES, HOLD_S }) => {

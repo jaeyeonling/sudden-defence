@@ -35,7 +35,7 @@
  */
 import { resolve } from 'node:path';
 import { existsSync } from 'node:fs';
-import { parseArgs, portOpen, ensureServer, killServer, launchChromium } from './harness.mjs';
+import { parseArgs, portOpen, ensureServer, killServer, launchChromium, waitForReady } from './harness.mjs';
 
 const args = parseArgs();
 
@@ -72,7 +72,7 @@ async function run(query) {
   const t0 = Date.now();
   await page.goto(`http://127.0.0.1:${PORT}/${query ? `?${query}` : ''}`,
     { waitUntil: 'domcontentloaded', timeout: 90000 });
-  await page.waitForFunction('window.__READY__ === true', null, { timeout: 120000 });
+  await waitForReady(page, { name: 'ABPERF' });
   const bootMs = Date.now() - t0;
 
   const samples = await page.evaluate((N) => new Promise((done) => {

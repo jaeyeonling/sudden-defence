@@ -46,7 +46,7 @@
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { PNG } from 'pngjs';
-import { parseArgs, ensureServer, killServer, launchChromium } from './harness.mjs';
+import { parseArgs, ensureServer, killServer, launchChromium, waitForReady } from './harness.mjs';
 
 const args = parseArgs();
 const KNOWN = new Set(['port', 'out']);
@@ -136,7 +136,7 @@ const fail = async (msg) => {
  * removes round transitions and the `Agent.reset()` that comes with them.
  */
 await page.goto(`http://127.0.0.1:${PORT}/?capture=1`, { waitUntil: 'load' });
-await page.waitForFunction('window.__READY__ === true', null, { timeout: 120000 });
+await waitForReady(page, { name: 'MARKINGS' });
 /**
  * Settle by SIMULATED SECONDS, not by frame count.
  *

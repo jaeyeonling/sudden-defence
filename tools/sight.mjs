@@ -74,7 +74,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { PNG } from 'pngjs';
-import { parseArgs, ensureServer, killServer, launchChromium } from './harness.mjs';
+import { parseArgs, ensureServer, killServer, launchChromium, waitForReady } from './harness.mjs';
 
 const args = parseArgs();
 const PORT = Number(args.port ?? 5173);
@@ -98,7 +98,7 @@ const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 
 await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'load' });
-await page.waitForFunction('window.__READY__ === true', null, { timeout: 120000 });
+await waitForReady(page, { name: 'SIGHT' });
 await page.waitForFunction(
   () => window.__ENGINE__.ctx.get('match').phase === 'live',
   null, { timeout: 60000 }

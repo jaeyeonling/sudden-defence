@@ -19,7 +19,7 @@
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { parseArgs, ensureServer, killServer, launchChromium } from './harness.mjs';
+import { parseArgs, ensureServer, killServer, launchChromium, waitForReady } from './harness.mjs';
 
 const args = parseArgs();
 
@@ -57,7 +57,7 @@ const report = { ok: true, outDir: OUTDIR, size: `${W}x${H}`, isolated: true, se
 // Discover the shot list from a throwaway page.
 const probe = await browser.newPage({ viewport: { width: W, height: H } });
 await probe.goto(`http://127.0.0.1:${PORT}/?capture=1&lockstep=1${EXTRA}`, { waitUntil: 'domcontentloaded', timeout: 90000 });
-await probe.waitForFunction('window.__READY__ === true', null, { timeout: 90000 });
+await waitForReady(probe, { name: 'BASELINE' });
 const all = await probe.evaluate('Object.keys(window.__SHOTS__ ?? {})');
 await probe.close();
 
@@ -71,7 +71,7 @@ for (const name of wanted) {
   try {
     await page.goto(`http://127.0.0.1:${PORT}/?capture=1&lockstep=1&shot=${encodeURIComponent(name)}${EXTRA}`,
       { waitUntil: 'domcontentloaded', timeout: 90000 });
-    await page.waitForFunction('window.__READY__ === true', null, { timeout: 90000 });
+    await waitForReady(page, { name: 'BASELINE' });
 
     const applied = await page.evaluate(
       ({ s, settle }) => window.__APPLY_SHOT__(s, { grabFrame: settle }), { s: name, settle: SETTLE });

@@ -301,7 +301,7 @@
  *                              [--seed=N]  which world every engine builds
  *                              [--rows=12] [--port=5173] [--ignore=a.b,c.d]
  */
-import { parseArgs, ensureServer, killServer } from './harness.mjs';
+import { parseArgs, ensureServer, killServer, waitForReady } from './harness.mjs';
 import { chromium, firefox, webkit } from 'playwright';
 
 const args = parseArgs();
@@ -857,7 +857,7 @@ for (const label of PLAN) {
       `http://127.0.0.1:${PORT}/?prewarm=0&lockstep=1&seed=${SEED}`,
       { waitUntil: 'load' }
     );
-    await page.waitForFunction('window.__READY__ === true', null, { timeout: 180000 });
+    await waitForReady(page, { name: 'CROSSENGINE' });
     out = await page.evaluate(PROBE, { TICKS, INJECT: inject, NOFIRE: !!args.nofire, RDWATCH: !!args.rdwatch });
     if (!out?.fatal && out?.snapshot) inject = out.snapshot;
   } catch (err) {

@@ -114,7 +114,7 @@
  */
 import { PNG } from 'pngjs';
 import { writeFileSync } from 'node:fs';
-import { parseArgs, ensureServer, killServer, launchChromium } from './harness.mjs';
+import { parseArgs, ensureServer, killServer, launchChromium, waitForReady } from './harness.mjs';
 
 const PORT = process.env.PORT || 5173;
 const args = parseArgs();
@@ -209,7 +209,7 @@ const EXTRA = args.q ? `&${args.q}` : '';
 await page.addInitScript((v) => { window.__DOME_UP__ = v; }, +(args.dome ?? 0.105));
 await page.addInitScript((v) => { window.__NO_ACCENT__ = v; }, !!args.noaccent);
 await page.goto(`http://127.0.0.1:${PORT}/?capture=1${EXTRA}`, { waitUntil: 'load' });
-await page.waitForFunction('window.__READY__ === true', null, { timeout: 120000 });
+await waitForReady(page, { name: 'FRIENDFOE' });
 
 await page.evaluate(() => {
   const ai = window.__ENGINE__.ctx.get('ai');

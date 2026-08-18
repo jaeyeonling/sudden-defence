@@ -98,7 +98,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { PNG } from 'pngjs';
-import { parseArgs, ensureServer, killServer, launchChromium } from './harness.mjs';
+import { parseArgs, ensureServer, killServer, launchChromium, waitForReady } from './harness.mjs';
 
 const args = parseArgs();
 const PORT = Number(args.port ?? 5173);
@@ -159,7 +159,7 @@ await page.addInitScript((v) => { window.__NO_FLASH_LIGHT__ = v; }, !!args.nofla
 // same effect directly — its hazard-bar contrast read 0.04 on one run and 0.22
 // on the next, from nothing but the seed.
 await page.goto(`http://127.0.0.1:${PORT}/?capture=1`, { waitUntil: 'load' });
-await page.waitForFunction('window.__READY__ === true', null, { timeout: 120000 });
+await waitForReady(page, { name: 'LEGIBILITY' });
 
 // The A/B hook has to be installed after boot, because `fx` does not exist
 // before it. Same switch observe.mjs uses, so the two tools disagree only about

@@ -26,7 +26,7 @@
  *   node tools/converge.mjs
  *   node tools/converge.mjs --budget=45 --trials=3
  */
-import { parseArgs, ensureServer, killServer, launchChromium } from './harness.mjs';
+import { parseArgs, ensureServer, killServer, launchChromium, waitForReady } from './harness.mjs';
 
 const args = parseArgs();
 const PORT = Number(args.port ?? 5173);
@@ -97,7 +97,7 @@ const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 
 await page.goto(`http://127.0.0.1:${PORT}/?prewarm=0`, { waitUntil: 'load' });
-await page.waitForFunction('window.__READY__ === true', null, { timeout: 90000 });
+await waitForReady(page, { name: 'CONVERGE' });
 
 // One-time setup: stop the round loop, take the player off the board, and park
 // every bot but the two under test. Done once rather than per trial so a trial

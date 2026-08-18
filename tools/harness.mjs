@@ -104,3 +104,43 @@ export function launchChromium(opts = {}) {
     ...opts,
   });
 }
+
+/**
+ * Wait for the page to declare `window.__READY__ === true`, and when it does
+ * not, say WHY before dying.
+ *
+ * Two lessons from the first CI run are folded in here:
+ *
+ *   1. The default is 300 s, not the 90-120 s the tools used to carry. Boot
+ *      bakes every texture through WebGL, and on a 4-core shared runner that
+ *      renders with SwiftShader the same bake that takes seconds on the
+ *      reference laptop can take minutes. A readiness timeout is not a
+ *      performance assertion — profile.mjs owns that question — so the only
+ *      thing a tight bound buys here is a flaky gate on slow hardware.
+ *   2. On timeout it prints every console error/warning and pageerror it saw,
+ *      then exits 1. The first CI failure produced exactly one line —
+ *      "Timeout 120000ms exceeded" — because each tool collected pageerrors
+ *      into an array nothing printed on this path.
+ *
+ * Attach it right after newPage() so the listeners see the whole boot.
+ */
+export async function waitForReady(page, opts = {}) {
+  const { name = 'HARNESS', timeout = 300000 } = opts;
+  const seen = [];
+  const onConsole = (m) => {
+    if (m.type() === 'error' || m.type() === 'warning') seen.push(`[${m.type()}] ${m.text()}`);
+  };
+  const onError = (e) => seen.push(`[pageerror] ${e.message}`);
+  page.on('console', onConsole);
+  page.on('pageerror', onError);
+  try {
+    await page.waitForFunction('window.__READY__ === true', null, { timeout });
+  } catch {
+    console.error(`${name} FAILED — page never reached __READY__ within ${timeout / 1000}s.`);
+    console.error(seen.length ? `Boot diagnostics:\n  ${seen.join('\n  ')}` : 'No console errors or pageerrors were emitted — the boot is running, just slow, or hung silently.');
+    process.exit(1);
+  } finally {
+    page.off('console', onConsole);
+    page.off('pageerror', onError);
+  }
+}

@@ -18,7 +18,7 @@
  * If you want the picture rather than the numbers, that is `tools/capture.mjs`
  * for one shot or `tools/baseline.mjs` for the comparable set.
  */
-import { parseArgs, ensureServer, killServer, launchChromium } from './harness.mjs';
+import { parseArgs, ensureServer, killServer, launchChromium, waitForReady } from './harness.mjs';
 
 const args = parseArgs();
 const PORT = Number(args.port ?? 5173);
@@ -31,7 +31,7 @@ const logs = [];
 page.on('console', (m) => logs.push(`[${m.type()}] ${m.text()}`));
 page.on('pageerror', (e) => logs.push(`[pageerror] ${e.message}`));
 await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'load' });
-await page.waitForFunction('window.__READY__ === true', null, { timeout: 90000 });
+await waitForReady(page, { name: 'CONTRACT' });
 
 const state = await page.evaluate(() => {
   const e = window.__ENGINE__;

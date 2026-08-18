@@ -14,7 +14,7 @@
  *   node tools/hitbox.mjs
  *   node tools/hitbox.mjs --dump    # every probe's result, not just failures
  */
-import { parseArgs, ensureServer, killServer, launchChromium } from './harness.mjs';
+import { parseArgs, ensureServer, killServer, launchChromium, waitForReady } from './harness.mjs';
 
 const args = parseArgs();
 const PORT = Number(args.port ?? 5173);
@@ -29,7 +29,7 @@ const errors = [];
 page.on('pageerror', (e) => errors.push(e.message));
 
 await page.goto(`http://127.0.0.1:${PORT}/?prewarm=0`, { waitUntil: 'load' });
-await page.waitForFunction('window.__READY__ === true', null, { timeout: 90000 });
+await waitForReady(page, { name: 'HITBOX' });
 
 const out = await page.evaluate(async () => {
   const e = window.__ENGINE__;

@@ -48,7 +48,7 @@
 import { resolve } from 'node:path';
 import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { parseArgs, portOpen, ensureServer, killServer, launchChromium } from './harness.mjs';
+import { parseArgs, portOpen, ensureServer, killServer, launchChromium, waitForReady } from './harness.mjs';
 
 const args = parseArgs();
 
@@ -88,7 +88,7 @@ page.on('pageerror', (e) => errs.push(e.message));
 const t0 = Date.now();
 const EXTRA = args.query ? `?${args.query}` : '';
 await page.goto(`http://127.0.0.1:${PORT}/${EXTRA}`, { waitUntil: 'domcontentloaded', timeout: 90000 });
-await page.waitForFunction('window.__READY__ === true', null, { timeout: 120000 });
+await waitForReady(page, { name: 'PROFILE' });
 const bootMs = Date.now() - t0;
 
 // Boot-phase breakdown: how much of that boot was spent where.

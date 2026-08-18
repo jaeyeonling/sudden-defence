@@ -26,7 +26,7 @@
  *   node tools/observe.mjs --out=shots/play --seconds=90
  */
 import { mkdirSync } from 'node:fs';
-import { parseArgs, ensureServer, killServer, launchChromium } from './harness.mjs';
+import { parseArgs, ensureServer, killServer, launchChromium, waitForReady } from './harness.mjs';
 
 const args = parseArgs();
 const PORT = Number(args.port ?? 5173);
@@ -54,7 +54,7 @@ page.on('console', (m) => {
 
 await page.addInitScript((v) => { window.__NO_FLASH_LIGHT__ = v; }, !!args.noflash);
 await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'load' });
-await page.waitForFunction('window.__READY__ === true', null, { timeout: 120000 });
+await waitForReady(page, { name: 'OBSERVE' });
 
 /**
  * Install a scripted player.

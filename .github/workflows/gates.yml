@@ -26,8 +26,8 @@
 #            ceiling). profile's own header records this gate "spent a day
 #            catching a security agent rather than a regression — p50 57 fps and
 #            p50 13 fps within an hour" on the SAME build. A gate that reads
-#            machine load cannot run beside other jobs, so it runs at night on
-#            an idle machine, plus on demand.
+#            machine load cannot run beside other jobs, so it runs on demand
+#            on an idle reference machine, never on a shared runner.
 #
 # The gate lists live in package.json (`test:logic`, `test:render`, `test:perf`,
 # whose union is `npm test`) and not in this file. Two copies of that list would
@@ -42,18 +42,19 @@ name: gates
 permissions:
   contents: read
 
+# No schedule trigger: the nightly perf run assumed a self-hosted runner, and
+# there deliberately is none (see the render job's header). A cron whose every
+# job skips is noise; if a runner is ever registered, restore
+# `schedule: [{cron: '17 4 * * *'}]` — 04:17, not :00, because every scheduler
+# on the planet fires on the hour.
 on:
   push:
     branches: [main]
   pull_request:
-  schedule:
-    # 04:17 UTC. Not :00 — every scheduler on the planet fires there.
-    - cron: '17 4 * * *'
   workflow_dispatch:
 
-# The event name is part of the key: a schedule run resolves github.ref to
-# refs/heads/main, so without it a push to main during the 04:17 window would
-# cancel the nightly perf run — the one job with no other trigger.
+# The event name is part of the key so a dispatch and a push on the same ref
+# never cancel each other.
 concurrency:
   group: gates-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
@@ -61,7 +62,6 @@ concurrency:
 jobs:
   logic:
     name: logic (21 gates)
-    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     # 90, measured, not guessed: the first page boot pays SwiftShader's shader
     # compilation and vite's cold transform of the whole module graph (~16 min
@@ -131,17 +131,21 @@ jobs:
 
   render:
     name: render + determinism
-    # The fork guard is not optional: this job runs `npm ci` and arbitrary
-    # tools/*.mjs on the self-hosted reference laptop, so a fork PR must never
-    # reach it. Hosted runners (the logic job) are disposable; this one is not.
+    # DISPATCH-ONLY, because there is no self-hosted runner and that is a
+    # decision, not a gap: these gates are pinned to the reference machine BY
+    # DESIGN — pixelgate's hashes are literally hashes of the ANGLE-over-Metal
+    # renderer's output, and the legibility thresholds were derived on it. A
+    # hosted runner would measure the runner. Without a registered runner a
+    # pull_request-triggered job sits "pending" forever and blocks the PR view,
+    # so the tier runs where it always really ran: `npm run test:render` on the
+    # reference laptop before merge, or via workflow_dispatch if a runner is
+    # ever registered. The fork guard stays for that eventuality — this job
+    # must never run fork code on a non-disposable machine.
     if: >-
-      github.event_name != 'schedule' &&
-      (github.event_name != 'pull_request' ||
-       github.event.pull_request.head.repo.full_name == github.repository)
-    # Adjust the labels to match your runner. It must be macOS: baseline.mjs and
-    # profile.mjs launch chromium with --use-angle=metal, and pixelgate.json
-    # records `"angle": "metal"` so the gate SKIPS rather than lying if it ever
-    # runs somewhere else.
+      github.event_name == 'workflow_dispatch'
+    # It must be macOS: baseline.mjs and profile.mjs launch chromium with
+    # --use-angle=metal, and pixelgate.json records `"angle": "metal"` so the
+    # gate SKIPS rather than lying if it ever runs somewhere else.
     runs-on: [self-hosted, macOS]
     timeout-minutes: 90
     steps:
@@ -171,8 +175,10 @@ jobs:
           retention-days: 14
 
   perf:
-    name: perf (nightly)
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    name: perf (on demand)
+    # Dispatch-only, same reasoning as the render job: no registered runner,
+    # on purpose. Run `npm run test:perf` on the idle reference laptop instead.
+    if: github.event_name == 'workflow_dispatch'
     runs-on: [self-hosted, macOS]
     timeout-minutes: 60
     steps:

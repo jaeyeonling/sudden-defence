@@ -5,14 +5,19 @@
 # runners and mixing them produces a suite that is red for reasons nobody can
 # act on — which is how a gate stops being read.
 #
-#   logic    22 gates that read engine state through page.evaluate and never
-#            look at a pixel. The simulation is CPU-side JS, so SwiftShader on a
-#            shared runner answers the same as Metal does. Cheap, parallel,
-#            always available: this is the one that should block a PR fastest.
+#   logic    21 gates that read engine state and never look at a pixel — and,
+#            since ?render=0, never compile a shader either: they boot the whole
+#            game minus the two systems that make pixels, which turned an
+#            80-minute SwiftShader job into ~6 minutes at the same spec. Cheap,
+#            parallel, always available: the one that should block a PR fastest.
 #
 #   render    the four that sample the framebuffer (legibility x2, markings,
-#            friendfoe) plus the three that compare pixels or engine bits
-#            byte-for-byte (pixelgate, crossengine, determinism). Their
+#            friendfoe), the three that compare pixels or engine bits
+#            byte-for-byte (pixelgate, crossengine, determinism), and perceive —
+#            which reads state, not pixels, but exists to test the seam between
+#            the DRAWN pose and the simulated one, so a renderer must be present
+#            to contaminate it (measured: it alone was 75 of the logic job's 81
+#            minutes on a GPU-less runner). Their
 #            thresholds were derived on ANGLE-over-Metal and pixelgate's hashes
 #            are literally hashes of that renderer's output. On a shared runner
 #            they would measure the runner. Self-hosted macOS.
@@ -55,7 +60,7 @@ concurrency:
 
 jobs:
   logic:
-    name: logic (22 gates)
+    name: logic (21 gates)
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     # 90, measured, not guessed: the first page boot pays SwiftShader's shader

@@ -87,7 +87,10 @@ const RESULT = {
 
 export class UiSystem {
   static id = 'ui';
-  static deps = ['render', 'match'];
+  static deps = ['match'];
+  // Ordering only — the HUD is DOM and reads no render state; a renderer-less
+  // boot (`?render=0`) still wants the HUD so `tools/hud.mjs` can gate it.
+  static optionalDeps = ['render'];
 
   async init(ctx) {
     this.ctx = ctx;

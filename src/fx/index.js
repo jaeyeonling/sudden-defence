@@ -38,7 +38,11 @@ import { V, cone } from './util.js';
  */
 export class FxSystem {
   static id = 'fx';
-  static deps = ['render', 'materials'];
+  static deps = ['materials'];
+  // Every use of `this.render` below is already null-guarded (it has always
+  // been a peek); demoting the dep lets a renderer-less boot keep fx, which
+  // `tools/debris.mjs` reads.
+  static optionalDeps = ['render'];
 
   async init(ctx) {
     this.ctx = ctx;

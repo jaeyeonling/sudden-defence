@@ -206,7 +206,11 @@ frame-driven, and 30 fps — four ticks a frame — is where it surfaces. Find
 that coupling before the server owns the round; `perceive`'s per-field diff
 names agent#visible/awareness/x as the first casualties and is the instrument
 to hunt with. Until then every harness drives one frame per tick, which is why
-the current placement holds.
+the current placement holds. Independent confirmation arrived from the other
+direction: booting perceive `?render=0` shifts the init-time rng fork order,
+which lands a round transition inside its measurement window — and 30 fps
+diverges again, this time with the round clock's frame-dt quantisation as the
+only suspect standing. Two experiments, opposite regimes, one coupling.
 
 The engine's backlog shed (`MAX_SUBSTEPS`, then `_accum = 0`) stays as it is,
 deliberately: under server authority a client that sheds falls behind and is

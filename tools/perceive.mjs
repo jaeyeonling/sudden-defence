@@ -383,7 +383,7 @@
  *                           [--isolate=<event>]  cut one channel, same snapshot
  *                           [--induce=drawnhead|frameevents]  put a defect back
  */
-import { parseArgs, ensureServer, killServer, launchChromium, bootUrl } from './harness.mjs';
+import { parseArgs, ensureServer, killServer, launchChromium } from './harness.mjs';
 
 const args = parseArgs();
 const PORT = Number(args.port ?? 5173);
@@ -462,7 +462,15 @@ page.on('pageerror', (e) => errors.push(e.message));
 // `--seed=N` picks a different world on purpose; the `scenario:` line reports
 // which one was actually reached.
 await page.goto(
-  bootUrl(PORT, `lockstep=1&seed=${SEED}`),
+  // NOT bootUrl(): perceive's SUSPECT is the interpolated draw pose (see the
+  // header), and `?render=0` boots a world with no drawn pose to contaminate
+  // anything — the gate would be measuring a stack its defect cannot live in.
+  // Running it renderer-less also surfaced something real on its way out: with
+  // render/sky gone the init-time rng fork order shifts, a round transition
+  // lands inside the measurement window, and 30 fps diverges — independent
+  // confirmation that the round clock on frame dt is the M8 coupling
+  // ARCHITECTURE.md names. Full boot, deliberately.
+  `http://127.0.0.1:${PORT}/?prewarm=0&lockstep=1&seed=${SEED}`,
   { waitUntil: 'load' }
 );
 await page.waitForFunction("window.__READY__ === true", null, { timeout: 120000 });

@@ -108,7 +108,10 @@ function groundFeetY(physics, position) {
 
 export class PlayerSystem {
   static id = 'player';
-  static deps = ['physics', 'world', 'render', 'match'];
+  static deps = ['physics', 'world', 'match'];
+  // Ordering only — nothing in here touches the render system, and a server
+  // simulating this player has no renderer to offer (M8, `?render=0`).
+  static optionalDeps = ['render'];
 
   /**
    * Snapshot classification (netcode step 5). Every own field appears in

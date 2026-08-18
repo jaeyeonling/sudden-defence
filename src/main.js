@@ -61,6 +61,20 @@ if (qOverrides.length) {
   window.__QOVERRIDES__ = applied;
 }
 
+// `?render=0` — the full GAME with no renderer: every simulation subsystem,
+// the player, the weapons, the bots and the HUD, minus the two systems that
+// exist to make pixels (`render`, `sky`). Two consumers:
+//
+//   - the logic gates on a machine with no GPU. On the CI runner, SwiftShader
+//     compiling the render pipeline was the entire 16-minute boot; the sim the
+//     gates actually read never needed it (`tools/headless.mjs` is the proof,
+//     this is the browser-shaped version of the same claim).
+//   - the future dedicated server (M8), which is this boot plus a transport.
+//
+// `materials` stays and defers its bakes (it logs so); `fx` stays because
+// `tools/debris.mjs` reads it and every render touch in it is null-guarded.
+const noRender = params.get('render') === '0';
+
 const canvas = document.getElementById('game');
 const engine = new Engine({ canvas, config });
 
@@ -68,10 +82,9 @@ const engine = new Engine({ canvas, config });
 //
 // M6: the full stack. Engine layer, the warehouse, `match` (teams + combatant
 // registry + round loop), the player + weapons, both bot teams, and the HUD.
+if (!noRender) engine.add(RenderSystem).add(SkySystem);
 engine
-  .add(RenderSystem)
   .add(MaterialSystem)
-  .add(SkySystem)
   .add(PhysicsSystem)
   .add(FxSystem)
   .add(AudioSystem)
@@ -124,7 +137,9 @@ const shotApi = installShotApi(engine, { capture, lockstep });
 // that compiles boot-hidden meshes' programs, whose steady-state cost is still
 // unresolved. `tools/abperf.mjs` interleaves it against the default so the answer
 // cannot be manufactured by a warm laptop.
-const warmup = params.get('prewarm') === '0'
+const warmup = noRender
+  ? { ok: false, reason: 'no renderer (?render=0) — nothing to compile' }
+  : params.get('prewarm') === '0'
   ? { ok: false, reason: 'disabled by ?prewarm=0' }
   : await prewarm(engine, {
     warmHidden: params.get('warmhidden') === '1',

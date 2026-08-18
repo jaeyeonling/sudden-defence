@@ -108,17 +108,19 @@ export function launchChromium(opts = {}) {
 /**
  * The URL a LOGIC gate boots, `q=low` deliberately — everywhere, not just CI.
  *
- * A logic gate's verdict is a property of the SIMULATION, and the sim never
- * reads `config.q` (replay proved it: BIT-IDENTICAL state at low and high).
- * The renderer, meanwhile, is the boot's whole cost on a machine without a
- * GPU: on the 8 GB GitHub runner, SwiftShader compiling and allocating the
- * `high` pipeline pushed the box into swap and froze the entire job — node
- * heartbeats included — for 44 silent minutes, twice. Booting the cheapest
- * renderer makes the gate cheaper on every machine and changes nothing the
- * gate measures. Render/perf tools do NOT use this: they pin their own tier.
+ * A logic gate's verdict is a property of the SIMULATION, and the sim reads
+ * neither `config.q` (replay proved it: BIT-IDENTICAL state at low and high)
+ * nor a pixel. The renderer, meanwhile, is the boot's whole cost on a machine
+ * without a GPU: on the 8 GB GitHub runner, SwiftShader compiling and
+ * allocating the render pipeline pushed the box into swap and froze the
+ * entire job — node heartbeats included — for 44 silent minutes, twice. So
+ * logic gates boot `?render=0`: the whole game minus the two systems that
+ * make pixels (main.js documents what stays). `q=low` remains for the one
+ * consumer of `config.q` left in that boot, the materials bake sizing.
+ * Render/perf tools do NOT use this: they pin their own boots.
  */
 export const bootUrl = (port, extra = '') =>
-  `http://127.0.0.1:${port}/?prewarm=0&q=low${extra ? `&${extra}` : ''}`;
+  `http://127.0.0.1:${port}/?prewarm=0&q=low&render=0${extra ? `&${extra}` : ''}`;
 
 /**
  * Wait for the page to declare `window.__READY__ === true`, and when it does

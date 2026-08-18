@@ -142,8 +142,14 @@ export const MASK = {
    * target hit through the same trace. Keeping PLAYER out of MASK.CHARACTER is
    * still correct and unrelated: that is about capsules pushing each other.
    */
+  // No DEBRIS here either, for the same crime MASK.SIGHT was convicted of:
+  // `_raycastBodies` answers whenever the bit is present, and every rigid body
+  // in the game is brass or a dropped magazine whose tumble draws from fxRng —
+  // a presentation stream no snapshot restores. A bullet a casing can eat is a
+  // bullet whose outcome depends on the frame rate and on how many sweeps a
+  // harness ran. Bullets are simulation; brass is presentation.
   BULLET:
-    LAYER.STATIC | LAYER.PROP | LAYER.DEBRIS | LAYER.PLAYER | LAYER.ACTOR |
+    LAYER.STATIC | LAYER.PROP | LAYER.PLAYER | LAYER.ACTOR |
     LAYER.RAGDOLL | LAYER.GLASS | LAYER.SHOOT_ONLY | LAYER.FOLIAGE,
   /** Static-only: camera collision, cover queries, decal projection. */
   WORLD: LAYER.STATIC | LAYER.PROP,

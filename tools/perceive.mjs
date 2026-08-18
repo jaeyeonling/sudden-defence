@@ -758,6 +758,30 @@ const out = await page.evaluate(
      */
     const deep = () => {
       const rows = [];
+      // Player riders on every row: the player is the one combatant deep()
+      // otherwise cannot see, and a bot that parts while its own inputs agree
+      // is usually reacting to something that moved NEXT to it.
+      const P = ctx.peek('player');
+      // `feetPosition`, NOT `position`: `player.position` is the interpolated
+      // DRAW pose (alpha-shaped by design), and sampling it here produced a
+      // convincing false "the player's tick position depends on the rate" at
+      // 100/144 fps before anyone noticed the instrument was measuring
+      // presentation. The sim feet are the tick truth.
+      const pf = P?.feetPosition ?? P?.position;
+      const ppx = pf?.x ?? 0;
+      const ppz = pf?.z ?? 0;
+      const pyaw = P?.yaw ?? P?.movement?.yaw ?? 0;
+      // The tick's own command, and the player's integration outputs: if the
+      // COMMAND parts, the look/sample path built different inputs per rate;
+      // if the command holds and velocity parts, the integrator itself reads
+      // something frame-shaped.
+      const cmd = e.commands.current;
+      const cyaw = cmd?.yaw ?? 0;
+      const cmx = cmd?.moveX ?? 0;
+      const cmy = cmd?.moveY ?? 0;
+      const pvx = P?.velocity?.x ?? 0;
+      const pvz = P?.velocity?.z ?? 0;
+      const pgr = P?.movement?.grounded === false ? 0 : 1;
       for (const a of [...(ai?.agents ?? [])].sort((x, y) => x.id - y.id)) {
         rows.push({
           id: a.id,
@@ -768,6 +792,17 @@ const out = await page.evaluate(
           aw: a.awareness,
           health: a.health,
           lkx: a.lastKnown.x, lky: a.lastKnown.y, lkz: a.lastKnown.z,
+          // Think INPUTS, added while hunting the 30 fps steering divergence:
+          // when position parts, the first question is which decision fed it.
+          st: a.state ?? -1,
+          tgt: a.target?.id ?? -1,
+          pp: a.pathPending ? 1 : 0,
+          plen: a.pathLen ?? (a.path?.length ?? 0),
+          pidx: a.pathIndex ?? -1,
+          mtx: a.moveTarget.x, mtz: a.moveTarget.z,
+          vx: a.velocity.x, vz: a.velocity.z,
+          ty: a.targetYaw ?? 0,
+          ppx, ppz, pyaw, cyaw, cmx, cmy, pvx, pvz, pgr,
         });
       }
       return rows;
@@ -1337,7 +1372,7 @@ if (!diffs.length) {
 // `awareness` moved. This walks a wider set per tick and names the earliest
 // field to move, which is the only thing that points at a cause.
 if (control?.deep) {
-  const DEEPF = ['px', 'py', 'pz', 'yaw', 'atx', 'aty', 'atz', 'supp', 'aw', 'health', 'lkx', 'lky', 'lkz'];
+  const DEEPF = ['cyaw', 'cmx', 'cmy', 'pvx', 'pvz', 'pgr', 'ppx', 'ppz', 'pyaw', 'st', 'tgt', 'pp', 'plen', 'pidx', 'mtx', 'mtz', 'vx', 'vz', 'ty', 'px', 'py', 'pz', 'yaw', 'atx', 'aty', 'atz', 'supp', 'aw', 'health', 'lkx', 'lky', 'lkz'];
   console.log(`\n  deep — first field to part, per rate (verdict unaffected):`);
   const c2 = control2?.deep;
   if (c2) {

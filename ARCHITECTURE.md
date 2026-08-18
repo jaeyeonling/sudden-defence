@@ -202,22 +202,29 @@ today it names exactly one, `match.round.remaining`, because a clock
 integrated from frame dt cannot survive a different frame division. When the
 migration lands, that run must come back BIT-IDENTICAL.
 
-The migration was attempted twice and reverted twice, and the second hunt is
-worth its ledger. `perceive` goes red at 30 fps only, with agent#4's
-position/yaw/aimTarget parting FOUR TICKS into the drive (`--deep`) — before
-any perception field moves — while the round riders (phase/round/remaining)
-stay identical at the divergence. The aim wobble was acquitted (`time.sim` is
-a tick-derived getter, `engine.js:69`, shipped in `2869d64`); brass occluding
-sight was convicted of a DIFFERENT crime (see MASK.SIGHT) without clearing
-this one; and three isolation "convictions" (weapon:fire, weapon:shot, then a
-channel that never fires at all) collapsed together when `--isolate=nope:never`
-also cleared the divergence — perceive's isolation harness itself leaks
-undeclared state between sweeps and cannot convict anything until that is
-found (its header now says so). What remains true: something an agent's
-steering reads inside four ticks is a function of the frame composition, in
-some fight configurations, and it is not the round clock, the wobble clock,
-the shot announcement or the brass. The hunt resumes with `--deep` at the
-divergence window and the null-channel control run FIRST.
+The migration has now PASSED its acceptance gate: with the round clock and
+reap on the tick, `replay --trace --chunk=4` comes back BIT-IDENTICAL across
+every classified leaf — the whole simulation, as classified, is
+frame-composition independent. What still blocks landing is `perceive`'s
+scenario, which finds a 30 fps edge (agent#4's steering parts four ticks in)
+that the leaf comparison proves must live OUTSIDE the classified state — the
+§1.4 declared-wrong hole — or in perceive's own rewind, which restores the
+classified state and can therefore leak exactly the same residue.
+
+The hunt's ledger, three sessions deep: acquitted — the aim wobble
+(`time.sim` is a tick-derived getter, `engine.js:69`), the shot announcement
+(split anyway: `weapon:shot` on the tick, and rightly), the round clock
+(chunk=4 proves it), brass occluding sight and eating bullets (both bits
+removed from the masks anyway — real defects, different crime), hunt steering
+reading the drawn pose (`simPosition` now — real defect, wrong window: this
+scenario's agent#4 is in COMBAT, not hunting). Convicted of harness fraud —
+perceive's isolation mode, which "cleared" a channel that never fires
+(`--isolate=nope:never`); its header warns. Instrument traps found — deep()'s
+player rider originally sampled `player.position`, the interpolated DRAW
+pose, and manufactured a convincing false divergence at 100/144 fps (it reads
+`feetPosition` now). The signature that remains: exclusive to frames holding
+TWO ai thinks (30 fps; 60 fps with one think per frame is clean), in a staged
+combat scenario, invisible to every classified leaf. Resume there.
 
 The engine's backlog shed (`MAX_SUBSTEPS`, then `_accum = 0`) stays as it is,
 deliberately: under server authority a client that sheds falls behind and is

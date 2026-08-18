@@ -913,13 +913,24 @@ export class Agent {
           // re-aim timer fires: the hold-off rule below has to be evaluated
           // continuously or the two bots spend most of each 2.5-4 s interval
           // with no opinion about which of them is pressing.
+          // `simPosition`, NOT `position` — the last straggler on the rule
+          // that moved perception to `simHead` (`6bf296f`): `Combatant.position`
+          // is the interpolated DRAW pose, which for the player is a function
+          // of the frame and its alpha. For a bot enemy the two coincide (an
+          // Agent has no render interpolation), which is why every hunt
+          // between bots looked tick-pure — and why the divergence only
+          // surfaced when a bot hunted the PLAYER: `perceive --deep` watched
+          // agent#4's targetYaw and position part four ticks into a 30 fps
+          // drive while its path, target and moveTarget stayed identical,
+          // because the coordinates it steered at were the drawn ones.
+          // Steering is simulation; the drawn pose belongs to hitboxes.
           let best = null;
           let bestD = Infinity;
           for (const en of this.ai.enemiesOf(this)) {
-            const d = this.position.distanceTo(en.position);
+            const d = this.position.distanceTo(en.simPosition);
             if (d < bestD) { bestD = d; best = en; }
           }
-          if (best) this.huntAt.copy(best.position);
+          if (best) this.huntAt.copy(best.simPosition);
 
           this.huntTimer -= dt;
           if (this.huntTimer <= 0) {
@@ -946,17 +957,17 @@ export class Agent {
             // direction the entire time. Standing still is worse than closing
             // and far better than retreating.
             if (best) {
-              let sent = this._goTo(best.position);
+              let sent = this._goTo(best.simPosition);
               for (const back of [2, 4, 6]) {
                 if (sent) break;
-                const dx = this.position.x - best.position.x;
-                const dz = this.position.z - best.position.z;
+                const dx = this.position.x - best.simPosition.x;
+                const dz = this.position.z - best.simPosition.z;
                 const len = hypot2(dx, dz) || 1;
                 if (len <= back) break;
                 this._v2.set(
-                  best.position.x + (dx / len) * back,
+                  best.simPosition.x + (dx / len) * back,
                   this.position.y,
-                  best.position.z + (dz / len) * back
+                  best.simPosition.z + (dz / len) * back
                 );
                 sent = this._goTo(this._v2);
               }

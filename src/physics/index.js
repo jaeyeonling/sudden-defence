@@ -306,15 +306,16 @@ export class PhysicsSystem {
    * The hit and impact pools are ring buffers of reusable result objects handed
    * out to callers; their cursors are excluded with them.
    *
-   * `bodies` IS EXCLUDED, and the first version of this had it wrong in a way
-   * worth recording. The reasoning was: brass is on `LAYER.DEBRIS`, `MASK.BULLET`
-   * includes that bit, therefore a casing on the floor stops a round, therefore
-   * debris is simulation. Every step of that is true except the conclusion,
-   * because `addRigidBody` DOES NOT CREATE A COLLIDER — the bullet trace queries
-   * the collider set and the static BVH, and a rigid body appears in neither. The
-   * DEBRIS bit in `MASK.BULLET` currently has nothing to match. (Worth its own
-   * look: a mask promising something the collider set cannot deliver is a
-   * mismatch, whichever side is meant to change.)
+   * `bodies` IS EXCLUDED, and the classification is now enforced by the masks
+   * rather than argued from a false premise. The old note here claimed a rigid
+   * body "appears in neither" query set — wrong: `_raycastBodies` answers for
+   * any mask carrying `LAYER.DEBRIS`, so for as long as `MASK.BULLET` and
+   * `MASK.SIGHT` carried that bit, brass in flight could eat a round or blind
+   * a bot — with a trajectory drawn from `fxRng`, a stream no snapshot
+   * restores. Both masks dropped the bit (see surfaces.js); today no
+   * simulation query carries DEBRIS, which is what actually makes `bodies`
+   * presentation. If a future mask wants the bit back, the bodies feeding it
+   * must move onto a snapshot-owned stream first.
    *
    * Measured rather than reasoned, in the end: nothing outside `rigidbody.js`
    * iterates `bodies`; a body emits no events; `onImpact` has exactly one

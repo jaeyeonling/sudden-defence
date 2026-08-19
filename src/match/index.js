@@ -390,10 +390,7 @@ export class MatchSystem {
   /* frame                                                                */
   /* ==================================================================== */
 
-  update(dt) {
-    this._maybeStart();
-    this.round.update(dt);
-  }
+
 
   /**
    * The player's hitbox rig is placed on the TICK, from the fixed-step feet —
@@ -401,7 +398,10 @@ export class MatchSystem {
    * Bots place their own rigs at the end of `simulate()`; this covers the
    * 'fractions' rigs (the player), whose host has no tick hook of its own here.
    */
-  fixedUpdate() {
+  fixedUpdate(h) {
+    this._maybeStart();
+    this._reapDeaths();
+    this.round.update(h);
     for (const c of this.combatants) c.syncHitboxes();
   }
 
@@ -410,7 +410,7 @@ export class MatchSystem {
    * transition into exactly one `combatant:death`, and the flag it reads is
    * simulation state that does not move between ticks.
    */
-  lateUpdate() {
+  _reapDeaths() {
     for (const c of this.combatants) {
       const alive = c.alive;
       if (!alive && !c._dead) {

@@ -194,13 +194,13 @@ command in 46 bytes, floats kept Float64 because a predicting client
 re-simulates the exact ticks the server will and quantised inputs would spend
 the whole `dmath.js` determinism budget at the first byte.
 
-**The round clock and the death reap still run on the FRAME** (`match.update`
-/ `match.lateUpdate`), and the migration now has an ACCEPTANCE GATE instead of
-a hunch: `node tools/replay.mjs --trace --chunk=4` re-simulates the same
-recorded commands under a 30 fps frame composition and diffs every leaf — and
-today it names exactly one, `match.round.remaining`, because a clock
-integrated from frame dt cannot survive a different frame division. When the
-migration lands, that run must come back BIT-IDENTICAL.
+**The round clock and the death reap run on the TICK** (`match.fixedUpdate`),
+landed on the fifth attempt with its acceptance gate green:
+`node tools/replay.mjs --trace --chunk=4` re-simulates the same recorded
+commands under a 30 fps frame composition and comes back BIT-IDENTICAL across
+every classified leaf. Before the move, the one leaf that failed that run was
+`match.round.remaining` — a clock integrated from frame dt cannot survive a
+different frame division.
 
 The migration has now PASSED its acceptance gate: with the round clock and
 reap on the tick, `replay --trace --chunk=4` comes back BIT-IDENTICAL across
@@ -211,34 +211,29 @@ that the leaf comparison proves must live OUTSIDE the classified state — the
 §1.4 declared-wrong hole — or in perceive's own rewind, which restores the
 classified state and can therefore leak exactly the same residue.
 
-The hunt's ledger, four sessions deep. Acquitted — the aim wobble (`time.sim`
-is a tick-derived getter, `engine.js:69`), the shot announcement (split
-anyway: `weapon:shot` on the tick, and rightly), the round clock (chunk=4
-proves it), brass occluding sight and eating bullets (both bits removed from
-the masks anyway — real defects, different crime), hunt steering reading the
-drawn pose (`simPosition` now — real defect, wrong window), bone matrices
-(the animator force-updates its root's world matrices inside the think —
-`animator.js` `root.updateMatrixWorld(true)` — so the capsules ARE tick-posed),
-and `player.yaw` (pure look integration, constant in this scenario).
+The hunt is CLOSED, five sessions deep, and the verdict indicts the question:
+there was never a rate dependence at all. perceive's `--pertick` probe (deep
+samples wrapped around `commands.endTick`, so multi-tick frames are visible
+INSIDE) found the two worlds already different at +0, before the first driven
+tick — and the tell was a character capsule sitting at the ORIGIN in the
+"control" run (`agent#4.ccx  control 0`). `Agent.die()` removed its character
+controller and `reset()` created a new one, so a bot that died during any
+sweep run came back with a NEW character id — and the physics snapshot maps
+characters BY ID, so every later restore silently skipped that capsule. The
+30 fps run only ever "diverged" because it ran FIRST, against the one world
+whose capsules were all still real; the 120 fps control was the corrupted
+side. Run order wearing a frame-rate costume — the same wrongly-blamed shape
+as the isolation fraud before it. The fix is the rule the collider comment
+next to it already stated: DISABLE, do not remove (`die()` disables the
+controller, `reset()` re-enables it, the id never changes).
 
-THE INSTRUMENT IS REPAIRED, which is this session's real yield: `--leakscan`
-(walk everything, classification ignored, before and after a sweep) found the
-isolation harness's leak — the bone-welded HITBOX CAPSULES are not in any
-snapshot, so every sweep run started with the capsules wherever the previous
-run's fighters died. perceive's rewind now re-syncs them (`runOne`), the
-`nope:never` control comes back sane, and isolation verdicts grade instead of
-lying. The repaired instrument then convicted honestly: `damage:dealt`
-carries ALL of the 30 fps divergence (cut it: every rate clean),
-`bullet:impact` carries part, and `--trace=damage:dealt` sharpened it to a
-COUNT: at 30 fps one round that fires at every other rate does not fire —
-three damage events instead of four, with 60/100/144 streams IDENTICAL to
-the control. A bot's trigger decision, somewhere, reads the frame — and no
-`time.elapsed`/`time.frame`/`alpha` read exists anywhere in `src/ai`, so it
-is indirect. The remaining blind spot is the instrument's: perceive samples
-at FRAME boundaries, so a 30 fps run cannot see ticks 2-4 of any frame — and
-+4 is exactly where agent#4 first parts. The next tool is per-tick sampling
-inside multi-tick frames (a fixedUpdate-driven probe), aimed at the first
-missing trigger pull.
+What the hunt banked along the way, all real and all kept: `weapon:shot` on
+the tick, DEBRIS out of both bullet and sight masks, hunt steering on
+`simPosition`, `_emitTimer` reclassified, the hitbox-capsule re-sync in
+perceive's rewind, the repaired isolation mode (run the `nope:never` control
+first, always), the `--leakscan` and `--pertick` instruments, and
+`replay --chunk=N` — which is now the standing law: any change that makes it
+non-identical has put frame state into the simulation.
 
 The engine's backlog shed (`MAX_SUBSTEPS`, then `_accum = 0`) stays as it is,
 deliberately: under server authority a client that sheds falls behind and is

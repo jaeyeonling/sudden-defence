@@ -489,7 +489,7 @@ await page.goto(
 await page.waitForFunction("window.__READY__ === true", null, { timeout: 120000 });
 
 const out = await page.evaluate(
-  async ({ RATES, TICKS, NOLOD, ISOLATE, INDUCE, TRACE, DEEP, STAGE, LEAKSCAN }) => {
+  async ({ RATES, TICKS, NOLOD, ISOLATE, INDUCE, TRACE, DEEP, STAGE, LEAKSCAN, PERTICK }) => {
     const e = window.__ENGINE__;
     const ctx = e.ctx;
     const SIM_IDS = ['physics', 'match', 'world', 'weapons', 'player', 'ai'];
@@ -803,6 +803,8 @@ const out = await page.evaluate(
           vx: a.velocity.x, vz: a.velocity.z,
           ty: a.targetYaw ?? 0,
           ppx, ppz, pyaw, cyaw, cmx, cmy, pvx, pvz, pgr,
+          ccx: a.controller?.position?.x ?? 0, ccy: a.controller?.position?.y ?? 0, ccz: a.controller?.position?.z ?? 0,
+          sx: a._steer?.x ?? 0, sz: a._steer?.z ?? 0, spd: a.speed ?? 0, cr: a.crouch ? 1 : 0, gr: a.grounded ? 1 : 0,
         });
       }
       return rows;
@@ -1034,6 +1036,24 @@ const out = await page.evaluate(
       // compared. That is enough to bracket the first divergence.
       const byTick = new Map();
       const byTickDeep = DEEP ? new Map() : null;
+      // `--pertick` — sample INSIDE multi-tick frames. Every sampler above
+      // runs at frame boundaries, so a 30 fps run cannot see ticks 2-4 of any
+      // frame — and +4 is exactly where the hunted divergence first shows.
+      // `commands.endTick()` runs after every fixedUpdate of a tick (see
+      // engine.step), which makes wrapping it a post-tick probe that costs
+      // nothing when the flag is off and needs no runtime system churn.
+      const perTick = PERTICK ? [] : null;
+      let origEndTick = null;
+      if (perTick) {
+        // The +0 row: the restored world BEFORE the first driven tick. If two
+        // rates differ HERE, the leak is in the rewind, not the simulation.
+        perTick.push([ctx.time.tick, deep()]);
+        origEndTick = e.commands.endTick.bind(e.commands);
+        e.commands.endTick = () => {
+          origEndTick();
+          if (perTick.length < 96) perTick.push([ctx.time.tick, deep()]);
+        };
+      }
       for (let f = 0; f < frames; f++) {
         clock = clockK + (totalMs * (f + 1)) / frames;
         e.step(clock);
@@ -1044,6 +1064,7 @@ const out = await page.evaluate(
           lerpProbe = { x: p.x, y: p.y, z: p.z };
         }
       }
+      if (origEndTick) e.commands.endTick = origEndTick;
       e.commands.override = null;
 
       const endPos = player.feetPosition
@@ -1077,6 +1098,7 @@ const out = await page.evaluate(
         samples: byTick.size,
         series: [...byTick.entries()].map(([t, rows]) => [t, rows]),
         deep: byTickDeep ? [...byTickDeep.entries()].map(([t, rows]) => [t, rows]) : null,
+        perTick,
       };
     };
 
@@ -1196,6 +1218,7 @@ const out = await page.evaluate(
     DEEP: !!args.deep,
     STAGE: typeof args.stage === 'string' ? args.stage : null,
     LEAKSCAN: !!args.leakscan,
+    PERTICK: !!args.pertick,
     ISOLATE: typeof args.isolate === 'string' ? args.isolate : null,
     INDUCE: typeof args.induce === 'string' ? args.induce : null,
   }
@@ -1486,6 +1509,37 @@ if (!diffs.length) {
 // than any of them: the first round already flew differently one tick before
 // `awareness` moved. This walks a wider set per tick and names the earliest
 // field to move, which is the only thing that points at a cause.
+if (control?.perTick) {
+  const PF = ['ccx', 'ccy', 'ccz', 'sx', 'sz', 'spd', 'cr', 'gr', 'cyaw', 'cmx', 'cmy', 'pvx', 'pvz', 'pgr', 'ppx', 'ppz', 'pyaw', 'st', 'tgt', 'pp', 'plen', 'pidx', 'mtx', 'mtz', 'vx', 'vz', 'ty', 'px', 'py', 'pz', 'yaw', 'atx', 'aty', 'atz', 'supp', 'aw', 'health', 'lkx', 'lky', 'lkz'];
+  console.log(`\n  pertick — every tick compared, inside multi-tick frames (verdict unaffected):`);
+  const cs = new Map(control.perTick);
+  for (const r of runs) {
+    if (r === control || !r.perTick) continue;
+    let hit = null;
+    for (const [t, rows] of r.perTick) {
+      const c = cs.get(t);
+      if (!c) continue;
+      const bad = [];
+      for (let i = 0; i < rows.length; i++) {
+        for (const f of PF) {
+          if (Math.abs(c[i][f] - rows[i][f]) > TOL) {
+            bad.push({ id: rows[i].id, f, a: c[i][f], b: rows[i][f] });
+          }
+        }
+      }
+      if (bad.length) { hit = { t, bad }; break; }
+    }
+    if (!hit) {
+      console.log(`    ${String(r.fps).padStart(3)}fps  identical on every tick in the probe window`);
+    } else {
+      console.log(`    ${String(r.fps).padStart(3)}fps  FIRST at tick ${hit.t} (+${hit.t - out.kTick}) — every field that differs ON that tick:`);
+      for (const d of hit.bad.slice(0, 40)) {
+        console.log(`            agent#${d.id}.${String(d.f).padEnd(5)} control ${d.a}  got ${d.b}`);
+      }
+    }
+  }
+}
+
 if (control?.deep) {
   const DEEPF = ['cyaw', 'cmx', 'cmy', 'pvx', 'pvz', 'pgr', 'ppx', 'ppz', 'pyaw', 'st', 'tgt', 'pp', 'plen', 'pidx', 'mtx', 'mtz', 'vx', 'vz', 'ty', 'px', 'py', 'pz', 'yaw', 'atx', 'aty', 'atz', 'supp', 'aw', 'health', 'lkx', 'lky', 'lkz'];
   console.log(`\n  deep — first field to part, per rate (verdict unaffected):`);

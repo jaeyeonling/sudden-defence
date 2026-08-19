@@ -2046,8 +2046,17 @@ export class Agent {
     this.wantFire = false;
     this.animator.enabled = false;
     this.ai.cover?.release(this.id);
-    if (this.controller) this.phys.removeCharacter(this.controller);
-    this.controller = null;
+    // DISABLE, do not remove — the same rule the collider comment below states,
+    // for the same reason plus one more: the physics snapshot maps characters
+    // BY ID, so remove-then-recreate hands the respawned bot a controller no
+    // snapshot taken before the death can find. perceive's per-tick probe
+    // caught the consequence as a capsule sitting at the origin after a
+    // restore (`agent#4.ccx control 0`): the rewind was silently skipping a
+    // character whose id no longer existed, and every harness sweep after a
+    // death ran against a ghost capsule. `move()` early-returns when disabled,
+    // characters never collide with each other (MASK.CHARACTER), and `reset()`
+    // already prefers reusing a live controller over creating one.
+    if (this.controller) this.controller.enabled = false;
     // DISABLE, do not remove. In round play this body comes back in twenty
     // seconds: rebuilding seven capsules per bot per round is pure churn, and
     // worse, `match` holds these collider references for the whole match under
@@ -2300,6 +2309,7 @@ export class Agent {
         slopeLimit: 48,
       }) ?? null;
     } else {
+      this.controller.enabled = true; // die() disables instead of removing
       this.controller.teleport(position.x, position.y, position.z);
     }
     this.grounded = true;

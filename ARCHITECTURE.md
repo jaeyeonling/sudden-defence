@@ -211,20 +211,34 @@ that the leaf comparison proves must live OUTSIDE the classified state — the
 §1.4 declared-wrong hole — or in perceive's own rewind, which restores the
 classified state and can therefore leak exactly the same residue.
 
-The hunt's ledger, three sessions deep: acquitted — the aim wobble
-(`time.sim` is a tick-derived getter, `engine.js:69`), the shot announcement
-(split anyway: `weapon:shot` on the tick, and rightly), the round clock
-(chunk=4 proves it), brass occluding sight and eating bullets (both bits
-removed from the masks anyway — real defects, different crime), hunt steering
-reading the drawn pose (`simPosition` now — real defect, wrong window: this
-scenario's agent#4 is in COMBAT, not hunting). Convicted of harness fraud —
-perceive's isolation mode, which "cleared" a channel that never fires
-(`--isolate=nope:never`); its header warns. Instrument traps found — deep()'s
-player rider originally sampled `player.position`, the interpolated DRAW
-pose, and manufactured a convincing false divergence at 100/144 fps (it reads
-`feetPosition` now). The signature that remains: exclusive to frames holding
-TWO ai thinks (30 fps; 60 fps with one think per frame is clean), in a staged
-combat scenario, invisible to every classified leaf. Resume there.
+The hunt's ledger, four sessions deep. Acquitted — the aim wobble (`time.sim`
+is a tick-derived getter, `engine.js:69`), the shot announcement (split
+anyway: `weapon:shot` on the tick, and rightly), the round clock (chunk=4
+proves it), brass occluding sight and eating bullets (both bits removed from
+the masks anyway — real defects, different crime), hunt steering reading the
+drawn pose (`simPosition` now — real defect, wrong window), bone matrices
+(the animator force-updates its root's world matrices inside the think —
+`animator.js` `root.updateMatrixWorld(true)` — so the capsules ARE tick-posed),
+and `player.yaw` (pure look integration, constant in this scenario).
+
+THE INSTRUMENT IS REPAIRED, which is this session's real yield: `--leakscan`
+(walk everything, classification ignored, before and after a sweep) found the
+isolation harness's leak — the bone-welded HITBOX CAPSULES are not in any
+snapshot, so every sweep run started with the capsules wherever the previous
+run's fighters died. perceive's rewind now re-syncs them (`runOne`), the
+`nope:never` control comes back sane, and isolation verdicts grade instead of
+lying. The repaired instrument then convicted honestly: `damage:dealt`
+carries ALL of the 30 fps divergence (cut it: every rate clean),
+`bullet:impact` carries part, and `--trace=damage:dealt` sharpened it to a
+COUNT: at 30 fps one round that fires at every other rate does not fire —
+three damage events instead of four, with 60/100/144 streams IDENTICAL to
+the control. A bot's trigger decision, somewhere, reads the frame — and no
+`time.elapsed`/`time.frame`/`alpha` read exists anywhere in `src/ai`, so it
+is indirect. The remaining blind spot is the instrument's: perceive samples
+at FRAME boundaries, so a 30 fps run cannot see ticks 2-4 of any frame — and
++4 is exactly where agent#4 first parts. The next tool is per-tick sampling
+inside multi-tick frames (a fixedUpdate-driven probe), aimed at the first
+missing trigger pull.
 
 The engine's backlog shed (`MAX_SUBSTEPS`, then `_accum = 0`) stays as it is,
 deliberately: under server authority a client that sheds falls behind and is

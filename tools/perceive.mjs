@@ -489,7 +489,7 @@ await page.goto(
 await page.waitForFunction("window.__READY__ === true", null, { timeout: 120000 });
 
 const out = await page.evaluate(
-  async ({ RATES, TICKS, NOLOD, ISOLATE, INDUCE, TRACE, DEEP, STAGE }) => {
+  async ({ RATES, TICKS, NOLOD, ISOLATE, INDUCE, TRACE, DEEP, STAGE, LEAKSCAN }) => {
     const e = window.__ENGINE__;
     const ctx = e.ctx;
     const SIM_IDS = ['physics', 'match', 'world', 'weapons', 'player', 'ai'];
@@ -967,6 +967,15 @@ const out = await page.evaluate(
       // every rate the same (empty) floor; the debris created during the span
       // is deterministic, because `bodies.step` runs on the fixed step.
       ctx.peek('physics')?.bodies?.clear?.();
+      // THE COLLIDERS ARE NOT IN THE SNAPSHOT, and --leakscan caught what that
+      // costs: the bone-welded hitbox capsules are re-posed by syncHitboxes,
+      // so after a restore they still sit wherever the PREVIOUS run left them
+      // until the first sync tick — and a round fired before that lands on a
+      // capsule from another timeline. Every run inherited its predecessor's
+      // final poses, which is the state leak that made isolation sweeps differ
+      // from baseline sweeps on the same snapshot (the nope:never fraud).
+      // Sync here, so every run starts with capsules where its fighters are.
+      for (const c of ctx.peek('match')?.combatants ?? []) c.syncHitboxes?.();
       ctx.time.tick = kTick;
       clock = clockK;
       e._last = engineK.last;
@@ -1071,9 +1080,95 @@ const out = await page.evaluate(
       };
     };
 
+    /* ---- `--leakscan` — find what a sweep leaves behind ------------------ */
+    //
+    // The isolation harness is untrustworthy because SOMETHING survives the
+    // per-run restore (see the header). This walks EVERYTHING — every registry
+    // system, classification ignored, excluded fields included — from the
+    // exact state a sweep starts in, runs the baseline sweep, restores again,
+    // walks again, and reports what moved. Whatever it names is state the
+    // restore does not own; if the simulation also reads it, it is the §1.4
+    // hole in the flesh.
+    const walkAll = () => {
+      const out = new Map();
+      const seen = new WeakSet();
+      // Back-references and known-heavy GPU/DOM objects. `array`/`data` skip
+      // geometry attribute payloads; a leak in those is a leak in `geometry`,
+      // which sim must not read anyway.
+      const HEAVY = new Set([
+        'geometry', 'material', 'materials', 'texture', 'textures', 'map', 'parent',
+        'children', 'el', 'node', 'dom', 'canvas', 'ctx', 'engine', 'host', 'ai',
+        'match', 'world', 'physics', 'phys', 'scene', 'viewScene', 'camera',
+        'viewCamera', 'image', 'buffer', 'array', 'data', 'renderer', 'skeleton',
+        'bones', 'mesh', 'group', 'skinnedMesh', 'root',
+      ]);
+      const walk = (o, path, depth) => {
+        if (o === null || o === undefined) { out.set(path, String(o)); return; }
+        const t = typeof o;
+        if (t === 'number') { out.set(path, o); return; }
+        if (t === 'boolean' || t === 'string') { out.set(path, String(o)); return; }
+        if (t !== 'object') return;
+        if (seen.has(o)) return;
+        seen.add(o);
+        if (depth <= 0) return;
+        if (o.isVector3) { out.set(path + '.x', o.x); out.set(path + '.y', o.y); out.set(path + '.z', o.z); return; }
+        if (o.isQuaternion || o.isVector4) { out.set(path + '.x', o.x); out.set(path + '.y', o.y); out.set(path + '.z', o.z); out.set(path + '.w', o.w); return; }
+        if (ArrayBuffer.isView(o)) {
+          out.set(path + '#len', o.length);
+          for (let i = 0; i < Math.min(8, o.length); i++) out.set(path + '[' + i + ']', o[i]);
+          return;
+        }
+        if (Array.isArray(o)) {
+          out.set(path + '#len', o.length);
+          for (let i = 0; i < Math.min(24, o.length); i++) walk(o[i], path + '[' + i + ']', depth - 1);
+          return;
+        }
+        if (o instanceof Map || o instanceof Set) { out.set(path + '#size', o.size); return; }
+        for (const k of Object.keys(o)) {
+          if (HEAVY.has(k) || k.startsWith('__')) continue;
+          try { walk(o[k], path + '.' + k, depth - 1); } catch { /* getters may throw off-state */ }
+        }
+      };
+      // render is presentation by construction and its draw lists alone flood
+      // any leak budget — skip the root; a sim leak cannot live there, and a
+      // sim READ of render state would be found from the reader's side.
+      for (const s of e.registry.ordered) {
+        if (s.constructor.id === 'render') continue;
+        walk(s, s.constructor.id, 5);
+      }
+      walk(ctx.time, 'time', 2);
+      walk(e.commands, 'commands', 3);
+      return out;
+    };
+    const restoreLikeARun = () => {
+      for (const id of SIM_IDS) ctx.peek(id).restoreState(snap[id]);
+      ctx.peek('physics')?.bodies?.clear?.();
+    };
+    let leakBefore = null;
+    if (LEAKSCAN) {
+      restoreLikeARun();
+      leakBefore = walkAll();
+    }
+
     // The gate's own verdict always comes from the CLEAN sweep, so `--induce`
     // and `--isolate` can never turn a red into a green by accident.
     const runs = sweep(null);
+
+    if (LEAKSCAN) {
+      restoreLikeARun();
+      const after = walkAll();
+      const leaks = [];
+      const keys = new Set([...leakBefore.keys(), ...after.keys()]);
+      for (const k of keys) {
+        const a = leakBefore.get(k);
+        const b = after.get(k);
+        if (a !== b && !(Number.isNaN(a) && Number.isNaN(b))) {
+          leaks.push({ path: k, before: a, after: b });
+          if (leaks.length >= 2000) break;
+        }
+      }
+      return { leakscan: true, walked: leakBefore.size, leaks };
+    }
     // Both extra conditions run from the SAME snapshot, so the only thing that
     // differs is the one thing being varied.
     const isolated = ISOLATE ? sweep(ISOLATE) : null;
@@ -1100,6 +1195,7 @@ const out = await page.evaluate(
     TRACE: typeof args.trace === 'string' ? args.trace : null,
     DEEP: !!args.deep,
     STAGE: typeof args.stage === 'string' ? args.stage : null,
+    LEAKSCAN: !!args.leakscan,
     ISOLATE: typeof args.isolate === 'string' ? args.isolate : null,
     INDUCE: typeof args.induce === 'string' ? args.induce : null,
   }
@@ -1115,6 +1211,25 @@ if (!args.keep) killServer(vite);
 if (out.fatal) {
   console.log(`\nPERCEIVE FAILED — harness precondition: ${out.fatal}`);
   process.exit(1);
+}
+
+if (out.leakscan) {
+  console.log(`\nLEAKSCAN — ${out.walked} leaves walked, classification ignored; state a sweep leaves behind:`);
+  if (!out.leaks.length) {
+    console.log('  nothing — the restore owns everything the walk can see');
+  } else {
+    // Group by root prefix so 300 agent leaves read as one line each.
+    const byRoot = new Map();
+    for (const l of out.leaks) {
+      const root = l.path.split(/[.[]/).slice(0, 2).join('.');
+      (byRoot.get(root) ?? byRoot.set(root, []).get(root)).push(l);
+    }
+    for (const [root, ls] of [...byRoot.entries()].sort((a, b) => b[1].length - a[1].length)) {
+      console.log(`  ${String(ls.length).padStart(4)}  ${root}`);
+      for (const l of ls.slice(0, 3)) console.log(`          ${l.path}  ${l.before} -> ${l.after}`);
+    }
+  }
+  process.exit(0);
 }
 if (errors.length) {
   console.log(`\nPERCEIVE FAILED — page errors:\n  - ${errors.slice(0, 5).join('\n  - ')}`);

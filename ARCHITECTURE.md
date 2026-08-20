@@ -202,14 +202,10 @@ every classified leaf. Before the move, the one leaf that failed that run was
 `match.round.remaining` — a clock integrated from frame dt cannot survive a
 different frame division.
 
-The migration has now PASSED its acceptance gate: with the round clock and
-reap on the tick, `replay --trace --chunk=4` comes back BIT-IDENTICAL across
-every classified leaf — the whole simulation, as classified, is
-frame-composition independent. What still blocks landing is `perceive`'s
-scenario, which finds a 30 fps edge (agent#4's steering parts four ticks in)
-that the leaf comparison proves must live OUTSIDE the classified state — the
-§1.4 declared-wrong hole — or in perceive's own rewind, which restores the
-classified state and can therefore leak exactly the same residue.
+For a while the landing was blocked by a `perceive` 30 fps edge (agent#4's
+steering parting four ticks in) that chunk=4's leaf identity proved had to
+live outside the classified state — that edge is the hunt the next paragraph
+closes, and it was never the migration's fault.
 
 The hunt is CLOSED, five sessions deep, and the verdict indicts the question:
 there was never a rate dependence at all. perceive's `--pertick` probe (deep

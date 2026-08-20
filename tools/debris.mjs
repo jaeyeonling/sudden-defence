@@ -188,17 +188,18 @@ const out = await page.evaluate(async (rounds) => {
     if (!b.sleeping) { awake++; continue; }
     asleep++;
     const r = b.boundRadius ?? 0.02;
-    // "What can SUPPORT a body" spelled out, not borrowed. This ray used to
-    // wear MASK.BULLET as a stand-in, and when DEBRIS left that mask (brass
-    // must not eat bullets — see surfaces.js) the ray started passing through
-    // casing stacks: the top of a two-casing pile read as hanging 2.5 m over
-    // the floor it was, transitively, resting on. The support question is the
-    // level, the props, and other debris — asked by name.
+    // "What can SUPPORT a body" asked by its own name: MASK.DEBRIS is
+    // literally "what rigid debris bounces off" (STATIC | PROP | CLIP), plus
+    // the debris bodies themselves for casing stacks. This ray used to wear
+    // MASK.BULLET as a stand-in, and when DEBRIS left that mask (brass must
+    // not eat bullets — see surfaces.js) the ray started passing through
+    // casing piles; the first rewrite said WORLD | DEBRIS, which dropped CLIP
+    // and would call a casing resting on a clip brush "hanging".
     const hit = phys.raycast(
       { x: b.position.x, y: b.position.y, z: b.position.z },
       { x: 0, y: -1, z: 0 },
       6,
-      (phys.MASK?.WORLD ?? 0) | (phys.LAYER?.DEBRIS ?? 0)
+      (phys.MASK?.DEBRIS ?? 0) | (phys.LAYER?.DEBRIS ?? 0)
     );
     const gap = hit?.hit ? hit.distance - r : Infinity;
     rows.push({

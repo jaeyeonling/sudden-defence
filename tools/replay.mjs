@@ -86,6 +86,7 @@
  *                         [--maxdepth=12] [--nodump]
  *                         [--drop=sys.field] [--tamper] [--keep]
  */
+import { MAX_SUBSTEPS } from '../src/core/config.js';
 import { parseArgs, ensureServer, killServer, launchChromium, waitForReady, bootUrl } from './harness.mjs';
 
 const args = parseArgs();
@@ -109,6 +110,19 @@ if (SPAN >= 128) {
   console.log(`REPLAY FAILED — harness: span is ${SPAN}, the command ring holds 128`);
   process.exit(1);
 }
+
+// `--chunk` must stay under MAX_SUBSTEPS: engine.step caps a step at 8 ticks
+// and then SHEDS the backlog (`_accum = 0`), so a chunk of 8+ would run fewer
+// ticks than the loop advances and the gate would report a guaranteed false
+// divergence — the exact opposite of the standing law this flag enforces.
+// Validated hard rather than clamped silently: a chunk the engine cannot
+// honour is a harness error, not a preference.
+const chunkRaw = Number(args.chunk ?? 1);
+if (!Number.isFinite(chunkRaw) || chunkRaw < 1 || chunkRaw >= MAX_SUBSTEPS) {
+  console.log(`REPLAY FAILED — harness: --chunk must be an integer in [1, ${MAX_SUBSTEPS - 1}] (engine sheds past MAX_SUBSTEPS), got "${args.chunk}"`);
+  process.exit(1);
+}
+const CHUNK = Math.floor(chunkRaw);
 
 const vite = await ensureServer(PORT, { name: 'REPLAY' });
 
@@ -878,7 +892,7 @@ const out = await page.evaluate(
     DROP: typeof args.drop === 'string' ? args.drop : null,
     TAMPER: !!args.tamper,
     TRACE: !!args.trace,
-    CHUNK: Math.max(1, Number(args.chunk ?? 1)),
+    CHUNK,
   }
 );
 

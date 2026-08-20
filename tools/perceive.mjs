@@ -794,7 +794,11 @@ const out = await page.evaluate(
           lkx: a.lastKnown.x, lky: a.lastKnown.y, lkz: a.lastKnown.z,
           // Think INPUTS, added while hunting the 30 fps steering divergence:
           // when position parts, the first question is which decision fed it.
-          st: a.state ?? -1,
+          // Numeric, because the comparators diff with Math.abs(a-b): the
+          // first version stored the STATE string, 'combat'-'idle' is NaN,
+          // NaN > TOL is false — the exact field this probe was added to
+          // watch could never fire. Same mapping trick as the phase rider.
+          st: { idle: 0, patrol: 1, alert: 2, combat: 3, suppressed: 4, flank: 5, retreat: 6, dead: 7 }[a.state] ?? -1,
           tgt: a.target?.id ?? -1,
           pp: a.pathPending ? 1 : 0,
           plen: a.pathLen ?? (a.path?.length ?? 0),
@@ -949,34 +953,27 @@ const out = await page.evaluate(
       return out;
     };
 
-    const runOne = (fps) => {
-      trace = TRACE ? [] : null;
+    /**
+     * THE rewind — one implementation, used by every run AND by --leakscan's
+     * before/after walks, so the leak instrument measures exactly the state a
+     * real sweep starts from. (Its first version had its own three-line copy,
+     * which kept re-reporting the hitbox-capsule leak the run rewind had
+     * already neutralized — a leak detector that leaks its own definition.)
+     *
+     * What the snapshot does not carry, this puts right by hand:
+     *  - `physics.bodies` cleared: debris is unsnapshotted, and run N must not
+     *    start from whatever run N-1 left on the floor.
+     *  - hitbox capsules re-synced: they are re-posed from fighters, so after
+     *    a restore they still sit wherever the PREVIOUS run left them until
+     *    the first sync tick — a round fired before that lands on a capsule
+     *    from another timeline (the nope:never fraud's mechanism).
+     *  - the clock, whole: engine.step derives dt from (now - _last), so the
+     *    replay must continue the snapshot's clock or every dt rounds
+     *    differently (replay.mjs documents the same rule for its rewind).
+     */
+    const rewindToSnapshot = () => {
       for (const id of SIM_IDS) ctx.peek(id).restoreState(snap[id]);
-      // DEBRIS IS NOT IN THE SNAPSHOT, AND IT IS IN `MASK.SIGHT`.
-      //
-      // `physics.bodies` is classified presentation (§3.2 of the handoff), on
-      // the stated grounds that "the bullet trace only looks at the collider set
-      // and the static BVH". That is not what `physics._raycastBodies` does: it
-      // walks `bodies.bodies` whenever `LAYER.DEBRIS` is in the mask, and
-      // `MASK.SIGHT` contains it. Brass on the floor occludes a bot's line of
-      // sight, so debris steers perception and the classification is wrong —
-      // exactly the hole §1.4 warns about, where a field wrongly declared
-      // escapes both replay layers.
-      //
-      // Until that is settled, this harness must not inherit it: unsnapshotted
-      // state means run N starts from whatever run N-1 left on the floor, which
-      // would make this gate a function of the ORDER of `RATES`. Clearing gives
-      // every rate the same (empty) floor; the debris created during the span
-      // is deterministic, because `bodies.step` runs on the fixed step.
       ctx.peek('physics')?.bodies?.clear?.();
-      // THE COLLIDERS ARE NOT IN THE SNAPSHOT, and --leakscan caught what that
-      // costs: the bone-welded hitbox capsules are re-posed by syncHitboxes,
-      // so after a restore they still sit wherever the PREVIOUS run left them
-      // until the first sync tick — and a round fired before that lands on a
-      // capsule from another timeline. Every run inherited its predecessor's
-      // final poses, which is the state leak that made isolation sweeps differ
-      // from baseline sweeps on the same snapshot (the nope:never fraud).
-      // Sync here, so every run starts with capsules where its fighters are.
       for (const c of ctx.peek('match')?.combatants ?? []) c.syncHitboxes?.();
       ctx.time.tick = kTick;
       clock = clockK;
@@ -987,6 +984,11 @@ const out = await page.evaluate(
       ctx.time.alpha = timeK.alpha;
       ctx.time.dt = timeK.dt;
       ctx.time.frame = timeK.frame;
+    };
+
+    const runOne = (fps) => {
+      trace = TRACE ? [] : null;
+      rewindToSnapshot();
 
       // CONSTANT, for the whole span, at every rate. See the header.
       e.commands.override = { moveX: 0, moveY: 1, held: 0, edge: 0 };
@@ -1162,13 +1164,9 @@ const out = await page.evaluate(
       walk(e.commands, 'commands', 3);
       return out;
     };
-    const restoreLikeARun = () => {
-      for (const id of SIM_IDS) ctx.peek(id).restoreState(snap[id]);
-      ctx.peek('physics')?.bodies?.clear?.();
-    };
     let leakBefore = null;
     if (LEAKSCAN) {
-      restoreLikeARun();
+      rewindToSnapshot();
       leakBefore = walkAll();
     }
 
@@ -1177,7 +1175,7 @@ const out = await page.evaluate(
     const runs = sweep(null);
 
     if (LEAKSCAN) {
-      restoreLikeARun();
+      rewindToSnapshot();
       const after = walkAll();
       const leaks = [];
       const keys = new Set([...leakBefore.keys(), ...after.keys()]);

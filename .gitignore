@@ -14,3 +14,6 @@ demo/
 .tmp-demo/
 .tmp-rend/
 revcrops/
+
+# Claude Code local settings — never ship
+.claude/

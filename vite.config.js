@@ -1,6 +1,10 @@
 import { defineConfig } from 'vite';
 
 export default defineConfig({
+  // GitHub Pages serves a project site under /<repo>/, so the deploy workflow
+  // builds with OW_BASE=/sudden-defence/. Everything local — dev, preview,
+  // pixelgate, determinism — keeps '/', so no gate hash moves because of this.
+  base: process.env.OW_BASE ?? '/',
   // Bind IPv4 explicitly: the default `localhost` binds ::1 only on macOS,
   // which the capture harness (127.0.0.1) cannot reach.
   // `hmr: false` when the capture harness owns the server (OW_NO_HMR=1): a file

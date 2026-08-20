@@ -1,0 +1,72 @@
+# Deploy the built game to GitHub Pages — but only behind a green gate run.
+#
+# This fires on `workflow_run`, not on `push`: it waits for the `gates`
+# workflow on main to COMPLETE and deploys only when its conclusion is
+# success, so a red logic suite never ships. The build here is the production
+# bundle with OW_BASE=/sudden-defence/ (a project site serves under /<repo>/);
+# every local build keeps base '/', so no pixel-gate hash moves because of
+# this file.
+#
+# One-time repo setup, after the repository goes public:
+#   Settings -> Pages -> Build and deployment -> Source: "GitHub Actions".
+# Until then this workflow runs and fails at the deploy step, which is the
+# honest signal that the switch has not been flipped yet.
+
+name: pages
+
+on:
+  workflow_run:
+    workflows: [gates]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time; a newer one supersedes a queued one, but never cancels
+# an in-flight deploy (Pages deployments should not be interrupted mid-swap).
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    # Only a PUSH to THIS repo's main, and only behind green gates. The event
+    # and repository checks are not optional: `gates` also runs on
+    # pull_request, and a fork whose branch happens to be NAMED main would
+    # otherwise pass the branch check and get its code built and deployed to
+    # this site. workflow_dispatch is the manual override for the first deploy
+    # after the Pages source is configured.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Build exactly what the gates certified, not whatever main moved to
+          # while they ran.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Build for Pages
+        env:
+          OW_BASE: /sudden-defence/
+        run: npm run build
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+      - id: deployment
+        uses: actions/deploy-pages@v4

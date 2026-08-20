@@ -1,9 +1,16 @@
 # SUDDEN DEFENCE
 
+[![gates](https://github.com/jaeyeonling/sudden-defence/actions/workflows/gates.yml/badge.svg)](https://github.com/jaeyeonling/sudden-defence/actions/workflows/gates.yml)
+
 A round-based team elimination FPS that runs in a browser tab. WebGL2 and
 Three.js r185, eight fighters by default, no netcode — and **not one art asset**. Every
 texture, mesh, animation and sound in the screenshot below is generated at load
 time from code.
+
+**[▶ Play it](https://jaeyeonling.github.io/sudden-defence/)** — desktop
+browser, mouse and keyboard. WASD moves, Ctrl crouches, Space jumps, G throws;
+click the canvas to grab the pointer. Every push to `main` that survives the
+21-gate logic suite deploys here automatically.
 
 ![The warehouse, mid-round](docs/hero.jpg)
 

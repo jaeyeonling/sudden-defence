@@ -4,7 +4,7 @@
   "description": "Round-based team elimination FPS in the browser. Procedural everything, no art assets, no netcode.",
   "type": "module",
   "private": true,
-  "license": "ISC",
+  "license": "MIT",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

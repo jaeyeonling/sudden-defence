@@ -237,12 +237,15 @@ CORRECTED by the next snapshot — the server, driven tick-by-tick, never sheds.
 Only a lockstep design (where every peer must simulate every tick) would need
 that policy changed, and this is not one.
 
-What a real server still needs, in order: the round-on-tick migration above, a
-transport (WebRTC or WebTransport), `player`/`weapons` bootable without
-`render` so the server can simulate its clients (they currently declare it as
-a dep), and a third kind of host — a remote player wearing the bot rig. The
-seams they plug into (`commands.override`, the wire, the handoff) are the
-parts this section certifies.
+What a real server still needs, in order: a transport (WebRTC or
+WebTransport), `player`/`weapons` PROVEN bootable without `render` — their
+deps no longer name it, but `tools/headless.mjs` still boots the world without
+them, so the claim has no gate — and a third kind of host, a remote player
+wearing the bot rig. The seams they plug into (`commands.override`, the wire,
+the handoff) are the parts this section certifies. `tools/netlab.mjs` is the
+lab bench for all of it: a seeded TCP relay and an in-process shaper that
+make "under 200 ms of latency" a named, reproducible condition instead of a
+sentence in a bug report.
 
 ## Ownership map
 

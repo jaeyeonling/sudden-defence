@@ -22,6 +22,12 @@ npm run dev
 `three` is the only dependency. Nothing is fetched at runtime — no CDN, no
 HDRIs, no model files, no audio files. The game runs with the network cable out.
 
+This repo also serves as the provided client for a realtime game server
+curriculum ("the client is given — build the server"), hosted on its own LMS.
+Everything a server implementer needs from this side — the seams, the wire
+format, the gates — is in `ARCHITECTURE.md` § Netcode readiness; the
+curriculum itself does not live in this repo.
+
 ---
 
 ## Three JavaScript engines simulate this world bit for bit

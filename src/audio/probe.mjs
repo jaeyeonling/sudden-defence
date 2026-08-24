@@ -26,10 +26,9 @@
  * out on CI waiting for __READY__ while the warm server sat idle next to it.
  * If the port is already serving, the server is reused; if not, one is spawned.
  */
-import { chromium } from 'playwright';
-import { spawn } from 'node:child_process';
-import { resolve } from 'node:path';
-import net from 'node:net';
+import {
+  ensureServer, killServer, launchChromium, waitForReady, bootUrl,
+} from '../../tools/harness.mjs';
 
 const args = Object.fromEntries(
   process.argv.slice(2).map((a) => {
@@ -39,7 +38,10 @@ const args = Object.fromEntries(
 );
 
 const PORT = Number(args.port ?? 5173);
-const TIMEOUT = Number(args.timeout ?? 120000);
+// 600 s, matching harness.mjs. The 120 s this file used to carry predates the
+// shared harness and is the exact number that made the level gate's first CI
+// run fail on a boot rather than on a level.
+const TIMEOUT = Number(args.timeout ?? 600000);
 const VERBOSE = !!args.verbose;
 const DO_LIVE = args.live !== '0';
 
@@ -98,33 +100,17 @@ function checkLevels(results) {
   return bad;
 }
 
-const portOpen = (port) =>
-  new Promise((res) => {
-    const s = net.connect({ port, host: '127.0.0.1' }, () => (s.destroy(), res(true)));
-    s.on('error', () => res(false));
-    s.setTimeout(400, () => (s.destroy(), res(false)));
-  });
+const server = await ensureServer(PORT, { name: 'AUDIO' });
 
-async function ensureServer() {
-  if (await portOpen(PORT)) return null;
-  const root = resolve(import.meta.dirname, '../..');
-  const p = spawn(resolve(root, 'node_modules/.bin/vite'), ['--port', String(PORT), '--strictPort'], {
-    cwd: root, stdio: 'ignore',
-  });
-  for (let i = 0; i < 160; i++) {
-    await new Promise((r) => setTimeout(r, 250));
-    if (await portOpen(PORT)) return p;
-  }
-  p.kill();
-  throw new Error('vite failed to start');
-}
-
-const server = await ensureServer();
-
-const browser = await chromium.launch({
+// Audio-specific flags only. Everything about the GPU and the renderer comes
+// from launchChromium, which is what the other logic gates get: this file used
+// to hardcode `--use-angle=metal` — a macOS backend — so on the Linux runner
+// there was no usable WebGL path at all and boot never reached __READY__.
+const browser = await launchChromium({
   headless: true,
   args: [
-    '--use-angle=metal',
+    '--use-gl=angle',
+    '--enable-unsafe-swiftshader',
     '--ignore-gpu-blocklist',
     '--mute-audio',
     '--autoplay-policy=no-user-gesture-required',
@@ -139,10 +125,14 @@ page.on('pageerror', (e) => logs.push(`[pageerror] ${e.message}`));
 
 let exitCode = 0;
 try {
-  await page.goto(`http://127.0.0.1:${PORT}/?capture=1&shot=hero`, {
+  // bootUrl carries `render=0`: a logic gate does not make pixels, and on the
+  // shared runner SwiftShader compiling the render pipeline is the entire cost
+  // of the boot. Audio needs none of it. `shot=hero` rides along because the
+  // live space probe walks the named capture cameras.
+  await page.goto(bootUrl(PORT, 'capture=1&shot=hero'), {
     waitUntil: 'domcontentloaded', timeout: TIMEOUT,
   });
-  await page.waitForFunction('window.__READY__ === true', null, { timeout: TIMEOUT });
+  await waitForReady(page, { name: 'AUDIO', timeout: TIMEOUT });
 
   /* ---------------- 1. offline synthesis self-test ---------------- */
   // The first dynamic import of selftest.js can make vite's dep optimizer
@@ -157,7 +147,7 @@ try {
   } catch (err) {
     if (!/Execution context was destroyed/.test(String(err?.message))) throw err;
     logs.push('[probe] page reloaded during import (vite dep optimize) — retrying');
-    await page.waitForFunction('window.__READY__ === true', null, { timeout: TIMEOUT });
+    await waitForReady(page, { name: 'AUDIO', timeout: TIMEOUT });
     offline = await runOffline();
   }
 
@@ -253,7 +243,10 @@ try {
   exitCode = 1;
 } finally {
   await browser.close();
-  server?.kill();
+  // killServer, not child.kill(): ensureServer detaches vite into its own
+  // process group, and killing only the leader leaves the server holding 5173
+  // for the next gate.
+  killServer(server);
 }
 
 console.log(exitCode === 0 ? '\nAUDIO PROBE: PASS' : '\nAUDIO PROBE: FAIL');

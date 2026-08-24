@@ -61,7 +61,13 @@ concurrency:
 
 jobs:
   logic:
-    name: logic (21 gates)
+    # WARNING: this string is the required status check in the `main` ruleset
+    # (Settings -> Rules). Renaming it here without updating the rule there
+    # leaves the rule waiting on a check that will never report again, and
+    # every push to main is refused until someone notices. Change both, in one
+    # sitting: rename here, let the check report once under the new name, then
+    # point the rule at it.
+    name: logic (22 gates)
     runs-on: ubuntu-latest
     # 90, measured, not guessed: the first page boot pays SwiftShader's shader
     # compilation and vite's cold transform of the whole module graph (~16 min

@@ -15,9 +15,16 @@
  *     and no console error appeared.
  *
  * Usage:
- *   node src/audio/probe.mjs --port=5213            # both checks
- *   node src/audio/probe.mjs --port=5213 --verbose  # per-case table
- *   node src/audio/probe.mjs --port=5213 --live=0   # offline only
+ *   node src/audio/probe.mjs             # both checks
+ *   node src/audio/probe.mjs --verbose   # per-case table
+ *   node src/audio/probe.mjs --live=0    # offline only
+ *
+ * The port defaults to 5173, which every other harness also defaults to, and
+ * which the gates workflow starts one shared vite on before the suite runs.
+ * This file used to default to 5213 — its own port, therefore its own cold
+ * vite — and that was invisible until the probe joined test:logic and timed
+ * out on CI waiting for __READY__ while the warm server sat idle next to it.
+ * If the port is already serving, the server is reused; if not, one is spawned.
  */
 import { chromium } from 'playwright';
 import { spawn } from 'node:child_process';
@@ -31,7 +38,7 @@ const args = Object.fromEntries(
   })
 );
 
-const PORT = Number(args.port ?? 5213);
+const PORT = Number(args.port ?? 5173);
 const TIMEOUT = Number(args.timeout ?? 120000);
 const VERBOSE = !!args.verbose;
 const DO_LIVE = args.live !== '0';

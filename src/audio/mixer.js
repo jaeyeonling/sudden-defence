@@ -32,6 +32,27 @@ const BUS_DEFS = {
   ui:       { trim: 1.6,  comp: null },
 };
 
+/**
+ * Master headroom, and the one number that sets how loud the game is.
+ *
+ * It came over from the ported project at 0.22 and was never re-derived for
+ * this mix, which cost about 4 dB: a single rifle shot landed at -6.9 dBFS and
+ * `masterComp` (threshold -2) was never once reached, so the whole dynamics
+ * stage sat inert and the headroom it was reserving went unused. A limiter
+ * that never engages is not a safety net, it is an attenuator.
+ *
+ * 0.34 is where a single rifle shot peaks at -3.1 dBFS and dense combat pulls
+ * about -0.18 dB of gain reduction — the compressor's stated job. Re-derive
+ * with `node src/audio/probe.mjs --port=5213 --verbose`, which prints the peak
+ * of every voice; the soft clipper is linear below 0.66 (`limiterCurve` in
+ * dsp.js), so raising this lifts quiet material without moving the peaks of
+ * explosions and full-auto, which already sit on the ceiling.
+ *
+ * Above ~0.40 shotgun, sniper and LMG all pin to the clipper together and stop
+ * sounding like different weapons.
+ */
+const PRE_GAIN = 0.34;
+
 export class Mixer {
   /**
    * @param {BaseAudioContext} actx
@@ -40,9 +61,9 @@ export class Mixer {
   constructor(actx, rng, opts = {}) {
     this.actx = actx;
     this.rng = rng;
-    // Headroom matters more than loudness: at 0.62 a single gunshot peaks near
-    // -3 dBFS and the limiter is only reached by dense combat, so the mix keeps
-    // its dynamic range instead of being flattened.
+    // Headroom matters more than loudness, but only up to the point where the
+    // dynamics stage still does something. See PRE_GAIN below for where that
+    // line actually sits — it is a measured number, not a preference.
     this.masterVolume = opts.masterVolume ?? 0.95;
 
     /* ---- master chain (built first, everything hangs off it) ------ */
@@ -50,7 +71,7 @@ export class Mixer {
     // Headroom stage. It sits BEFORE the compressor/clipper on purpose: a
     // post-limiter volume control only scales an already-squashed signal, and
     // that is what destroys the difference between a footstep and a gunshot.
-    this.preGain = gain(actx, 0.22);
+    this.preGain = gain(actx, PRE_GAIN);
     this.masterComp = actx.createDynamicsCompressor();
     // Safety net only: a single gunshot should barely touch it, a firefight
     // plus a grenade should be held together by it.
